@@ -10,7 +10,7 @@ fn make_read_context<'a, 'b>(heap: &'a mut Heap, s: &'b str) -> ReadContext<'b, 
 
 #[test]
 fn read_empty() {
-    let mut heap = navi::mm::Heap::new(1024, "test".to_string());
+    let mut heap = navi::mm::Heap::new(1024, "test");
     let program = r#"
                
     "#;
@@ -41,8 +41,8 @@ fn read_with_ctx<'ti, T: NaviType>(ctx: &mut ReadContext, typeinfo: &'ti TypeInf
 
 #[test]
 fn read_string() {
-    let mut heap = navi::mm::Heap::new(1024, "string".to_string());
-    let mut ans_heap = navi::mm::Heap::new(1024, " ans".to_string());
+    let mut heap = navi::mm::Heap::new(1024, "string");
+    let mut ans_heap = navi::mm::Heap::new(1024, " ans");
 
     {
         let program = r#"
@@ -77,8 +77,8 @@ fn read_string() {
 
 #[test]
 fn read_int() {
-    let mut heap = navi::mm::Heap::new(1024, "int".to_string());
-    let mut ans_heap = navi::mm::Heap::new(1024, "int ans".to_string());
+    let mut heap = navi::mm::Heap::new(1024, "int");
+    let mut ans_heap = navi::mm::Heap::new(1024, "int ans");
 
     {
         let program = "1";
@@ -110,8 +110,8 @@ fn read_int() {
 
 #[test]
 fn read_float() {
-    let mut heap = navi::mm::Heap::new(1024, "float".to_string());
-    let mut ans_heap = navi::mm::Heap::new(1024, " ans".to_string());
+    let mut heap = navi::mm::Heap::new(1024, "float");
+    let mut ans_heap = navi::mm::Heap::new(1024, " ans");
 
     {
         let program = "1.0";
@@ -159,8 +159,8 @@ fn read_float() {
 
 #[test]
 fn read_symbol() {
-    let mut heap = navi::mm::Heap::new(1024, "symbol".to_string());
-    let mut ans_heap = navi::mm::Heap::new(1024, " ans".to_string());
+    let mut heap = navi::mm::Heap::new(1024, "symbol");
+    let mut ans_heap = navi::mm::Heap::new(1024, " ans");
 
     {
         let program = "symbol";
@@ -232,8 +232,8 @@ fn read_symbol() {
 
 #[test]
 fn read_list() {
-    let mut heap = navi::mm::Heap::new(1024, "list".to_string());
-    let mut ans_heap = navi::mm::Heap::new(1024, " ans".to_string());
+    let mut heap = navi::mm::Heap::new(1024, "list");
+    let mut ans_heap = navi::mm::Heap::new(1024, " ans");
 
     {
         let program = "()";

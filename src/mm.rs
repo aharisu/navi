@@ -45,7 +45,7 @@ pub struct Heap {
 }
 
 impl Heap {
-    pub fn new(page_size : usize, name: String) -> Self {
+    pub fn new<T: Into<String>>(page_size : usize, name: T) -> Self {
         let layout = alloc::Layout::from_size_align(page_size, mem::size_of::<usize>()).unwrap();
 
         let ptr = unsafe {
@@ -57,7 +57,7 @@ impl Heap {
             pool_ptr: ptr,
             used: 0,
             freed: false,
-            name: name,
+            name: name.into(),
         };
         heap
     }
