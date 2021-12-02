@@ -3,7 +3,7 @@ use crate::mm::{self, Heap};
 use std::fmt::{self, Debug};
 
 pub struct List {
-    v: NaviBox,
+    v: NBox<Value>,
     next: NBox<List>,
 }
 
@@ -25,15 +25,18 @@ impl List {
         NBox::<List>::new_immidiate(IMMIDATE_NIL)
     }
 
-    pub fn alloc(heap: &mut Heap, v: &NaviBox, next: NBox<List>) -> NBox<List> {
+    pub fn alloc(heap: &mut Heap, v: &NBox<Value>, next: NBox<List>) -> NBox<List> {
         let mut nbox = heap.alloc(Self::typeinfo());
         //確保したメモリ内に値を書き込む
-        mm::copy(List {v: *v, next: next}, nbox.as_mut_ref());
+        mm::copy(List {
+            v: NBox::new(v.as_mut_ptr() as *mut Value)
+            , next: next
+        }, nbox.as_mut_ref());
 
         nbox
     }
 
-    pub fn from_vec(heap: &mut Heap, vec: Vec<NaviBox>) -> NBox<List> {
+    pub fn from_vec(heap: &mut Heap, vec: Vec<NBox<Value>>) -> NBox<List> {
         //TODO gc guard
         let mut acc = Self::nil();
         for v in vec.iter().rev() {

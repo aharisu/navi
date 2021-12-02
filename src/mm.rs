@@ -137,7 +137,8 @@ pub fn copy<T>(src: T, dest: &mut T) {
     std::mem::forget(src);
 }
 
-pub fn get_typeinfo<'ti, T: NaviType>(ptr: *const u8) -> &'ti TypeInfo<T> {
+pub fn get_typeinfo<'ti, T: NaviType>(ptr: *const T) -> &'ti TypeInfo<T> {
+    let ptr = ptr as *const u8;
     let gc_header = unsafe {
         let gc_header_ptr = ptr.sub(mem::size_of::<GCHeader<T>>());
         &*(gc_header_ptr as *const GCHeader<T>)

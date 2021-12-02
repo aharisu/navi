@@ -10,7 +10,7 @@ fn readerror(msg: String) -> ReadError {
     ReadError { msg: msg}
 }
 
-type ReadResult = Result<NaviBox, ReadError>;
+pub type ReadResult = Result<NBox<Value>, ReadError>;
 
 pub struct Input<'a> {
     chars: std::str::Chars<'a>,
@@ -84,7 +84,7 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
     //skip first char
     ctx.input.next();
 
-    let mut acc: Vec<NaviBox> = Vec::new();
+    let mut acc: Vec<NBox<Value>> = Vec::new();
     loop {
         skip_whitespace(ctx);
         match ctx.input.peek() {
@@ -93,7 +93,7 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
                 ctx.input.next();
                 // complete!
                 let list = list::List::from_vec(ctx.heap, acc);
-                return Ok(list.into_navibox());
+                return Ok(list.into_nboxvalue());
             }
             Some(_) => {
                 //再帰的にreadを呼び出す
@@ -120,7 +120,7 @@ fn read_string(ctx: &mut ReadContext) -> ReadResult {
             Some('\"') => {
                 let str: String = acc.into_iter().collect();
                 let str = string::NString::alloc(ctx.heap, &str);
-                return Ok(str.into_navibox());
+                return Ok(str.into_nboxvalue());
             }
             Some(ch) => {
                 acc.push(ch);
@@ -139,18 +139,18 @@ fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
                 Ok(num) => {
                     //integer
                     let num = number::Integer::alloc(ctx.heap, num);
-                    return Ok(num.into_navibox());
+                    return Ok(num.into_nboxvalue());
                 },
                 Err(_) => match str.parse::<f64>() {
                     Ok(num) => {
                         //floating number
                         let num = number::Float::alloc(ctx.heap, num);
-                        return Ok(num.into_navibox());
+                        return Ok(num.into_nboxvalue());
                     }
                     Err(_) => {
                         //symbol
                         let symbol = symbol::Symbol::alloc(ctx.heap, &str);
-                        return Ok(symbol.into_navibox());
+                        return Ok(symbol.into_nboxvalue());
                     }
                 }
             }
@@ -160,7 +160,7 @@ fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
 
 fn read_symbol(ctx: &mut ReadContext) -> ReadResult {
     match read_word(ctx) {
-        Ok(str) => Ok(symbol::Symbol::alloc(ctx.heap, &str).into_navibox()),
+        Ok(str) => Ok(symbol::Symbol::alloc(ctx.heap, &str).into_nboxvalue()),
         Err(err) => Err(err),
     }
 }

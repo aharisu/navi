@@ -16,7 +16,7 @@ fn read_empty() {
     "#;
 
     let mut ctx = make_read_context(&mut heap, program);
-    let result: Result<NaviBox, ReadError> = navi::read::read(&mut ctx);
+    let result  = navi::read::read(&mut ctx);
     assert!(result.is_err());
 
     heap.free();
@@ -30,7 +30,7 @@ fn read<'ti, T: NaviType>(program: &str, typeinfo: &'ti TypeInfo<T>, heap: &mut 
 }
 
 fn read_with_ctx<'ti, T: NaviType>(ctx: &mut ReadContext, typeinfo: &'ti TypeInfo<T>) -> NBox<T> {
-    let result: Result<NaviBox, ReadError> = navi::read::read(ctx);
+    let result = navi::read::read(ctx);
     assert!(result.is_ok());
 
     let result: Option<NBox<T>> = result.unwrap().into_nbox(typeinfo);
@@ -233,9 +233,9 @@ fn read_list() {
 
         let result = read(program, list::List::typeinfo(), &mut heap);
 
-        let _1 = number::Integer::alloc(&mut ans_heap, 1).into_navibox();
-        let _2 = number::Integer::alloc(&mut ans_heap, 2).into_navibox();
-        let _3 = number::Integer::alloc(&mut ans_heap, 3).into_navibox();
+        let _1 = number::Integer::alloc(&mut ans_heap, 1).into_nboxvalue();
+        let _2 = number::Integer::alloc(&mut ans_heap, 2).into_nboxvalue();
+        let _3 = number::Integer::alloc(&mut ans_heap, 3).into_nboxvalue();
         let ans = list::List::nil();
         let ans = list::List::alloc(&mut ans_heap, &_3, ans);
         let ans = list::List::alloc(&mut ans_heap, &_2, ans);
@@ -249,10 +249,10 @@ fn read_list() {
 
         let result = read(program, list::List::typeinfo(), &mut heap);
 
-        let _1 = number::Integer::alloc(&mut ans_heap, 1).into_navibox();
-        let _3_14 = number::Float::alloc(&mut ans_heap, 3.14).into_navibox();
-        let hohoho = string::NString::alloc(&mut ans_heap, &"hohoho".to_string()).into_navibox();
-        let symbol = symbol::Symbol::alloc(&mut ans_heap, &"symbol".to_string()).into_navibox();
+        let _1 = number::Integer::alloc(&mut ans_heap, 1).into_nboxvalue();
+        let _3_14 = number::Float::alloc(&mut ans_heap, 3.14).into_nboxvalue();
+        let hohoho = string::NString::alloc(&mut ans_heap, &"hohoho".to_string()).into_nboxvalue();
+        let symbol = symbol::Symbol::alloc(&mut ans_heap, &"symbol".to_string()).into_nboxvalue();
         let ans = list::List::nil();
         let ans = list::List::alloc(&mut ans_heap, &symbol, ans);
         let ans = list::List::alloc(&mut ans_heap, &hohoho, ans);
