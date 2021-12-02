@@ -160,7 +160,11 @@ fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
 
 fn read_symbol(ctx: &mut ReadContext) -> ReadResult {
     match read_word(ctx) {
-        Ok(str) => Ok(symbol::Symbol::alloc(ctx.heap, &str).into_nboxvalue()),
+        Ok(str) => match &*str {
+            "true" =>Ok(bool::Bool::true_().into_nboxvalue()),
+            "false" =>Ok(bool::Bool::false_().into_nboxvalue()),
+            _ => Ok(symbol::Symbol::alloc(ctx.heap, &str).into_nboxvalue()),
+        }
         Err(err) => Err(err),
     }
 }

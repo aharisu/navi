@@ -211,6 +211,21 @@ fn read_symbol() {
         assert_eq!(result, ans);
     }
 
+    //special symbol
+    {
+        let program = "true false";
+
+        let mut ctx = make_read_context(&mut heap, program);
+
+        let result = read_with_ctx(&mut ctx, bool::Bool::typeinfo());
+        let ans = bool::Bool::true_();
+        assert_eq!(result, ans);
+
+        let result = read_with_ctx(&mut ctx, bool::Bool::typeinfo());
+        let ans = bool::Bool::false_();
+        assert_eq!(result, ans);
+    }
+
     heap.free();
     ans_heap.free();
 }

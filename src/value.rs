@@ -1,4 +1,4 @@
-pub mod boolean;
+pub mod bool;
 pub mod list;
 pub mod number;
 pub mod string;
@@ -12,14 +12,18 @@ const IMMIDATE_TAGGED_VALUE: usize = 0b0000_1111;
 
 
 const fn tagged_value(tag: usize) -> usize {
-    (tag << 8) | IMMIDATE_TAGGED_VALUE
+    (tag << 16) | IMMIDATE_TAGGED_VALUE
 }
 
 pub(crate) const IMMIDATE_NIL: usize = tagged_value(0);
+pub(crate) const IMMIDATE_TRUE: usize = tagged_value(1);
+pub(crate) const IMMIDATE_FALSE: usize = tagged_value(2);
 
 enum PtrKind {
     Ptr,
     Nil,
+    True,
+    False,
 }
 
 fn pointer_kind<T>(ptr: *const T) -> PtrKind {
@@ -31,7 +35,14 @@ fn pointer_kind<T>(ptr: *const T) -> PtrKind {
     } else {
         //残りは下位16bitで判断する
         match value &0xFFFF {
-            IMMIDATE_TAGGED_VALUE => PtrKind::Nil,
+            IMMIDATE_TAGGED_VALUE => {
+                match value {
+                    IMMIDATE_NIL => PtrKind::Nil,
+                    IMMIDATE_TRUE => PtrKind::True,
+                    IMMIDATE_FALSE => PtrKind::False,
+                    _ => panic!("invalid tagged value"),
+                }
+            }
             _ => panic!("invalid pointer"),
         }
     }
@@ -124,6 +135,14 @@ impl <T: NaviType> NBox<T> {
                 if ptr::eq(typeinfo, self_typeinfo as *const TypeInfo<list::List> as *const TypeInfo<U>) {
                     Some(NBox::<U>::new_immidiate(IMMIDATE_NIL))
 
+                } else {
+                    None
+                }
+            }
+            PtrKind::True | PtrKind::False => {
+                let self_typeinfo = crate::value::bool::Bool::typeinfo();
+                if ptr::eq(typeinfo, self_typeinfo as *const TypeInfo<bool::Bool> as *const TypeInfo<U>) {
+                    Some(NBox::<U>::new_immidiate(crate::mm::ptr_to_usize(ptr)))
                 } else {
                     None
                 }
