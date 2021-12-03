@@ -1,8 +1,9 @@
 use crate::value::*;
 use crate::mm::{Heap};
 use std::fmt::Debug;
+use std::hash::Hash;
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Integer {
     num : i64,
 }

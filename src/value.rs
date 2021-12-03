@@ -174,6 +174,12 @@ impl <T: NaviType> std::fmt::Debug for NBox<T> {
     }
 }
 
+impl std::hash::Hash for NBox<symbol::Symbol> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state);
+    }
+}
+
 //TODO 勉強
 unsafe impl<T: NaviType> Sync for NBox<T> {}
 //unsafe impl<T> Send for NBox<T> {}

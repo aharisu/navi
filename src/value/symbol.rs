@@ -2,7 +2,7 @@ use crate::value::*;
 use crate::mm::{Heap};
 use std::fmt::Debug;
 
-#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Symbol {
     inner: string::NString

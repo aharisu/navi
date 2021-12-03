@@ -87,3 +87,20 @@ impl Debug for NString {
         (*self.as_string()).fmt(f)
     }
 }
+
+impl std::hash::Hash for NString {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (*self.as_string()).hash(state);
+    }
+}
+
+impl AsRef<[u8]> for NString {
+    fn as_ref(&self) -> &[u8] {
+        let ptr = self as *const NString;
+        unsafe {
+            let ptr = ptr.offset(1) as *mut u8;
+            std::slice::from_raw_parts(ptr, self.len_inbytes)
+        }
+    }
+
+}

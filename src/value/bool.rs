@@ -46,3 +46,13 @@ impl Debug for Bool {
             })
     }
 }
+
+impl std::hash::Hash for Bool {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if self.is_true() {
+            true.hash(state);
+        } else {
+            false.hash(state);
+        }
+    }
+}
