@@ -1,25 +1,26 @@
-use std::collections::HashMap;
 use crate::value::*;
+
+mod map;
 
 //TODO Worldはざっくりいうとグローバル変数空間
 
 pub struct World {
-    area: HashMap<NBox<symbol::Symbol>, NBox<Value>>,
+    area: crate::world::map::PatriciaTree<NBox<Value>>,
 }
 
 impl World {
     pub fn new() -> Self {
         World {
-            area: HashMap::new(),
+            area: crate::world::map::PatriciaTree::new(),
         }
     }
 
     pub fn set(&mut self, symbol: NBox<symbol::Symbol>, v: NBox<Value>) {
-        self.area.insert(symbol, v);
+        self.area.add(symbol.as_ref(), v)
     }
 
     pub fn get(&mut self, symbol: &NBox<symbol::Symbol>) -> Option<&NBox<Value>> {
-        self.area.get(symbol)
+        self.area.get(symbol.as_ref())
     }
 
 }

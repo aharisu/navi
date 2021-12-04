@@ -29,17 +29,6 @@ impl NString {
         Self::alloc_inner(heap, str, Self::typeinfo())
     }
 
-    #[inline]
-    fn as_string(&self) -> StringRef {
-        let ptr = self as *const NString;
-        let str = unsafe {
-            let ptr = ptr.offset(1) as *mut u8;
-            String::from_raw_parts(ptr, self.len, self.len_inbytes)
-        };
-
-        StringRef::new(str)
-    }
-
     //NStringとSymbolクラス共有のアロケーション用関数。TはNSTringもしくはSymbolのみ対応。
     pub(crate) fn alloc_inner<'ti, T: NaviType>(heap : &'ti mut Heap, str: &String, typeinfo: &'ti TypeInfo<T>) -> NBox<T> {
         let len_inbytes = str.len();
@@ -54,6 +43,17 @@ impl NString {
         }
 
         nbox
+    }
+
+    #[inline]
+    fn as_string(&self) -> StringRef {
+        let ptr = self as *const NString;
+        let str = unsafe {
+            let ptr = ptr.offset(1) as *mut u8;
+            String::from_raw_parts(ptr, self.len, self.len_inbytes)
+        };
+
+        StringRef::new(str)
     }
 
 }
@@ -102,5 +102,10 @@ impl AsRef<[u8]> for NString {
             std::slice::from_raw_parts(ptr, self.len_inbytes)
         }
     }
+}
 
+impl AsRef<str> for NString {
+    fn as_ref(&self) -> &str {
+        unsafe { std::str::from_utf8_unchecked(self.as_ref()) }
+    }
 }
