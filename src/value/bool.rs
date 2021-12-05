@@ -10,11 +10,16 @@ static BOOL_TYPEINFO: TypeInfo<Bool> = TypeInfo::<Bool> {
     name: "Bool",
     eq_func: Bool::eq,
     print_func: Bool::fmt,
+    is_type_func: Bool::is_type,
 };
 
 impl Bool {
     pub fn typeinfo<'ti>() -> &'ti TypeInfo<Bool> {
         &BOOL_TYPEINFO
+    }
+
+    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
+        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
     }
 
     #[inline(always)]

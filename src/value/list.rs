@@ -13,12 +13,17 @@ static LIST_TYPEINFO : TypeInfo<List> = TypeInfo::<List> {
     name: "List",
     eq_func: List::eq,
     print_func: List::fmt,
+    is_type_func: List::is_type,
 };
 
 impl List {
     #[inline(always)]
     pub fn typeinfo<'ti>() -> &'ti TypeInfo<List> {
         &LIST_TYPEINFO
+    }
+
+    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
+        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
     }
 
     pub fn nil() -> NBox<List> {

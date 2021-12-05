@@ -12,12 +12,18 @@ static INTEGER_TYPEINFO : TypeInfo<Integer> = TypeInfo::<Integer> {
     name: "Integer",
     eq_func: Integer::eq,
     print_func: Integer::fmt,
+    is_type_func: Integer::is_type,
 };
 
 impl Integer {
 
     pub fn typeinfo<'ti>() -> &'ti TypeInfo<Integer> {
         &INTEGER_TYPEINFO
+    }
+
+    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
+        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
+        || std::ptr::eq(Float::typeinfo().cast(), other_typeinfo)
     }
 
     pub fn alloc<'ti>(heap : &'ti mut Heap, num: i64) -> NBox<Integer> {
@@ -43,11 +49,16 @@ static FLOAT_TYPEINFO : TypeInfo<Float> = TypeInfo::<Float> {
     name: "Float",
     eq_func: Float::eq,
     print_func: Float::fmt,
+    is_type_func: Float::is_type,
 };
 
 impl Float {
     pub fn typeinfo<'ti>() -> &'ti TypeInfo<Float> {
         &FLOAT_TYPEINFO
+    }
+
+    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
+        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
     }
 
     pub fn alloc(heap : &mut Heap, num: f64) -> NBox<Float> {

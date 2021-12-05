@@ -16,6 +16,7 @@ static STRING_TYPEINFO: TypeInfo<NString> = TypeInfo::<NString> {
     name: "String",
     eq_func: NString::eq,
     print_func: NString::fmt,
+    is_type_func: NString::is_type,
 };
 
 impl NString {
@@ -23,6 +24,10 @@ impl NString {
     #[inline(always)]
     pub fn typeinfo<'ti>() -> &'ti TypeInfo<NString> {
         &STRING_TYPEINFO
+    }
+
+    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
+        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
     }
 
     pub fn alloc<'ti>(heap : &'ti mut Heap, str: &String) -> NBox<NString> {

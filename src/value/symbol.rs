@@ -12,6 +12,7 @@ static SYMBOL_TYPEINFO: TypeInfo<Symbol> = TypeInfo::<Symbol> {
     name: "Symbol",
     eq_func: Symbol::eq,
     print_func: Symbol::fmt,
+    is_type_func: Symbol::is_type,
 };
 
 impl NaviType for Symbol { }
@@ -19,6 +20,10 @@ impl NaviType for Symbol { }
 impl Symbol {
     pub fn typeinfo<'ti>() -> &'ti TypeInfo<Symbol> {
         &SYMBOL_TYPEINFO
+    }
+
+    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
+        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
     }
 
     pub fn alloc(heap : &mut Heap, str: &String) -> NBox<Symbol> {

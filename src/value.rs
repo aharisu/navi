@@ -1,4 +1,5 @@
 pub mod bool;
+pub mod func;
 pub mod list;
 pub mod number;
 pub mod string;
@@ -55,6 +56,14 @@ pub struct TypeInfo<T: NaviType> {
     pub name : &'static str,
     pub eq_func: fn(&T, &T) -> bool,
     pub print_func: fn(&T, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
+    pub is_type_func: fn(&TypeInfo<Value>) -> bool,
+}
+
+impl <T: NaviType> TypeInfo<T> {
+    #[inline(always)]
+    pub fn cast<U: NaviType>(&self) -> &TypeInfo<U> {
+        unsafe { &*(self as *const TypeInfo<T> as *const TypeInfo<U>) }
+    }
 }
 
 pub struct Value { }
@@ -81,6 +90,25 @@ impl std::fmt::Debug for Value {
         let self_typeinfo = crate::mm::get_typeinfo(self as *const Self);
 
         (self_typeinfo.print_func)(self, f)
+    }
+}
+
+impl Value {
+    pub fn is_type<'ti, U: NaviType>(&self, other_typeinfo: &'ti TypeInfo<U>) -> bool {
+        let ptr = self as *const Value;
+        let self_typeinfo: &TypeInfo<Value> = match pointer_kind(ptr) {
+            PtrKind::Nil => {
+                crate::value::list::List::typeinfo().cast()
+            }
+            PtrKind::True | PtrKind::False => {
+                crate::value::bool::Bool::typeinfo().cast()
+            }
+            _ => {
+                crate::mm::get_typeinfo(ptr).cast()
+            }
+        };
+
+        (self_typeinfo.is_type_func)(other_typeinfo.cast())
     }
 }
 
