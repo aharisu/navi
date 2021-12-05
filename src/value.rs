@@ -211,3 +211,40 @@ impl std::hash::Hash for NBox<symbol::Symbol> {
 //TODO 勉強
 unsafe impl<T: NaviType> Sync for NBox<T> {}
 //unsafe impl<T> Send for NBox<T> {}
+
+
+#[cfg(test)]
+mod tets {
+    use crate::mm::{Heap};
+    use crate::value::*;
+
+    #[test]
+    fn is_type() {
+        let mut heap = Heap::new(1024, "test");
+
+        //int
+        let v = number::Integer::alloc(&mut heap, 10).into_nboxvalue();
+        assert!(v.as_ref().is_type(number::Integer::typeinfo()));
+        assert!(v.as_ref().is_type(number::Real::typeinfo()));
+        assert!(v.as_ref().is_type(number::Number::typeinfo()));
+
+        //real
+        let v = number::Real::alloc(&mut heap, 3.14).into_nboxvalue();
+        assert!(!v.as_ref().is_type(number::Integer::typeinfo()));
+        assert!(v.as_ref().is_type(number::Real::typeinfo()));
+        assert!(v.as_ref().is_type(number::Number::typeinfo()));
+
+        //nil
+        let v = list::List::nil().into_nboxvalue();
+        assert!(v.as_ref().is_type(list::List::typeinfo()));
+        assert!(!v.as_ref().is_type(string::NString::typeinfo()));
+
+        //list
+        let item = number::Integer::alloc(&mut heap, 10).into_nboxvalue();
+        let v = list::List::alloc(&mut heap, &item, v.into_nbox(list::List::typeinfo()).unwrap()).into_nboxvalue();
+        assert!(v.as_ref().is_type(list::List::typeinfo()));
+        assert!(!v.as_ref().is_type(string::NString::typeinfo()));
+
+        heap.free();
+    }
+}
