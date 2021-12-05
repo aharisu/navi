@@ -32,6 +32,16 @@ impl Bool {
         NBox::<Bool>::new_immidiate(IMMIDATE_FALSE)
     }
 
+    #[inline(always)]
+    pub fn is_true(&self) -> bool {
+        std::ptr::eq(self as *const Bool, IMMIDATE_TRUE as *const Bool)
+    }
+
+    #[inline(always)]
+    pub fn is_false(&self) -> bool {
+        !self.is_true()
+    }
+
 }
 
 impl Eq for Bool {}
@@ -44,7 +54,7 @@ impl PartialEq for Bool {
 
 impl Debug for Bool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", if std::ptr::eq(self as *const Bool, IMMIDATE_TRUE as *const Bool) {
+        write!(f, "{}", if self.is_true() {
                 "true"
             } else {
                 "false"
