@@ -116,40 +116,40 @@ fn read_float() {
     {
         let program = "1.0";
 
-        let result = read(program, number::Float::typeinfo(), &mut heap);
-        let ans = number::Float::alloc(&mut ans_heap, 1.0);
+        let result = read(program, number::Real::typeinfo(), &mut heap);
+        let ans = number::Real::alloc(&mut ans_heap, 1.0);
         assert_eq!(result, ans);
     }
 
     {
         let program = "-1.0";
 
-        let result = read(program, number::Float::typeinfo(), &mut heap);
-        let ans = number::Float::alloc(&mut ans_heap, -1.0);
+        let result = read(program, number::Real::typeinfo(), &mut heap);
+        let ans = number::Real::alloc(&mut ans_heap, -1.0);
         assert_eq!(result, ans);
     }
 
     {
         let program = "+1.0";
 
-        let result = read(program, number::Float::typeinfo(), &mut heap);
-        let ans = number::Float::alloc(&mut ans_heap, 1.0);
+        let result = read(program, number::Real::typeinfo(), &mut heap);
+        let ans = number::Real::alloc(&mut ans_heap, 1.0);
         assert_eq!(result, ans);
     }
 
     {
         let program = "3.14";
 
-        let result = read(program, number::Float::typeinfo(), &mut heap);
-        let ans = number::Float::alloc(&mut ans_heap, 3.14);
+        let result = read(program, number::Real::typeinfo(), &mut heap);
+        let ans = number::Real::alloc(&mut ans_heap, 3.14);
         assert_eq!(result, ans);
     }
 
     {
         let program = "0.5";
 
-        let result = read(program, number::Float::typeinfo(), &mut heap);
-        let ans = number::Float::alloc(&mut ans_heap, 0.5);
+        let result = read(program, number::Real::typeinfo(), &mut heap);
+        let ans = number::Real::alloc(&mut ans_heap, 0.5);
         assert_eq!(result, ans);
     }
 
@@ -265,7 +265,7 @@ fn read_list() {
         let result = read(program, list::List::typeinfo(), &mut heap);
 
         let _1 = number::Integer::alloc(&mut ans_heap, 1).into_nboxvalue();
-        let _3_14 = number::Float::alloc(&mut ans_heap, 3.14).into_nboxvalue();
+        let _3_14 = number::Real::alloc(&mut ans_heap, 3.14).into_nboxvalue();
         let hohoho = string::NString::alloc(&mut ans_heap, &"hohoho".to_string()).into_nboxvalue();
         let symbol = symbol::Symbol::alloc(&mut ans_heap, &"symbol".to_string()).into_nboxvalue();
         let ans = list::List::nil();

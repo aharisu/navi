@@ -23,7 +23,7 @@ impl Integer {
 
     fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
         std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
-        || std::ptr::eq(Float::typeinfo().cast(), other_typeinfo)
+        || std::ptr::eq(Real::typeinfo().cast(), other_typeinfo)
         || std::ptr::eq(Number::typeinfo().cast(), other_typeinfo)
     }
 
@@ -39,23 +39,23 @@ impl Integer {
 impl NaviType for Integer { }
 
 //
-// Floating Number
+// Real Number
 //
 #[derive(Debug, PartialEq, PartialOrd)]
-pub struct Float {
+pub struct Real {
     pub num : f64,
 }
 
-static FLOAT_TYPEINFO : TypeInfo<Float> = TypeInfo::<Float> {
-    name: "Float",
-    eq_func: Float::eq,
-    print_func: Float::fmt,
-    is_type_func: Float::is_type,
+static REAL_TYPEINFO : TypeInfo<Real> = TypeInfo::<Real> {
+    name: "Real",
+    eq_func: Real::eq,
+    print_func: Real::fmt,
+    is_type_func: Real::is_type,
 };
 
-impl Float {
-    pub fn typeinfo<'ti>() -> &'ti TypeInfo<Float> {
-        &FLOAT_TYPEINFO
+impl Real {
+    pub fn typeinfo<'ti>() -> &'ti TypeInfo<Real> {
+        &REAL_TYPEINFO
     }
 
     fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
@@ -63,7 +63,7 @@ impl Float {
         || std::ptr::eq(Number::typeinfo().cast(), other_typeinfo)
     }
 
-    pub fn alloc(heap : &mut Heap, num: f64) -> NBox<Float> {
+    pub fn alloc(heap : &mut Heap, num: f64) -> NBox<Real> {
         let mut nbox = heap.alloc(Self::typeinfo());
         let obj = nbox.as_mut_ref();
         obj.num = num;
@@ -72,7 +72,7 @@ impl Float {
     }
 }
 
-impl NaviType for Float { }
+impl NaviType for Real { }
 
 #[derive(Debug, PartialEq)]
 pub struct Number {

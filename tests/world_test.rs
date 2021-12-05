@@ -30,12 +30,12 @@ fn set_get() {
 
 
         let symbol = symbol::Symbol::alloc(&mut heap, &"symbol".to_string());
-        let v = number::Float::alloc(&mut heap, 3.14).into_nboxvalue();
+        let v = number::Real::alloc(&mut heap, 3.14).into_nboxvalue();
         world.set(symbol, v);
 
         let symbol = symbol::Symbol::alloc(&mut heap, &"symbol".to_string());
         let result = world_get(&mut world, &symbol);
-        let ans = number::Float::alloc(&mut ans_heap, 3.14).into_nboxvalue();
+        let ans = number::Real::alloc(&mut ans_heap, 3.14).into_nboxvalue();
         assert_eq!(result, &ans);
 
         let symbol2 = symbol::Symbol::alloc(&mut heap, &"hoge".to_string());

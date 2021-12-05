@@ -8,13 +8,13 @@ fn is_type() {
     //int
     let v = number::Integer::alloc(&mut heap, 10).into_nboxvalue();
     assert!(v.as_ref().is_type(number::Integer::typeinfo()));
-    assert!(v.as_ref().is_type(number::Float::typeinfo()));
+    assert!(v.as_ref().is_type(number::Real::typeinfo()));
     assert!(v.as_ref().is_type(number::Number::typeinfo()));
 
     //real
-    let v = number::Float::alloc(&mut heap, 3.14).into_nboxvalue();
+    let v = number::Real::alloc(&mut heap, 3.14).into_nboxvalue();
     assert!(!v.as_ref().is_type(number::Integer::typeinfo()));
-    assert!(v.as_ref().is_type(number::Float::typeinfo()));
+    assert!(v.as_ref().is_type(number::Real::typeinfo()));
     assert!(v.as_ref().is_type(number::Number::typeinfo()));
 
     //nil

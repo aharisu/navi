@@ -144,7 +144,7 @@ fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
                 Err(_) => match str.parse::<f64>() {
                     Ok(num) => {
                         //floating number
-                        let num = number::Float::alloc(ctx.heap, num);
+                        let num = number::Real::alloc(ctx.heap, num);
                         return Ok(num.into_nboxvalue());
                     }
                     Err(_) => {
