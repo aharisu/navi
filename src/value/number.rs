@@ -24,6 +24,7 @@ impl Integer {
     fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
         std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
         || std::ptr::eq(Float::typeinfo().cast(), other_typeinfo)
+        || std::ptr::eq(Number::typeinfo().cast(), other_typeinfo)
     }
 
     pub fn alloc<'ti>(heap : &'ti mut Heap, num: i64) -> NBox<Integer> {
@@ -59,6 +60,7 @@ impl Float {
 
     fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
         std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
+        || std::ptr::eq(Number::typeinfo().cast(), other_typeinfo)
     }
 
     pub fn alloc(heap : &mut Heap, num: f64) -> NBox<Float> {
@@ -71,3 +73,28 @@ impl Float {
 }
 
 impl NaviType for Float { }
+
+#[derive(Debug, PartialEq)]
+pub struct Number {
+}
+
+impl NaviType for Number { }
+
+//Number型は抽象型なので実際にアロケーションされることはない。
+//NUMBER_TYPEINFOは型チェックのためだけに使用される。
+static NUMBER_TYPEINFO : TypeInfo<Number> = TypeInfo::<Number> {
+    name: "Number",
+    eq_func: Number::eq,
+    print_func: Number::fmt,
+    is_type_func: Number::is_type,
+};
+
+impl Number {
+    pub fn typeinfo<'ti>() -> &'ti TypeInfo<Self> {
+        &NUMBER_TYPEINFO
+    }
+
+    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
+        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
+    }
+}
