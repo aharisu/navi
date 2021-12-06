@@ -1,17 +1,18 @@
 use std::alloc;
 use std::mem;
+use std::ptr::NonNull;
 use crate::value::{TypeInfo, NaviType, NBox};
 
 //const POOL_SIZE : usize = 1024;
 
-pub(crate) struct GCHeader<'ti, T: NaviType> {
+pub(crate) struct GCHeader {
     pub(crate) flags: usize,
-    pub(crate) typeinfo: &'ti TypeInfo<T>,
+    pub(crate) typeinfo: NonNull<TypeInfo>,
 }
 
 #[repr(C)]
-pub(crate) struct GCAllocationStruct<T: 'static + NaviType> {
-    pub(crate) header: GCHeader<'static, T>,
+pub(crate) struct GCAllocationStruct<T: NaviType> {
+    pub(crate) header: GCHeader,
     pub(crate) value: T,
 }
 
@@ -62,14 +63,14 @@ impl Heap {
         heap
     }
 
-    pub fn alloc<'ti, T: NaviType>(&'ti mut self, typeinfo : &'ti TypeInfo<T>) -> NBox<T> {
-        self.alloc_with_additional_size::<T>(typeinfo, 0)
+    pub fn alloc<T: NaviType>(&mut self) -> NBox<T> {
+        self.alloc_with_additional_size::<T>(0)
     }
 
-    pub fn alloc_with_additional_size<'ti, T: NaviType>(&'ti mut self, typeinfo: &'ti TypeInfo<T>, additional_size: usize) -> NBox<T> {
+    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> NBox<T> {
         debug_assert!(!self.freed);
 
-        let gc_header_size = mem::size_of::<GCHeader<T>>();
+        let gc_header_size = mem::size_of::<GCHeader>();
         let obj_size = std::mem::size_of::<T>();
 
         //TODO 確保するオブジェクトのサイズが16bit範囲内かをチェック
@@ -88,10 +89,10 @@ impl Heap {
         if self.used + alloc_size < self.page_layout.size() {
             unsafe {
                 let gc_header_ptr = (self.pool_ptr as *mut u8).add(self.used);
-                let gc_header = &mut *(gc_header_ptr as *mut GCHeader<T>);
+                let gc_header = &mut *(gc_header_ptr as *mut GCHeader);
 
                 gc_header.flags = gc_flags_pack(alloc_size as u16, false);
-                gc_header.typeinfo = typeinfo;
+                gc_header.typeinfo = T::typeinfo();
 
                 let obj_ptr = gc_header_ptr.add(gc_header_size) as *mut T;
                 //println!("[ptr {}] header:{:x} obj:{:x}", self.name, ptr_to_usize(gc_header_ptr), ptr_to_usize(obj_ptr));
@@ -137,11 +138,11 @@ pub fn copy<T>(src: T, dest: &mut T) {
     std::mem::forget(src);
 }
 
-pub fn get_typeinfo<'ti, T: NaviType>(ptr: *const T) -> &'ti TypeInfo<T> {
+pub fn get_typeinfo<T: NaviType>(ptr: *const T) -> NonNull<TypeInfo> {
     let ptr = ptr as *const u8;
     let gc_header = unsafe {
-        let gc_header_ptr = ptr.sub(mem::size_of::<GCHeader<T>>());
-        &*(gc_header_ptr as *const GCHeader<T>)
+        let gc_header_ptr = ptr.sub(mem::size_of::<GCHeader>());
+        &*(gc_header_ptr as *const GCHeader)
     };
     gc_header.typeinfo
 }

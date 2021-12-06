@@ -9,35 +9,34 @@ pub struct NString {
     len_inbytes: usize,
 }
 
+static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
+    NString,
+    "String",
+    NString::eq,
+    NString::fmt,
+    NString::is_type,
+);
 
-impl NaviType for NString { }
-
-static STRING_TYPEINFO: TypeInfo<NString> = TypeInfo::<NString> {
-    name: "String",
-    eq_func: NString::eq,
-    print_func: NString::fmt,
-    is_type_func: NString::is_type,
-};
+impl NaviType for NString {
+    fn typeinfo() -> NonNull<TypeInfo> {
+        unsafe { NonNull::new_unchecked(&STRING_TYPEINFO as *const TypeInfo as *mut TypeInfo) }
+    }
+}
 
 impl NString {
 
-    #[inline(always)]
-    pub fn typeinfo<'ti>() -> &'ti TypeInfo<NString> {
-        &STRING_TYPEINFO
+    fn is_type(other_typeinfo: &TypeInfo) -> bool {
+        std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
-    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
-        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
-    }
-
-    pub fn alloc<'ti>(heap : &'ti mut Heap, str: &String) -> NBox<NString> {
-        Self::alloc_inner(heap, str, Self::typeinfo())
+    pub fn alloc(heap : &mut Heap, str: &String) -> NBox<NString> {
+        Self::alloc_inner(heap, str)
     }
 
     //NStringとSymbolクラス共有のアロケーション用関数。TはNSTringもしくはSymbolのみ対応。
-    pub(crate) fn alloc_inner<'ti, T: NaviType>(heap : &'ti mut Heap, str: &String, typeinfo: &'ti TypeInfo<T>) -> NBox<T> {
+    pub(crate) fn alloc_inner<T: NaviType>(heap : &mut Heap, str: &String) -> NBox<T> {
         let len_inbytes = str.len();
-        let nbox = heap.alloc_with_additional_size(typeinfo, len_inbytes);
+        let nbox = heap.alloc_with_additional_size::<T>(len_inbytes);
 
         let obj = unsafe { &mut *(nbox.as_mut_ptr() as *mut NString) };
         obj.len_inbytes = len_inbytes;

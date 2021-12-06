@@ -7,23 +7,24 @@ pub struct List {
     next: NBox<List>,
 }
 
-impl NaviType for List { }
+static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
+    List,
+    "List",
+    List::eq,
+    List::fmt,
+    List::is_type,
+);
 
-static LIST_TYPEINFO : TypeInfo<List> = TypeInfo::<List> {
-    name: "List",
-    eq_func: List::eq,
-    print_func: List::fmt,
-    is_type_func: List::is_type,
-};
+impl NaviType for List {
+    fn typeinfo() -> NonNull<TypeInfo> {
+        unsafe { NonNull::new_unchecked(&LIST_TYPEINFO as *const TypeInfo as *mut TypeInfo) }
+    }
+}
+
 
 impl List {
-    #[inline(always)]
-    pub fn typeinfo<'ti>() -> &'ti TypeInfo<List> {
-        &LIST_TYPEINFO
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
-        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
+    fn is_type(other_typeinfo: &TypeInfo) -> bool {
+        std::ptr::eq(&LIST_TYPEINFO, other_typeinfo)
     }
 
     pub fn nil() -> NBox<List> {
@@ -31,7 +32,7 @@ impl List {
     }
 
     pub fn alloc(heap: &mut Heap, v: &NBox<Value>, next: NBox<List>) -> NBox<List> {
-        let mut nbox = heap.alloc(Self::typeinfo());
+        let mut nbox = heap.alloc::<List>();
         //確保したメモリ内に値を書き込む
         mm::copy(List {
             v: NBox::new(v.as_mut_ptr() as *mut Value)

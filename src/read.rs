@@ -265,18 +265,18 @@ mod tets {
         heap.free();
     }
 
-    fn read<'ti, T: NaviType>(program: &str, typeinfo: &'ti TypeInfo<T>, heap: &mut Heap) -> NBox<T> {
+    fn read<T: NaviType>(program: &str, heap: &mut Heap) -> NBox<T> {
         //let mut heap = navi::mm::Heap::new(1024, name.to_string());
         let mut ctx = make_read_context(heap, program);
 
-        read_with_ctx(&mut ctx, typeinfo)
+        read_with_ctx(&mut ctx)
     }
 
-    fn read_with_ctx<'ti, T: NaviType>(ctx: &mut ReadContext, typeinfo: &'ti TypeInfo<T>) -> NBox<T> {
+    fn read_with_ctx<T: NaviType>(ctx: &mut ReadContext) -> NBox<T> {
         let result = crate::read::read(ctx);
         assert!(result.is_ok());
 
-        let result: Option<NBox<T>> = result.unwrap().into_nbox(typeinfo);
+        let result: Option<NBox<T>> = result.unwrap().into_nbox::<T>();
         assert!(result.is_some());
 
         result.unwrap()
@@ -292,7 +292,7 @@ mod tets {
             "aiueo"
             "#;
 
-            let result = read(program, string::NString::typeinfo(), &mut heap);
+            let result = read::<string::NString>(program, &mut heap);
             let ans = string::NString::alloc(&mut ans_heap, &"aiueo".to_string());
             assert_eq!(result, ans);
         }
@@ -305,11 +305,11 @@ mod tets {
 
             let mut ctx = make_read_context(&mut heap, program);
 
-            let result = read_with_ctx(&mut ctx, string::NString::typeinfo());
+            let result = read_with_ctx::<string::NString>(&mut ctx);
             let ans = string::NString::alloc(&mut ans_heap, &"1 + (1 - 3) = -1".to_string());
             assert_eq!(result, ans);
 
-            let result = read_with_ctx(&mut ctx, string::NString::typeinfo());
+            let result = read_with_ctx::<string::NString>(&mut ctx);
             let ans = string::NString::alloc(&mut ans_heap, &"3 * (4 / 2) - 12 = -6   ".to_string());
             assert_eq!(result, ans);
         }
@@ -326,7 +326,7 @@ mod tets {
         {
             let program = "1";
 
-            let result = read(program, number::Integer::typeinfo(), &mut heap);
+            let result = read::<number::Integer>(program, &mut heap);
             let ans = number::Integer::alloc(&mut ans_heap, 1);
             assert_eq!(result, ans);
         }
@@ -334,7 +334,7 @@ mod tets {
         {
             let program = "-1";
 
-            let result = read(program, number::Integer::typeinfo(), &mut heap);
+            let result = read::<number::Integer>(program, &mut heap);
             let ans = number::Integer::alloc(&mut ans_heap, -1);
             assert_eq!(result, ans);
         }
@@ -342,7 +342,7 @@ mod tets {
         {
             let program = "+1";
 
-            let result = read(program, number::Integer::typeinfo(), &mut heap);
+            let result = read::<number::Integer>(program, &mut heap);
             let ans = number::Integer::alloc(&mut ans_heap, 1);
             assert_eq!(result, ans);
         }
@@ -359,7 +359,7 @@ mod tets {
         {
             let program = "1.0";
 
-            let result = read(program, number::Real::typeinfo(), &mut heap);
+            let result = read::<number::Real>(program, &mut heap);
             let ans = number::Real::alloc(&mut ans_heap, 1.0);
             assert_eq!(result, ans);
         }
@@ -367,7 +367,7 @@ mod tets {
         {
             let program = "-1.0";
 
-            let result = read(program, number::Real::typeinfo(), &mut heap);
+            let result = read::<number::Real>(program, &mut heap);
             let ans = number::Real::alloc(&mut ans_heap, -1.0);
             assert_eq!(result, ans);
         }
@@ -375,7 +375,7 @@ mod tets {
         {
             let program = "+1.0";
 
-            let result = read(program, number::Real::typeinfo(), &mut heap);
+            let result = read::<number::Real>(program, &mut heap);
             let ans = number::Real::alloc(&mut ans_heap, 1.0);
             assert_eq!(result, ans);
         }
@@ -383,7 +383,7 @@ mod tets {
         {
             let program = "3.14";
 
-            let result = read(program, number::Real::typeinfo(), &mut heap);
+            let result = read::<number::Real>(program, &mut heap);
             let ans = number::Real::alloc(&mut ans_heap, 3.14);
             assert_eq!(result, ans);
         }
@@ -391,7 +391,7 @@ mod tets {
         {
             let program = "0.5";
 
-            let result = read(program, number::Real::typeinfo(), &mut heap);
+            let result = read::<number::Real>(program, &mut heap);
             let ans = number::Real::alloc(&mut ans_heap, 0.5);
             assert_eq!(result, ans);
         }
@@ -408,7 +408,7 @@ mod tets {
         {
             let program = "symbol";
 
-            let result = read(program, symbol::Symbol::typeinfo(), &mut heap);
+            let result = read::<symbol::Symbol>(program, &mut heap);
             let ans = symbol::Symbol::alloc(&mut ans_heap, &"symbol".to_string());
             assert_eq!(result, ans);
         }
@@ -418,16 +418,16 @@ mod tets {
 
             let mut ctx = make_read_context(&mut heap, program);
 
-            let result = read_with_ctx(&mut ctx, symbol::Symbol::typeinfo());
+            let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
             let ans = symbol::Symbol::alloc(&mut ans_heap, &"s1".to_string());
             assert_eq!(result, ans);
 
-            let result = read_with_ctx(&mut ctx, symbol::Symbol::typeinfo());
+            let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
             let ans = symbol::Symbol::alloc(&mut ans_heap, &"s2".to_string());
             assert_eq!(result, ans);
 
 
-            let result = read_with_ctx(&mut ctx, symbol::Symbol::typeinfo());
+            let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
             let ans = symbol::Symbol::alloc(&mut ans_heap, &"s3".to_string());
             assert_eq!(result, ans);
         }
@@ -437,19 +437,19 @@ mod tets {
 
             let mut ctx = make_read_context(&mut heap, program);
 
-            let result = read_with_ctx(&mut ctx, symbol::Symbol::typeinfo());
+            let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
             let ans = symbol::Symbol::alloc(&mut ans_heap, &"+".to_string());
             assert_eq!(result, ans);
 
-            let result = read_with_ctx(&mut ctx, symbol::Symbol::typeinfo());
+            let result = read_with_ctx(&mut ctx);
             let ans = symbol::Symbol::alloc(&mut ans_heap, &"-".to_string());
             assert_eq!(result, ans);
 
-            let result = read_with_ctx(&mut ctx, symbol::Symbol::typeinfo());
+            let result = read_with_ctx(&mut ctx);
             let ans = symbol::Symbol::alloc(&mut ans_heap, &"+1-2".to_string());
             assert_eq!(result, ans);
 
-            let result = read_with_ctx(&mut ctx, symbol::Symbol::typeinfo());
+            let result = read_with_ctx(&mut ctx);
             let ans = symbol::Symbol::alloc(&mut ans_heap, &"-2*3/4".to_string());
             assert_eq!(result, ans);
         }
@@ -460,11 +460,11 @@ mod tets {
 
             let mut ctx = make_read_context(&mut heap, program);
 
-            let result = read_with_ctx(&mut ctx, bool::Bool::typeinfo());
+            let result = read_with_ctx(&mut ctx);
             let ans = bool::Bool::true_();
             assert_eq!(result, ans);
 
-            let result = read_with_ctx(&mut ctx, bool::Bool::typeinfo());
+            let result = read_with_ctx(&mut ctx);
             let ans = bool::Bool::false_();
             assert_eq!(result, ans);
         }
@@ -481,7 +481,7 @@ mod tets {
         {
             let program = "()";
 
-            let result = read(program, list::List::typeinfo(), &mut heap);
+            let result = read(program, &mut heap);
             let ans = list::List::nil();
             assert_eq!(result, ans);
         }
@@ -489,7 +489,7 @@ mod tets {
         {
             let program = "(1 2 3)";
 
-            let result = read(program, list::List::typeinfo(), &mut heap);
+            let result = read(program, &mut heap);
 
             let _1 = number::Integer::alloc(&mut ans_heap, 1).into_nboxvalue();
             let _2 = number::Integer::alloc(&mut ans_heap, 2).into_nboxvalue();
@@ -505,7 +505,7 @@ mod tets {
         {
             let program = "(1 3.14 \"hohoho\" symbol)";
 
-            let result = read(program, list::List::typeinfo(), &mut heap);
+            let result = read(program, &mut heap);
 
             let _1 = number::Integer::alloc(&mut ans_heap, 1).into_nboxvalue();
             let _3_14 = number::Real::alloc(&mut ans_heap, 3.14).into_nboxvalue();

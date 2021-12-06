@@ -8,26 +8,27 @@ pub struct Symbol {
     inner: string::NString
 }
 
-static SYMBOL_TYPEINFO: TypeInfo<Symbol> = TypeInfo::<Symbol> {
-    name: "Symbol",
-    eq_func: Symbol::eq,
-    print_func: Symbol::fmt,
-    is_type_func: Symbol::is_type,
-};
+static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
+    Symbol,
+    "Symbol",
+    Symbol::eq,
+    Symbol::fmt,
+    Symbol::is_type,
+);
 
-impl NaviType for Symbol { }
+impl NaviType for Symbol {
+    fn typeinfo() -> NonNull<TypeInfo> {
+        unsafe { NonNull::new_unchecked(&SYMBOL_TYPEINFO as *const TypeInfo as *mut TypeInfo) }
+    }
+}
 
 impl Symbol {
-    pub fn typeinfo<'ti>() -> &'ti TypeInfo<Symbol> {
-        &SYMBOL_TYPEINFO
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
-        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
+    fn is_type(other_typeinfo: &TypeInfo) -> bool {
+        std::ptr::eq(&SYMBOL_TYPEINFO, other_typeinfo)
     }
 
     pub fn alloc(heap : &mut Heap, str: &String) -> NBox<Symbol> {
-        string::NString::alloc_inner(heap, str, Self::typeinfo())
+        string::NString::alloc_inner::<Symbol>(heap, str)
     }
 
 }

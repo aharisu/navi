@@ -4,22 +4,24 @@ use std::fmt::{self, Debug};
 pub struct Bool {
 }
 
-impl NaviType for Bool {}
+static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
+    Bool,
+    "Bool",
+    Bool::eq,
+    Bool::fmt,
+    Bool::is_type,
+);
 
-static BOOL_TYPEINFO: TypeInfo<Bool> = TypeInfo::<Bool> {
-    name: "Bool",
-    eq_func: Bool::eq,
-    print_func: Bool::fmt,
-    is_type_func: Bool::is_type,
-};
+impl NaviType for Bool {
+    fn typeinfo() -> NonNull<TypeInfo> {
+        unsafe { NonNull::new_unchecked(&BOOL_TYPEINFO as *const TypeInfo as *mut TypeInfo) }
+    }
+}
+
 
 impl Bool {
-    pub fn typeinfo<'ti>() -> &'ti TypeInfo<Bool> {
-        &BOOL_TYPEINFO
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo<Value>) -> bool {
-        std::ptr::eq(Self::typeinfo().cast(), other_typeinfo)
+    fn is_type(other_typeinfo: &TypeInfo) -> bool {
+        std::ptr::eq(&BOOL_TYPEINFO, other_typeinfo)
     }
 
     #[inline(always)]
