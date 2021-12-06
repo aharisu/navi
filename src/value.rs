@@ -11,11 +11,12 @@ macro_rules! new_typeinfo {
 }
 
 pub mod bool;
-//pub mod func;
 pub mod list;
 pub mod number;
 pub mod string;
 pub mod symbol;
+pub mod func;
+pub mod syntax;
 
 use std::ptr::{self, NonNull};
 
