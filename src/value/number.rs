@@ -158,6 +158,55 @@ fn func_add(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
     }
 }
 
+fn func_eqv(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
+    let v = &args[0];
+
+    let (int,real) = match number_to(v) {
+        Num::Int(num) => (Some(num), None),
+        Num::Real(num) => (None, Some(num)),
+    };
+
+    fn check(int: Option<i64>, real: Option<f64>, v: &NBox<Value>) -> (Option<i64>, Option<f64>, bool) {
+        match (number_to(v), int, real) {
+            (Num::Int(num), Some(pred), None) => {
+                (Some(num), None, num == pred)
+            }
+            (Num::Real(num), Some(pred), None) => {
+                (None, Some(num), num == pred as f64)
+            }
+            (Num::Int(num), None, Some(pred)) => {
+                (None, Some(num as f64), num as f64 == pred)
+            }
+            (Num::Real(num), None, Some(pred)) => {
+                (None, Some(num), num == pred)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    let v = &args[1];
+    let (mut int, mut real, mut result) = check(int, real, v);
+
+    if result {
+        let rest = &args[2];
+        //TODO GC Capture: rest
+        let rest = rest.duplicate().into_nbox::<list::List>().unwrap();
+
+        result = rest.iter().all(|v| {
+            let (i, r, result) = check(int, real, v);
+            int = i;
+            real = r;
+            result
+        });
+    }
+
+    if result {
+        bool::Bool::true_().into_nboxvalue()
+    } else {
+        bool::Bool::false_().into_nboxvalue()
+    }
+}
+
 fn func_abs(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
     let v = &args[0];
 
@@ -177,6 +226,17 @@ static FUNC_ADD: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
+static FUNC_EQV: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new(&[
+            Param::new("num1", ParamKind::Require, number::Number::typeinfo()),
+            Param::new("num2", ParamKind::Require, number::Number::typeinfo()),
+            Param::new("rest", ParamKind::Rest, number::Number::typeinfo()),
+            ],
+            func_eqv)
+    )
+});
+
 static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new(&[
@@ -189,5 +249,6 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 
 pub fn register_global(world: &mut World) {
     world.set("+", NBox::new(&FUNC_ADD.value as *const Func as *mut Func).into_nboxvalue());
+    world.set("=", NBox::new(&FUNC_EQV.value as *const Func as *mut Func).into_nboxvalue());
     world.set("abs", NBox::new(&FUNC_ABS.value as *const Func as *mut Func).into_nboxvalue());
 }

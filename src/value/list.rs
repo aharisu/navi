@@ -63,7 +63,7 @@ impl List {
                 break
             } else {
                 count += 1;
-                l = self.next.as_ref();
+                l = l.next.as_ref();
             }
         }
 

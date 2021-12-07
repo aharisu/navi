@@ -94,7 +94,7 @@ mod tets {
     }
 
     #[test]
-    fn test() {
+    fn func_test() {
         let mut heap = Heap::new(10240, "eval");
         let mut ans_heap = Heap::new(1024, " ans");
 
@@ -148,6 +148,44 @@ mod tets {
         }
 
         //TODO Optional引数のテスト
+
+        heap.free();
+        ans_heap.free();
+    }
+
+    #[test]
+    fn syntax_if_test() {
+        let mut heap = Heap::new(10240, "eval");
+        let mut ans_heap = Heap::new(1024, " ans");
+
+        let mut world = World::new();
+        number::register_global(&mut world);
+        syntax::register_global(&mut world);
+
+        {
+            let program = "(if (= 1 1) 10 100)";
+            let result = read(program, &mut heap);
+            let result = eval(&result, &mut heap, &mut world);
+            let ans = number::Integer::alloc(&mut ans_heap, 10);
+            assert_eq!(result, ans);
+
+            let program = "(if (= 1 2) 10 100)";
+            let result = read(program, &mut heap);
+            let result = eval(&result, &mut heap, &mut world);
+            let ans = number::Integer::alloc(&mut ans_heap, 100);
+            assert_eq!(result, ans);
+
+            let program = "(if (= 1 1 1) 10)";
+            let result = read(program, &mut heap);
+            let result = eval(&result, &mut heap, &mut world);
+            let ans = number::Integer::alloc(&mut ans_heap, 10);
+            assert_eq!(result, ans);
+
+            let program = "(if (= 1 1 2) 10)";
+            let result = read(program, &mut heap);
+            let result:NBox<Value>  = eval(&result, &mut heap, &mut world);
+            assert!(result.is::<unit::Unit>())
+        }
 
         heap.free();
         ans_heap.free();
