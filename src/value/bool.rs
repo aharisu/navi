@@ -13,8 +13,8 @@ static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Bool {
-    fn typeinfo() -> NonNull<TypeInfo> {
-        unsafe { NonNull::new_unchecked(&BOOL_TYPEINFO as *const TypeInfo as *mut TypeInfo) }
+    fn typeinfo() -> NonNullConst<TypeInfo> {
+        NonNullConst::new_unchecked(&BOOL_TYPEINFO as *const TypeInfo)
     }
 }
 

@@ -15,12 +15,18 @@ impl World {
         }
     }
 
-    pub fn set(&mut self, symbol: NBox<symbol::Symbol>, v: NBox<Value>) {
-        self.area.add(symbol.as_ref(), v)
+    pub fn set<K>(&mut self, key: K, v: NBox<Value>)
+    where
+        K: AsRef<str>
+    {
+        self.area.add(key, v)
     }
 
-    pub fn get(&mut self, symbol: &NBox<symbol::Symbol>) -> Option<&NBox<Value>> {
-        self.area.get(symbol.as_ref())
+    pub fn get<K>(&mut self, key: K) -> Option<&NBox<Value>>
+    where
+        K: AsRef<str>
+    {
+        self.area.get(key)
     }
 
 }
@@ -33,7 +39,7 @@ mod tets {
     use crate::world::*;
 
     fn world_get<'a>(world: &'a mut World, symbol: &NBox<symbol::Symbol>) -> &'a NBox<Value> {
-        let result = world.get(symbol);
+        let result = world.get(symbol.as_ref());
         assert!(result.is_some());
         result.unwrap()
     }
@@ -48,7 +54,7 @@ mod tets {
 
             let symbol = symbol::Symbol::alloc(&mut heap, &"symbol".to_string());
             let v = number::Integer::alloc(&mut heap, 1).into_nboxvalue();
-            world.set(symbol, v);
+            world.set(symbol.as_ref(), v);
 
             let symbol = symbol::Symbol::alloc(&mut heap, &"symbol".to_string());
             let result = world_get(&mut world, &symbol);
@@ -58,7 +64,7 @@ mod tets {
 
             let symbol = symbol::Symbol::alloc(&mut heap, &"symbol".to_string());
             let v = number::Real::alloc(&mut heap, 3.14).into_nboxvalue();
-            world.set(symbol, v);
+            world.set(symbol.as_ref(), v);
 
             let symbol = symbol::Symbol::alloc(&mut heap, &"symbol".to_string());
             let result = world_get(&mut world, &symbol);
@@ -67,7 +73,7 @@ mod tets {
 
             let symbol2 = symbol::Symbol::alloc(&mut heap, &"hoge".to_string());
             let v2 = string::NString::alloc(&mut heap, &"bar".to_string()).into_nboxvalue();
-            world.set(symbol2, v2);
+            world.set(symbol2.as_ref(), v2);
 
             let symbol2 = symbol::Symbol::alloc(&mut heap, &"hoge".to_string());
             let result = world_get(&mut world, &symbol2);

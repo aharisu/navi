@@ -18,8 +18,8 @@ static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for NString {
-    fn typeinfo() -> NonNull<TypeInfo> {
-        unsafe { NonNull::new_unchecked(&STRING_TYPEINFO as *const TypeInfo as *mut TypeInfo) }
+    fn typeinfo() -> NonNullConst<TypeInfo> {
+        NonNullConst::new_unchecked(&STRING_TYPEINFO as *const TypeInfo)
     }
 }
 

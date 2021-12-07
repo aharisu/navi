@@ -1,19 +1,35 @@
 use std::alloc;
 use std::mem;
-use std::ptr::NonNull;
 use crate::value::{TypeInfo, NaviType, NBox};
+use crate::util::non_null_const::*;
 
 //const POOL_SIZE : usize = 1024;
 
 pub(crate) struct GCHeader {
     pub(crate) flags: usize,
-    pub(crate) typeinfo: NonNull<TypeInfo>,
+    pub(crate) typeinfo: NonNullConst<TypeInfo>,
 }
+
+unsafe impl Sync for GCHeader {}
 
 #[repr(C)]
 pub(crate) struct GCAllocationStruct<T: NaviType> {
     pub(crate) header: GCHeader,
     pub(crate) value: T,
+}
+
+unsafe impl<T: NaviType> Sync for GCAllocationStruct<T> {}
+
+impl <T: NaviType> GCAllocationStruct<T> {
+    pub fn new(value: T) -> GCAllocationStruct<T> {
+        GCAllocationStruct {
+            header: GCHeader {
+                flags: gc_flags_pack(std::mem::size_of::<T>() as u16, false),
+                typeinfo: T::typeinfo(),
+            },
+            value: value,
+        }
+    }
 }
 
 #[inline]
@@ -138,7 +154,7 @@ pub fn copy<T>(src: T, dest: &mut T) {
     std::mem::forget(src);
 }
 
-pub fn get_typeinfo<T: NaviType>(ptr: *const T) -> NonNull<TypeInfo> {
+pub fn get_typeinfo<T: NaviType>(ptr: *const T) -> NonNullConst<TypeInfo> {
     let ptr = ptr as *const u8;
     let gc_header = unsafe {
         let gc_header_ptr = ptr.sub(mem::size_of::<GCHeader>());

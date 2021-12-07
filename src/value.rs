@@ -17,8 +17,10 @@ pub mod string;
 pub mod symbol;
 pub mod func;
 pub mod syntax;
+pub mod unit;
 
-use std::ptr::{self, NonNull};
+use std::ptr;
+use crate::util::non_null_const::*;
 
 // [tagged value]
 // Nil, true, false, ...
@@ -32,12 +34,14 @@ const fn tagged_value(tag: usize) -> usize {
 pub(crate) const IMMIDATE_NIL: usize = tagged_value(0);
 pub(crate) const IMMIDATE_TRUE: usize = tagged_value(1);
 pub(crate) const IMMIDATE_FALSE: usize = tagged_value(2);
+pub(crate) const IMMIDATE_UNIT: usize = tagged_value(3);
 
 enum PtrKind {
     Ptr,
     Nil,
     True,
     False,
+    Unit,
 }
 
 fn pointer_kind<T>(ptr: *const T) -> PtrKind {
@@ -54,6 +58,7 @@ fn pointer_kind<T>(ptr: *const T) -> PtrKind {
                     IMMIDATE_NIL => PtrKind::Nil,
                     IMMIDATE_TRUE => PtrKind::True,
                     IMMIDATE_FALSE => PtrKind::False,
+                    IMMIDATE_UNIT => PtrKind::Unit,
                     _ => panic!("invalid tagged value"),
                 }
             }
@@ -63,7 +68,7 @@ fn pointer_kind<T>(ptr: *const T) -> PtrKind {
 }
 
 pub trait NaviType: PartialEq + std::fmt::Debug {
-    fn typeinfo() -> NonNull<TypeInfo>;
+    fn typeinfo() -> NonNullConst<TypeInfo>;
 }
 
 #[allow(dead_code)]
@@ -76,9 +81,17 @@ pub struct TypeInfo {
 
 pub struct Value { }
 
+static VALUE_TYPEINFO : TypeInfo = new_typeinfo!(
+    Value,
+    "Value",
+    Value::_eq,
+    Value::_fmt,
+    Value::_is_type,
+);
+
 impl NaviType for Value {
-    fn typeinfo() -> NonNull<TypeInfo> {
-        unreachable!()
+    fn typeinfo() -> NonNullConst<TypeInfo> {
+        NonNullConst::new_unchecked(&VALUE_TYPEINFO as *const TypeInfo)
     }
 }
 
@@ -106,23 +119,56 @@ impl std::fmt::Debug for Value {
 }
 
 impl Value {
-    pub fn is_type<U: NaviType>(&self) -> bool {
+    pub fn is<U: NaviType>(&self) -> bool {
         let other_typeinfo = U::typeinfo();
+        self.is_type(other_typeinfo)
+    }
 
-        let ptr = self as *const Value;
-        let self_typeinfo = match pointer_kind(ptr) {
-            PtrKind::Nil => {
-                crate::value::list::List::typeinfo()
-            }
-            PtrKind::True | PtrKind::False => {
-                crate::value::bool::Bool::typeinfo()
-            }
-            _ => {
-                crate::mm::get_typeinfo(ptr)
-            }
-        };
+    pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
+        if std::ptr::eq(&VALUE_TYPEINFO, other_typeinfo.as_ptr()) {
+            //is::<Value>()の場合、常に結果はtrue
+            true
 
-        (unsafe { self_typeinfo.as_ref() }.is_type_func)(unsafe { other_typeinfo.as_ref() })
+        } else {
+            let ptr = self as *const Value;
+            let self_typeinfo = match pointer_kind(ptr) {
+                PtrKind::Nil => {
+                    crate::value::list::List::typeinfo()
+                }
+                PtrKind::True | PtrKind::False => {
+                    crate::value::bool::Bool::typeinfo()
+                }
+                PtrKind::Unit => {
+                    crate::value::unit::Unit::typeinfo()
+                }
+                PtrKind::Ptr => {
+                    crate::mm::get_typeinfo(ptr)
+                }
+            };
+
+            (unsafe { self_typeinfo.as_ref() }.is_type_func)(unsafe { other_typeinfo.as_ref() })
+        }
+    }
+
+    pub fn try_cast<U: NaviType>(&self) -> Option<&U> {
+        if self.is::<U>() {
+            Some(unsafe { &*(self as *const Value as *const U) })
+        } else {
+            None
+        }
+    }
+
+    //Value型のインスタンスは存在しないため、これらのメソッドが呼び出されることはない
+    fn _eq(&self, other: &Self) -> bool {
+        unreachable!()
+    }
+
+    fn _fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        unreachable!()
+    }
+
+    fn _is_type(other_typeinfo: &TypeInfo) -> bool {
+        unreachable!()
     }
 }
 
@@ -164,43 +210,37 @@ impl <T: NaviType> NBox<T> {
         }
     }
 
+    pub fn duplicate(&self) -> NBox<T> {
+        NBox::new(self.v.as_ptr())
+    }
+
     pub fn into_nboxvalue(self) -> NBox<Value> {
         NBox::new(self.as_mut_ptr() as *mut Value)
     }
+}
 
+impl NBox<list::List> {
+    pub fn iter(&self) -> list::ListIterator {
+        list::ListIterator::new(self)
+    }
+}
+
+impl NBox<Value> {
     pub fn into_nbox<U: NaviType>(self) -> Option<NBox<U>> {
-        let typeinfo = U::typeinfo();
-        let ptr = self.v.as_ptr();
-
-        match pointer_kind(ptr) {
-            PtrKind::Nil => {
-                let self_typeinfo = crate::value::list::List::typeinfo();
-                if ptr::eq(typeinfo.as_ptr(), self_typeinfo.as_ptr()) {
-                    Some(NBox::<U>::new_immidiate(IMMIDATE_NIL))
-
-                } else {
-                    None
-                }
-            }
-            PtrKind::True | PtrKind::False => {
-                let self_typeinfo = crate::value::bool::Bool::typeinfo();
-                if ptr::eq(typeinfo.as_ptr(), self_typeinfo.as_ptr()) {
-                    Some(NBox::<U>::new_immidiate(crate::mm::ptr_to_usize(ptr)))
-                } else {
-                    None
-                }
-            }
-            PtrKind::Ptr => {
-                let self_typeinfo = crate::mm::get_typeinfo(ptr);
-                if ptr::eq(typeinfo.as_ptr(), self_typeinfo.as_ptr()) {
-                    Some(NBox::<U>::new(ptr as *mut U))
-                } else {
-                    None
-                }
-            }
+        if let Some(v) = unsafe { self.v.as_ref() }.try_cast::<U>() {
+            Some(NBox::<U>::new(v as *const U as *mut U))
+        } else {
+            None
         }
     }
 
+    pub fn is<U: NaviType>(&self) -> bool {
+        self.as_ref().is::<U>()
+    }
+
+    pub fn is_type(&self, typeinfo: NonNullConst<TypeInfo>) -> bool {
+        self.as_ref().is_type(typeinfo)
+    }
 }
 
 impl <T: NaviType> Eq for NBox<T> {}
@@ -239,26 +279,26 @@ mod tets {
 
         //int
         let v = number::Integer::alloc(&mut heap, 10).into_nboxvalue();
-        assert!(v.as_ref().is_type::<number::Integer>());
-        assert!(v.as_ref().is_type::<number::Real>());
-        assert!(v.as_ref().is_type::<number::Number>());
+        assert!(v.as_ref().is::<number::Integer>());
+        assert!(v.as_ref().is::<number::Real>());
+        assert!(v.as_ref().is::<number::Number>());
 
         //real
         let v = number::Real::alloc(&mut heap, 3.14).into_nboxvalue();
-        assert!(!v.as_ref().is_type::<number::Integer>());
-        assert!(v.as_ref().is_type::<number::Real>());
-        assert!(v.as_ref().is_type::<number::Number>());
+        assert!(!v.as_ref().is::<number::Integer>());
+        assert!(v.as_ref().is::<number::Real>());
+        assert!(v.as_ref().is::<number::Number>());
 
         //nil
         let v = list::List::nil().into_nboxvalue();
-        assert!(v.as_ref().is_type::<list::List>());
-        assert!(!v.as_ref().is_type::<string::NString>());
+        assert!(v.as_ref().is::<list::List>());
+        assert!(!v.as_ref().is::<string::NString>());
 
         //list
         let item = number::Integer::alloc(&mut heap, 10).into_nboxvalue();
         let v = list::List::alloc(&mut heap, &item, v.into_nbox::<list::List>().unwrap()).into_nboxvalue();
-        assert!(v.as_ref().is_type::<list::List>());
-        assert!(!v.as_ref().is_type::<string::NString>());
+        assert!(v.as_ref().is::<list::List>());
+        assert!(!v.as_ref().is::<string::NString>());
 
         heap.free();
     }

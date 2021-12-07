@@ -17,8 +17,8 @@ static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Symbol {
-    fn typeinfo() -> NonNull<TypeInfo> {
-        unsafe { NonNull::new_unchecked(&SYMBOL_TYPEINFO as *const TypeInfo as *mut TypeInfo) }
+    fn typeinfo() -> NonNullConst<TypeInfo> {
+        NonNullConst::new_unchecked(&SYMBOL_TYPEINFO as *const TypeInfo)
     }
 }
 
