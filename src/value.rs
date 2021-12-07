@@ -10,6 +10,7 @@ macro_rules! new_typeinfo {
     }
 }
 
+pub mod array;
 pub mod bool;
 pub mod list;
 pub mod number;
@@ -99,8 +100,8 @@ impl Eq for Value {}
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        let self_typeinfo = crate::mm::get_typeinfo(self as *const Self);
-        let other_typeinfo = crate::mm::get_typeinfo(other as *const Self);
+        let self_typeinfo = self.get_typeinfo();
+        let other_typeinfo = other.get_typeinfo();
         if ptr::eq(self_typeinfo.as_ptr(), other_typeinfo.as_ptr()) {
             (unsafe { self_typeinfo.as_ref() }.eq_func)(self, other)
 
@@ -124,14 +125,9 @@ impl Value {
         self.is_type(other_typeinfo)
     }
 
-    pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
-        if std::ptr::eq(&VALUE_TYPEINFO, other_typeinfo.as_ptr()) {
-            //is::<Value>()の場合、常に結果はtrue
-            true
-
-        } else {
+    pub fn get_typeinfo(&self) -> NonNullConst<TypeInfo> {
             let ptr = self as *const Value;
-            let self_typeinfo = match pointer_kind(ptr) {
+        match pointer_kind(ptr) {
                 PtrKind::Nil => {
                     crate::value::list::List::typeinfo()
                 }
@@ -144,7 +140,16 @@ impl Value {
                 PtrKind::Ptr => {
                     crate::mm::get_typeinfo(ptr)
                 }
-            };
+        }
+    }
+
+    pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
+        if std::ptr::eq(&VALUE_TYPEINFO, other_typeinfo.as_ptr()) {
+            //is::<Value>()の場合、常に結果はtrue
+            true
+
+        } else {
+            let self_typeinfo = self.get_typeinfo();
 
             (unsafe { self_typeinfo.as_ref() }.is_type_func)(unsafe { other_typeinfo.as_ref() })
         }
