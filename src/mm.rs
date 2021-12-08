@@ -174,35 +174,3 @@ pub fn ptr_to_usize<T>(ptr: *const T) -> usize {
     };
     unsafe { u.v }
 }
-
-
-#[repr(transparent)]
-pub struct RawRef<T: ?Sized> {
-    value: T,
-}
-
-impl<T: ?Sized> RawRef<T> {
-    #[inline(always)]
-    pub const fn get_ptr(&self) -> *mut T {
-        self as *const RawRef<T> as *mut T
-    }
-
-    #[inline(always)]
-    pub fn get(&mut self) -> &mut T {
-        &mut self.value
-    }
-
-    #[inline(always)]
-    pub fn from_value<'a>(v: &'a T) -> &'a RawRef<T> {
-        unsafe {
-            &(*(v as *const T as *const RawRef<T>))
-        }
-    }
-
-    #[inline(always)]
-    pub fn from_value_mut<'a>(v: &'a mut T) -> &'a mut RawRef<T> {
-        unsafe {
-            &mut (*(v as *mut T as *mut RawRef<T>))
-        }
-    }
-}
