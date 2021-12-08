@@ -22,7 +22,7 @@ impl World {
         self.area.add(key, v)
     }
 
-    pub fn get<K>(&mut self, key: K) -> Option<&NBox<Value>>
+    pub fn get<K>(&self, key: K) -> Option<&NBox<Value>>
     where
         K: AsRef<str>
     {

@@ -111,11 +111,11 @@ enum Num {
     Real(f64),
 }
 
-fn number_to(v: &NBox<Value>) -> Num {
-    if let Some(integer) = v.as_ref().try_cast::<Integer>() {
+fn number_to(v: &Value) -> Num {
+    if let Some(integer) = v.try_cast::<Integer>() {
         Num::Int(integer.num)
     } else {
-        let real = v.as_ref().try_cast::<Real>().unwrap();
+        let real = v.try_cast::<Real>().unwrap();
         Num::Real(real.num)
     }
 }
@@ -123,17 +123,18 @@ fn number_to(v: &NBox<Value>) -> Num {
 fn func_add(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
     let v = &args[0];
 
-    let (mut int,mut real) = match number_to(v) {
+    let (mut int,mut real) = match number_to(&v.as_ref()) {
         Num::Int(num) => (Some(num), None),
         Num::Real(num) => (None, Some(num)),
     };
 
     let rest = &args[1];
-    //TODO GC Capture: rest
-    let rest = rest.duplicate().into_nbox::<list::List>().unwrap();
+    let rest = rest.try_cast::<list::List>().unwrap();
 
-    for v in rest.iter() {
-        match (number_to(v), int, real) {
+    //TODO GC Capture: iter
+    let iter =  rest.as_ref().iter();
+    for v in iter {
+        match (number_to(&v.as_ref()), int, real) {
             (Num::Int(num), Some(acc), None) => {
                 int = Some(acc + num);
             }
@@ -161,12 +162,12 @@ fn func_add(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
 fn func_eqv(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
     let v = &args[0];
 
-    let (int,real) = match number_to(v) {
+    let (int,real) = match number_to(&v.as_ref()) {
         Num::Int(num) => (Some(num), None),
         Num::Real(num) => (None, Some(num)),
     };
 
-    fn check(int: Option<i64>, real: Option<f64>, v: &NBox<Value>) -> (Option<i64>, Option<f64>, bool) {
+    fn check(int: Option<i64>, real: Option<f64>, v: &Value) -> (Option<i64>, Option<f64>, bool) {
         match (number_to(v), int, real) {
             (Num::Int(num), Some(pred), None) => {
                 (Some(num), None, num == pred)
@@ -185,15 +186,16 @@ fn func_eqv(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
     }
 
     let v = &args[1];
-    let (mut int, mut real, mut result) = check(int, real, v);
+    let (mut int, mut real, mut result) = check(int, real, v.as_ref());
 
     if result {
         let rest = &args[2];
-        //TODO GC Capture: rest
-        let rest = rest.duplicate().into_nbox::<list::List>().unwrap();
+        let rest = rest.try_cast::<list::List>().unwrap();
 
-        result = rest.iter().all(|v| {
-            let (i, r, result) = check(int, real, v);
+        //TODO GC Capture: iter
+        let mut iter = rest.as_ref().iter();
+        result = iter.all(|v| {
+            let (i, r, result) = check(int, real, v.as_ref());
             int = i;
             real = r;
             result
@@ -210,7 +212,7 @@ fn func_eqv(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
 fn func_abs(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
     let v = &args[0];
 
-    match number_to(v) {
+    match number_to(v.as_ref()) {
         Num::Int(num) => number::Integer::alloc(&mut ctx.heap, num.abs()).into_nboxvalue(),
         Num::Real(num) => number::Real::alloc(&mut ctx.heap, num.abs()).into_nboxvalue(),
     }

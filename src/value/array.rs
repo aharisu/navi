@@ -1,7 +1,6 @@
 use crate::value::*;
 use crate::mm::{self, Heap};
 use std::fmt::{self, Debug};
-use std::ptr::NonNull;
 
 pub struct Array {
     len: usize,
@@ -28,13 +27,16 @@ impl Array {
     }
 
     fn alloc(heap: &mut Heap, size: usize) -> NBox<Array> {
-        let mut ary = heap.alloc_with_additional_size::<Array>(size * std::mem::size_of::<NonNull<Value>>());
+        let mut ary = heap.alloc_with_additional_size::<Array>(size * std::mem::size_of::<NPtr<Value>>());
         ary.as_mut_ref().len = size;
 
         ary
     }
 
-    fn set(self: &mut Array, v: &NBox<Value>, index: usize) {
+    fn set<T>(&mut self, v: &T, index: usize)
+    where
+        T: crate::value::AsPtr<Value>
+    {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -44,46 +46,82 @@ impl Array {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut NonNull<Value>;
+            let storage_ptr = ptr as *mut NPtr<Value>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
-            std::ptr::write(storage_ptr, NonNull::new_unchecked(v.as_mut_ptr()));
+            std::ptr::write(storage_ptr, NPtr::new(v.as_mut_ptr()));
         };
     }
 
-    fn get(self: &Array, index: usize) -> NBox<Value> {
+    pub(crate) fn get_internal<'a>(&'a self, index: usize) -> &'a NPtr<Value> {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
 
         let ptr = self as *const Array;
-        let v_ptr = unsafe {
+        unsafe {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut NonNull<Value>;
+            let storage_ptr = ptr as *mut NPtr<Value>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
-            //指定indexにポインタを書き込む
-            std::ptr::read(storage_ptr)
-        };
 
-        NBox::new(v_ptr.as_ptr())
+            &*(storage_ptr)
+        }
     }
 
-    pub fn from_slice(heap: &mut Heap, ary: &[NBox<Value>]) -> NBox<Array> {
+    pub fn get(&self, index: usize) -> NBox<Value> {
+        let refer = self.get_internal(index);
+
+        NBox::new(refer.as_mut_ptr())
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn iter(&self) -> ArrayIterator {
+        ArrayIterator {
+            ary: self,
+            index: 0,
+        }
+    }
+
+    pub fn from_slice<T>(heap: &mut Heap, ary: &[&T]) -> NBox<Array>
+    where
+        T: crate::value::AsPtr<Value>
+    {
         let size = ary.len();
         let mut obj = Self::alloc(heap, size);
 
         for (index, v) in ary.iter().enumerate() {
-            obj.as_mut_ref().set(v, index);
+            obj.as_mut_ref().set(*v, index);
         }
 
         obj
     }
 }
 
+pub struct ArrayIterator<'a> {
+    ary: &'a Array,
+    index: usize,
+}
+
+impl <'a> std::iter::Iterator for ArrayIterator<'a> {
+    type Item = &'a NPtr<Value>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ary.len() <= self.index {
+            None
+        } else {
+            let result = self.ary.get_internal(self.index);
+            self.index += 1;
+            Some(result)
+        }
+    }
+}
 
 impl Eq for Array { }
 
@@ -115,12 +153,11 @@ mod tests {
             let item2= number::Real::alloc(&mut heap, 3.14);
 
             let ary = array::Array::from_slice(&mut heap, &vec![
-                item1.into_nboxvalue(),
-                item2.into_nboxvalue(),
-                list::List::nil().into_nboxvalue(),
-                bool::Bool::true_().into_nboxvalue(),
+                &item1.into_nboxvalue(),
+                &item2.into_nboxvalue(),
+                &list::List::nil().into_nboxvalue(),
+                &bool::Bool::true_().into_nboxvalue(),
             ]);
-
 
             let ans= number::Integer::alloc(&mut heap, 1);
             assert_eq!(ary.as_ref().get(0), ans.into_nboxvalue());

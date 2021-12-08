@@ -12,6 +12,7 @@ macro_rules! new_typeinfo {
 
 pub mod array;
 pub mod bool;
+pub mod closure;
 pub mod list;
 pub mod number;
 pub mod string;
@@ -120,27 +121,27 @@ impl std::fmt::Debug for Value {
 }
 
 impl Value {
+    pub fn get_typeinfo(&self) -> NonNullConst<TypeInfo> {
+        let ptr = self as *const Value;
+        match pointer_kind(ptr) {
+            PtrKind::Nil => {
+                crate::value::list::List::typeinfo()
+            }
+            PtrKind::True | PtrKind::False => {
+                crate::value::bool::Bool::typeinfo()
+            }
+            PtrKind::Unit => {
+                crate::value::unit::Unit::typeinfo()
+            }
+            PtrKind::Ptr => {
+                crate::mm::get_typeinfo(ptr)
+            }
+        }
+    }
+
     pub fn is<U: NaviType>(&self) -> bool {
         let other_typeinfo = U::typeinfo();
         self.is_type(other_typeinfo)
-    }
-
-    pub fn get_typeinfo(&self) -> NonNullConst<TypeInfo> {
-            let ptr = self as *const Value;
-        match pointer_kind(ptr) {
-                PtrKind::Nil => {
-                    crate::value::list::List::typeinfo()
-                }
-                PtrKind::True | PtrKind::False => {
-                    crate::value::bool::Bool::typeinfo()
-                }
-                PtrKind::Unit => {
-                    crate::value::unit::Unit::typeinfo()
-                }
-                PtrKind::Ptr => {
-                    crate::mm::get_typeinfo(ptr)
-                }
-        }
     }
 
     pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
@@ -177,15 +178,19 @@ impl Value {
     }
 }
 
+pub trait AsPtr<T: ?Sized> {
+    fn as_ptr(&self) -> *const T;
+    fn as_mut_ptr(&self) -> *mut T;
+}
 
 pub struct NBox<T: NaviType> {
-    v: ptr::NonNull<T>,
+    v: NPtr<T>,
 }
 
 impl <T: NaviType> NBox<T> {
     pub fn new(v: *mut T) -> Self {
         NBox {
-            v: unsafe { std::ptr::NonNull::new_unchecked(v) },
+            v: NPtr::new(v),
         }
     }
 
@@ -195,45 +200,40 @@ impl <T: NaviType> NBox<T> {
         Self::new(ptr)
     }
 
-    pub fn as_ptr(&self) -> *const T {
-        self.v.as_ptr()
-    }
-
-    pub fn as_mut_ptr(&self) -> *mut T {
-        self.v.as_ptr()
-    }
-
     pub fn as_ref(&self) -> &T {
-        unsafe {
-            self.v.as_ref()
-        }
+        self.v.as_ref()
     }
 
     pub fn as_mut_ref(&mut self) -> &mut T {
-        unsafe {
-            self.v.as_mut()
-        }
+        self.v.as_mut_ref()
     }
 
     pub fn duplicate(&self) -> NBox<T> {
-        NBox::new(self.v.as_ptr())
+        NBox::new(self.v.as_mut_ptr())
     }
 
     pub fn into_nboxvalue(self) -> NBox<Value> {
         NBox::new(self.as_mut_ptr() as *mut Value)
     }
-}
 
-impl NBox<list::List> {
-    pub fn iter(&self) -> list::ListIterator {
-        list::ListIterator::new(self)
+    pub fn cast_nboxvalue(&self) -> &NBox<Value> {
+        unsafe { &*(self as *const NBox<T> as *const NBox<Value>) }
     }
 }
 
 impl NBox<Value> {
     pub fn into_nbox<U: NaviType>(self) -> Option<NBox<U>> {
-        if let Some(v) = unsafe { self.v.as_ref() }.try_cast::<U>() {
-            Some(NBox::<U>::new(v as *const U as *mut U))
+        if let Some(v) = self.try_cast::<U>() {
+            Some(v.duplicate())
+        } else {
+            None
+        }
+    }
+
+    pub fn try_cast<'a, U: NaviType>(&'a self) -> Option<&'a NBox<U>> {
+        if self.as_ref().is::<U>() {
+            Some(unsafe { &*(self as *const NBox<Value> as *const NBox<U>) })
+
         } else {
             None
         }
@@ -245,6 +245,16 @@ impl NBox<Value> {
 
     pub fn is_type(&self, typeinfo: NonNullConst<TypeInfo>) -> bool {
         self.as_ref().is_type(typeinfo)
+    }
+}
+
+impl <T: NaviType> AsPtr<T> for NBox<T> {
+    fn as_ptr(&self) -> *const T {
+        self.v.as_ptr()
+    }
+
+    fn as_mut_ptr(&self) -> *mut T {
+        self.v.as_mut_ptr()
     }
 }
 
@@ -271,6 +281,47 @@ impl std::hash::Hash for NBox<symbol::Symbol> {
 //TODO 勉強
 unsafe impl<T: NaviType> Sync for NBox<T> {}
 //unsafe impl<T> Send for NBox<T> {}
+
+#[repr(transparent)]
+pub struct NPtr<T: NaviType> {
+    pointer: *mut T,
+}
+
+impl <T: NaviType> NPtr<T> {
+    pub fn new(ptr: *mut T) -> Self {
+        NPtr { pointer: ptr as _ }
+    }
+
+    pub fn cast<'a, U: NaviType>(&'a self) -> &'a NPtr<U> {
+        unsafe { &*(self as *const NPtr<T> as *const NPtr<U>) }
+    }
+
+    pub fn as_ref<'a>(&'a self) -> &'a T {
+        self.as_mut_ref()
+    }
+
+    pub fn as_mut_ref<'a>(&'a self) -> &'a mut T {
+        unsafe { &mut *(self.pointer) }
+    }
+}
+
+impl <T: NaviType> crate::value::AsPtr<T> for NPtr<T> {
+    fn as_ptr(&self) -> *const T {
+        self.pointer
+    }
+
+    fn as_mut_ptr(&self) -> *mut T {
+        self.pointer
+    }
+}
+
+impl <T: NaviType> Copy for NPtr<T> { }
+
+impl <T: NaviType> Clone for NPtr<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 
 
 #[cfg(test)]
