@@ -219,6 +219,10 @@ impl <T: NaviType> NBox<T> {
     pub fn cast_nboxvalue(&self) -> &NBox<Value> {
         unsafe { &*(self as *const NBox<T> as *const NBox<Value>) }
     }
+
+    pub fn into_nptr(self) -> NPtr<T> {
+        self.v
+    }
 }
 
 impl NBox<Value> {
@@ -282,6 +286,7 @@ impl std::hash::Hash for NBox<symbol::Symbol> {
 unsafe impl<T: NaviType> Sync for NBox<T> {}
 //unsafe impl<T> Send for NBox<T> {}
 
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct NPtr<T: NaviType> {
     pointer: *mut T,

@@ -48,7 +48,7 @@ impl Object {
 
         //ローカルフレーム上になければ、グローバルスペースから探す
         if let Some(v) = self.world.get(symbol.as_ref()) {
-            Some(v.duplicate())
+            Some(NBox::new(v.as_mut_ptr()))
         } else {
             None
         }

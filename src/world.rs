@@ -5,7 +5,7 @@ mod map;
 //TODO Worldはざっくりいうとグローバル変数空間
 
 pub struct World {
-    area: crate::world::map::PatriciaTree<NBox<Value>>,
+    area: crate::world::map::PatriciaTree<NPtr<Value>>,
 }
 
 impl World {
@@ -15,14 +15,14 @@ impl World {
         }
     }
 
-    pub fn set<K>(&mut self, key: K, v: NBox<Value>)
+    pub fn set<K>(&mut self, key: K, v: NPtr<Value>)
     where
         K: AsRef<str>
     {
         self.area.add(key, v)
     }
 
-    pub fn get<K>(&self, key: K) -> Option<&NBox<Value>>
+    pub fn get<K>(&self, key: K) -> Option<&NPtr<Value>>
     where
         K: AsRef<str>
     {
@@ -38,10 +38,10 @@ mod tets {
     use crate::world::*;
     use crate::object::Object;
 
-    fn world_get<'a>(world: &'a mut World, symbol: &NBox<symbol::Symbol>) -> &'a NBox<Value> {
+    fn world_get(world: &mut World, symbol: &NBox<symbol::Symbol>) -> NBox<Value> {
         let result = world.get(symbol.as_ref());
         assert!(result.is_some());
-        result.unwrap()
+        NBox::<Value>::new(result.unwrap().as_mut_ptr())
     }
 
     #[test]
@@ -54,34 +54,34 @@ mod tets {
 
             let symbol = symbol::Symbol::alloc(&mut ctx, &"symbol".to_string());
             let v = number::Integer::alloc(&mut ctx, 1).into_nboxvalue();
-            world.set(symbol.as_ref(), v);
+            world.set(symbol.as_ref(), v.into_nptr());
 
             let symbol = symbol::Symbol::alloc(&mut ctx, &"symbol".to_string());
             let result = world_get(&mut world, &symbol);
             let ans = number::Integer::alloc(&mut ans_ctx, 1).into_nboxvalue();
-            assert_eq!(result, &ans);
+            assert_eq!(result, ans);
 
 
             let symbol = symbol::Symbol::alloc(&mut ctx, &"symbol".to_string());
             let v = number::Real::alloc(&mut ctx, 3.14).into_nboxvalue();
-            world.set(symbol.as_ref(), v);
+            world.set(symbol.as_ref(), v.into_nptr());
 
             let symbol = symbol::Symbol::alloc(&mut ctx, &"symbol".to_string());
             let result = world_get(&mut world, &symbol);
             let ans = number::Real::alloc(&mut ans_ctx, 3.14).into_nboxvalue();
-            assert_eq!(result, &ans);
+            assert_eq!(result, ans);
 
             let symbol2 = symbol::Symbol::alloc(&mut ctx, &"hoge".to_string());
             let v2 = string::NString::alloc(&mut ctx, &"bar".to_string()).into_nboxvalue();
-            world.set(symbol2.as_ref(), v2);
+            world.set(symbol2.as_ref(), v2.into_nptr());
 
             let symbol2 = symbol::Symbol::alloc(&mut ctx, &"hoge".to_string());
             let result = world_get(&mut world, &symbol2);
             let ans2 = string::NString::alloc(&mut ans_ctx, &"bar".to_string()).into_nboxvalue();
-            assert_eq!(result, &ans2);
+            assert_eq!(result, ans2);
 
             let result = world_get(&mut world, &symbol);
-            assert_eq!(result, &ans);
+            assert_eq!(result, ans);
         }
     }
 
