@@ -1,3 +1,6 @@
+use std::iter::Peekable;
+use std::str::Chars;
+
 use crate::value::*;
 use crate::mm::{Heap};
 
@@ -12,47 +15,13 @@ fn readerror(msg: String) -> ReadError {
 
 pub type ReadResult = Result<NBox<Value>, ReadError>;
 
-pub struct Input<'a> {
-    chars: std::str::Chars<'a>,
-    prev_char: Option<char>,
-}
-
-impl <'a> Input<'a> {
-   pub fn new(text: &'a str) -> Input {
-       Input {
-           chars: text.chars(),
-           prev_char: None,
-       }
-   }
-
-   pub fn peek(&mut self) -> Option<char> {
-       if self.prev_char.is_none() {
-           self.prev_char = self.chars.next();
-       }
-
-       self.prev_char
-    }
-
-    pub fn next(&mut self) -> Option<char> {
-        match self.prev_char {
-            None => {
-                self.chars.next()
-            },
-            x => {
-                self.prev_char = None;
-                x
-            }
-        }
-    }
-}
-
 pub struct ReadContext<'input, 'heap> {
-    input: Input<'input>,
+    input: Peekable<Chars<'input>>,
     heap: &'heap mut Heap
 }
 
 impl <'input, 'heap> ReadContext<'input, 'heap> {
-    pub fn new(input: Input<'input>, heap: &'heap mut Heap) -> Self {
+    pub fn new(input: Peekable<Chars<'input>>, heap: &'heap mut Heap) -> Self {
         ReadContext {
             input: input,
             heap: heap,
@@ -181,12 +150,12 @@ fn read_word(ctx: &mut ReadContext) -> Result<String, ReadError> {
                     return Ok(str);
                 }
             }
-            Some(ch) if is_delimiter(ch) => {
+            Some(ch) if is_delimiter(*ch) => {
                 let str: String = acc.into_iter().collect();
                 return Ok(str);
             }
             Some(ch) => {
-                acc.push(ch);
+                acc.push(*ch);
                 ctx.input.next();
             }
         }
@@ -215,7 +184,7 @@ const fn is_whitespace(ch: char) -> bool {
 fn skip_whitespace(ctx: &mut ReadContext) {
     let mut next = ctx.input.peek();
     while let Some(ch) = next {
-        if is_whitespace(ch) {
+        if is_whitespace(*ch) {
             //Skip!!
             ctx.input.next();
             next = ctx.input.peek();
@@ -248,7 +217,7 @@ mod tets {
     use crate::value::*;
 
     fn make_read_context<'a, 'b>(heap: &'a mut Heap, s: &'b str) -> ReadContext<'b, 'a> {
-        ReadContext::new(Input::new(s), heap)
+        ReadContext::new(s.chars().peekable(), heap)
     }
 
     #[test]

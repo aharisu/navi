@@ -151,7 +151,7 @@ mod tets {
     use crate::value::*;
 
     fn make_read_context<'a, 'b>(heap: &'a mut Heap, s: &'b str) -> ReadContext<'b, 'a> {
-        ReadContext::new(Input::new(s), heap)
+        ReadContext::new(s.chars().peekable(), heap)
     }
 
     fn read(program: &str, heap: &mut Heap) -> NBox<Value> {
