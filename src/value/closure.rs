@@ -1,6 +1,6 @@
-use crate::mm::{Heap};
-use crate::eval::{Context, self};
+use crate::eval;
 use crate::value::*;
+use crate::object::{Object};
 use std::fmt::Debug;
 
 
@@ -28,15 +28,15 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(heap: &mut Heap, params: &NBox<array::Array>, body: &NBox<list::List>) -> NBox<Self> {
-        let mut nbox = heap.alloc::<Closure>();
+    pub fn alloc(ctx: &mut Object, params: &NBox<array::Array>, body: &NBox<list::List>) -> NBox<Self> {
+        let mut nbox = ctx.alloc::<Closure>();
         nbox.as_mut_ref().params = NPtr::new(params.as_mut_ptr());
         nbox.as_mut_ref().body = NPtr::new(body.as_mut_ptr());
 
         nbox
     }
 
-    pub fn process_arguments_descriptor(&self, args: &mut Vec<NBox<Value>>, ctx: &mut eval::Context) -> bool {
+    pub fn process_arguments_descriptor(&self, ctx: &mut Object, args: &mut Vec<NBox<Value>>) -> bool {
         let count = args.len();
         if count < self.params.as_ref().len() {
             false
@@ -45,7 +45,7 @@ impl Closure {
         }
     }
 
-    pub fn apply(&self, args: &[NBox<Value>], ctx: &mut crate::eval::Context) -> NBox<Value> {
+    pub fn apply(&self, ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
 
         //ローカルフレームを構築
         let mut frame = Vec::<(&NPtr<symbol::Symbol>, &NBox<Value>)>::new();

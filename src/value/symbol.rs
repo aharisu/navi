@@ -1,5 +1,5 @@
 use crate::value::*;
-use crate::mm::{Heap};
+use crate::object::{Object};
 use std::fmt::Debug;
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -27,8 +27,8 @@ impl Symbol {
         std::ptr::eq(&SYMBOL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(heap : &mut Heap, str: &String) -> NBox<Symbol> {
-        string::NString::alloc_inner::<Symbol>(heap, str)
+    pub fn alloc(ctx : &mut Object, str: &String) -> NBox<Symbol> {
+        string::NString::alloc_inner::<Symbol>(ctx, str)
     }
 
 }

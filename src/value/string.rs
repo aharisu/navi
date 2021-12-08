@@ -1,5 +1,5 @@
 use crate::value::*;
-use crate::mm::{Heap};
+use crate::object::{Object};
 use std::fmt::{self, Debug};
 
 type StringRef = std::mem::ManuallyDrop<String>;
@@ -29,14 +29,14 @@ impl NString {
         std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(heap : &mut Heap, str: &String) -> NBox<NString> {
-        Self::alloc_inner(heap, str)
+    pub fn alloc(ctx : &mut Object, str: &String) -> NBox<NString> {
+        Self::alloc_inner(ctx, str)
     }
 
     //NStringとSymbolクラス共有のアロケーション用関数。TはNSTringもしくはSymbolのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType>(heap : &mut Heap, str: &String) -> NBox<T> {
+    pub(crate) fn alloc_inner<T: NaviType>(ctx : &mut Object, str: &String) -> NBox<T> {
         let len_inbytes = str.len();
-        let nbox = heap.alloc_with_additional_size::<T>(len_inbytes);
+        let nbox = ctx.alloc_with_additional_size::<T>(len_inbytes);
 
         let obj = unsafe { &mut *(nbox.as_mut_ptr() as *mut NString) };
         obj.len_inbytes = len_inbytes;

@@ -1,11 +1,11 @@
-use crate::eval::{Context, self};
 use crate::value::*;
+use crate::object::{Object};
 use std::fmt::Debug;
 
 
 pub struct Func {
     params: Vec<Param>,
-    body: fn(&[NBox<Value>], &mut Context) -> NBox<Value>,
+    body: fn(&mut Object, &[NBox<Value>]) -> NBox<Value>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -49,7 +49,7 @@ impl NaviType for Func {
 }
 
 impl Func {
-    pub fn new(params: &[Param], body: fn(&[NBox<Value>], &mut Context) -> NBox<Value>) -> Func {
+    pub fn new(params: &[Param], body: fn(&mut Object, &[NBox<Value>]) -> NBox<Value>) -> Func {
         Func {
             params: params.to_vec(),
             body: body,
@@ -61,7 +61,7 @@ impl Func {
     }
 
     //TODO 戻り値をboolからResultに変更。Errorには適切なエラー内容を含んだenum
-    pub fn process_arguments_descriptor<'a>(&self, args: &mut Vec<NBox<Value>>, ctx: &mut eval::Context) -> bool {
+    pub fn process_arguments_descriptor<'a>(&self, ctx: &mut Object, args: &mut Vec<NBox<Value>>) -> bool {
         fn check_type(v: &NBox<Value>, param: &Param) -> bool {
             v.is_type(param.typeinfo)
         }
@@ -100,7 +100,7 @@ impl Func {
                             return false;
                         }
 
-                        let rest = list::List::from_vec(&mut ctx.heap, rest);
+                        let rest = list::List::from_vec(ctx, rest);
                         args.push(rest.into_nboxvalue());
                     }
                 }
@@ -110,8 +110,8 @@ impl Func {
         true
     }
 
-    pub fn apply(&self, args: &[NBox<Value>], ctx: &mut eval::Context) -> NBox<Value> {
-        (self.body)(args, ctx)
+    pub fn apply(&self, ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
+        (self.body)(ctx, args)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::value::*;
-use crate::mm::{self, Heap};
+use crate::object::{Object};
 use std::fmt::{self, Debug};
 
 pub struct List {
@@ -35,8 +35,8 @@ impl List {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc(heap: &mut Heap, v: &NBox<Value>, next: NBox<List>) -> NBox<List> {
-        let mut nbox = heap.alloc::<List>();
+    pub fn alloc(ctx: &mut Object, v: &NBox<Value>, next: NBox<List>) -> NBox<List> {
+        let mut nbox = ctx.alloc::<List>();
         //確保したメモリ内に値を書き込む
         nbox.as_mut_ref().v = NPtr::new(v.as_mut_ptr());
         nbox.as_mut_ref().next = NPtr::new(next.as_mut_ptr());
@@ -68,11 +68,11 @@ impl List {
         count
     }
 
-    pub fn from_vec(heap: &mut Heap, vec: Vec<NBox<Value>>) -> NBox<List> {
+    pub fn from_vec(ctx: &mut Object, vec: Vec<NBox<Value>>) -> NBox<List> {
         //TODO gc guard
         let mut acc = Self::nil();
         for v in vec.iter().rev() {
-            acc = Self::alloc(heap, v, acc);
+            acc = Self::alloc(ctx, v, acc);
         }
 
         acc

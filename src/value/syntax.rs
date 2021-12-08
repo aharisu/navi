@@ -1,8 +1,8 @@
 use crate::mm::{GCAllocationStruct};
-use crate::eval::{eval, Context, self};
+use crate::eval::{eval};
 use crate::value::*;
 use crate::value::list;
-use crate::world::{World};
+use crate::object::{Object};
 use std::fmt::Debug;
 use std::panic;
 use once_cell::sync::Lazy;
@@ -11,7 +11,7 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&NBox<list::List>, &mut Context) -> NBox<Value>,
+    body: fn(&mut Object, &NBox<list::List>) -> NBox<Value>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -30,7 +30,7 @@ impl NaviType for Syntax {
 }
 
 impl Syntax {
-    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&NBox<list::List>, &mut Context) -> NBox<Value>) -> Self {
+    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&mut Object, &NBox<list::List>) -> NBox<Value>) -> Self {
         Syntax {
             require: require,
             optional: optional,
@@ -54,8 +54,8 @@ impl Syntax {
         }
     }
 
-    pub fn apply(&self, args: &NBox<list::List>, ctx: &mut crate::eval::Context) -> NBox<Value> {
-        (self.body)(args, ctx)
+    pub fn apply(&self, ctx: &mut Object, args: &NBox<list::List>) -> NBox<Value> {
+        (self.body)(ctx, args)
     }
 }
 
@@ -73,7 +73,7 @@ impl Debug for Syntax {
     }
 }
 
-fn syntax_if(args: &NBox<list::List>, ctx: &mut Context) -> NBox<Value> {
+fn syntax_if(ctx: &mut Object, args: &NBox<list::List>) -> NBox<Value> {
     //TODO GC Capture:
     let pred = args.as_ref().head_ref();
     let pred = eval(&pred, ctx);
@@ -102,7 +102,7 @@ fn syntax_if(args: &NBox<list::List>, ctx: &mut Context) -> NBox<Value> {
     }
 }
 
-fn syntax_fun(args: &NBox<list::List>, ctx: &mut Context) -> NBox<Value> {
+fn syntax_fun(ctx: &mut Object, args: &NBox<list::List>) -> NBox<Value> {
     //TODO GC Capture: params_vec
     let mut params_vec: Vec<&NPtr<Value>> = Vec::new();
 
@@ -125,10 +125,10 @@ fn syntax_fun(args: &NBox<list::List>, ctx: &mut Context) -> NBox<Value> {
     }
 
     //GC Capture:
-    let params = array::Array::from_slice(&mut ctx.heap, &params_vec);
+    let params = array::Array::from_slice(ctx, &params_vec);
     let body = args.as_ref().tail_ref();
 
-    closure::Closure::alloc(&mut ctx.heap
+    closure::Closure::alloc(ctx
         , &params
         , &body
     ).into_nboxvalue()
@@ -142,7 +142,7 @@ static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(1, 0, true, syntax_fun))
 });
 
-pub fn register_global(world: &mut World) {
-    world.set("if", NBox::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_nboxvalue());
-    world.set("fun", NBox::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_nboxvalue());
+pub fn register_global(ctx: &mut Object) {
+    ctx.define_value("if", NBox::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_nboxvalue());
+    ctx.define_value("fun", NBox::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_nboxvalue());
 }

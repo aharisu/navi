@@ -1,5 +1,5 @@
 use crate::value::*;
-use crate::mm::{self, Heap};
+use crate::object::Object;
 use std::fmt::{self, Debug};
 
 pub struct Array {
@@ -26,8 +26,8 @@ impl Array {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn alloc(heap: &mut Heap, size: usize) -> NBox<Array> {
-        let mut ary = heap.alloc_with_additional_size::<Array>(size * std::mem::size_of::<NPtr<Value>>());
+    fn alloc(ctx: &mut Object, size: usize) -> NBox<Array> {
+        let mut ary = ctx.alloc_with_additional_size::<Array>(size * std::mem::size_of::<NPtr<Value>>());
         ary.as_mut_ref().len = size;
 
         ary
@@ -89,12 +89,12 @@ impl Array {
         }
     }
 
-    pub fn from_slice<T>(heap: &mut Heap, ary: &[&T]) -> NBox<Array>
+    pub fn from_slice<T>(ctx: &mut Object, ary: &[&T]) -> NBox<Array>
     where
         T: crate::value::AsPtr<Value>
     {
         let size = ary.len();
-        let mut obj = Self::alloc(heap, size);
+        let mut obj = Self::alloc(ctx, size);
 
         for (index, v) in ary.iter().enumerate() {
             obj.as_mut_ref().set(*v, index);
@@ -140,29 +140,29 @@ impl Debug for Array {
 
 #[cfg(test)]
 mod tests {
-    use crate::mm::{Heap};
     use crate::value::*;
+    use crate::object::{Object};
 
     #[test]
     fn test() {
-        let mut heap = Heap::new(1024, "array");
-        let mut ans = Heap::new(1024, "ans");
+        let mut ctx = Object::new("array");
+        let mut ans_ctx = Object::new("ans");
 
         {
-            let item1= number::Integer::alloc(&mut heap, 1);
-            let item2= number::Real::alloc(&mut heap, 3.14);
+            let item1= number::Integer::alloc(&mut ctx, 1);
+            let item2= number::Real::alloc(&mut ctx, 3.14);
 
-            let ary = array::Array::from_slice(&mut heap, &vec![
+            let ary = array::Array::from_slice(&mut ctx, &vec![
                 &item1.into_nboxvalue(),
                 &item2.into_nboxvalue(),
                 &list::List::nil().into_nboxvalue(),
                 &bool::Bool::true_().into_nboxvalue(),
             ]);
 
-            let ans= number::Integer::alloc(&mut heap, 1);
+            let ans= number::Integer::alloc(&mut ans_ctx, 1);
             assert_eq!(ary.as_ref().get(0), ans.into_nboxvalue());
 
-            let ans= number::Real::alloc(&mut heap, 3.14);
+            let ans= number::Real::alloc(&mut ans_ctx, 3.14);
             assert_eq!(ary.as_ref().get(1), ans.into_nboxvalue());
 
             let ans= list::List::nil();
@@ -171,8 +171,5 @@ mod tests {
             let ans= bool::Bool::true_();
             assert_eq!(ary.as_ref().get(3), ans.into_nboxvalue());
         }
-
-        heap.free();
-        ans.free();
     }
 }

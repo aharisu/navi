@@ -1,8 +1,7 @@
 use crate::value::*;
 use crate::value::func::*;
-use crate::eval::{Context};
-use crate::world::{World};
-use crate::mm::{Heap, GCAllocationStruct};
+use crate::object::{Object};
+use crate::mm::{GCAllocationStruct};
 use std::fmt::Debug;
 use std::hash::Hash;
 use once_cell::sync::Lazy;
@@ -34,8 +33,8 @@ impl Integer {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<'ti>(heap : &'ti mut Heap, num: i64) -> NBox<Integer> {
-        let mut nbox = heap.alloc::<Integer>();
+    pub fn alloc(ctx : &mut Object, num: i64) -> NBox<Integer> {
+        let mut nbox = ctx.alloc::<Integer>();
         let obj = nbox.as_mut_ref();
         obj.num = num;
 
@@ -71,8 +70,8 @@ impl Real {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(heap : &mut Heap, num: f64) -> NBox<Real> {
-        let mut nbox = heap.alloc::<Real>();
+    pub fn alloc(ctx : &mut Object, num: f64) -> NBox<Real> {
+        let mut nbox = ctx.alloc::<Real>();
         let obj = nbox.as_mut_ref();
         obj.num = num;
 
@@ -120,7 +119,7 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
+fn func_add(ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
     let v = &args[0];
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -153,13 +152,13 @@ fn func_add(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
     }
 
     if int.is_some() {
-        number::Integer::alloc(&mut ctx.heap, int.unwrap()).into_nboxvalue()
+        number::Integer::alloc(ctx, int.unwrap()).into_nboxvalue()
     } else {
-        number::Real::alloc(&mut ctx.heap, real.unwrap()).into_nboxvalue()
+        number::Real::alloc(ctx, real.unwrap()).into_nboxvalue()
     }
 }
 
-fn func_eqv(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
+fn func_eqv(ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
     let v = &args[0];
 
     let (int,real) = match number_to(&v.as_ref()) {
@@ -209,12 +208,12 @@ fn func_eqv(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
     }
 }
 
-fn func_abs(args: &[NBox<Value>], ctx: &mut Context) -> NBox<Value> {
+fn func_abs(ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
     let v = &args[0];
 
     match number_to(v.as_ref()) {
-        Num::Int(num) => number::Integer::alloc(&mut ctx.heap, num.abs()).into_nboxvalue(),
-        Num::Real(num) => number::Real::alloc(&mut ctx.heap, num.abs()).into_nboxvalue(),
+        Num::Int(num) => number::Integer::alloc(ctx, num.abs()).into_nboxvalue(),
+        Num::Real(num) => number::Real::alloc(ctx, num.abs()).into_nboxvalue(),
     }
 }
 
@@ -249,8 +248,8 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 
-pub fn register_global(world: &mut World) {
-    world.set("+", NBox::new(&FUNC_ADD.value as *const Func as *mut Func).into_nboxvalue());
-    world.set("=", NBox::new(&FUNC_EQV.value as *const Func as *mut Func).into_nboxvalue());
-    world.set("abs", NBox::new(&FUNC_ABS.value as *const Func as *mut Func).into_nboxvalue());
+pub fn register_global(ctx: &mut Object) {
+    ctx.define_value("+", NBox::new(&FUNC_ADD.value as *const Func as *mut Func).into_nboxvalue());
+    ctx.define_value("=", NBox::new(&FUNC_EQV.value as *const Func as *mut Func).into_nboxvalue());
+    ctx.define_value("abs", NBox::new(&FUNC_ABS.value as *const Func as *mut Func).into_nboxvalue());
 }

@@ -326,21 +326,21 @@ impl <T: NaviType> Clone for NPtr<T> {
 
 #[cfg(test)]
 mod tets {
-    use crate::mm::{Heap};
     use crate::value::*;
+    use crate::object::Object;
 
     #[test]
     fn is_type() {
-        let mut heap = Heap::new(1024, "test");
+        let mut ctx = Object::new("test");
 
         //int
-        let v = number::Integer::alloc(&mut heap, 10).into_nboxvalue();
+        let v = number::Integer::alloc(&mut ctx, 10).into_nboxvalue();
         assert!(v.as_ref().is::<number::Integer>());
         assert!(v.as_ref().is::<number::Real>());
         assert!(v.as_ref().is::<number::Number>());
 
         //real
-        let v = number::Real::alloc(&mut heap, 3.14).into_nboxvalue();
+        let v = number::Real::alloc(&mut ctx, 3.14).into_nboxvalue();
         assert!(!v.as_ref().is::<number::Integer>());
         assert!(v.as_ref().is::<number::Real>());
         assert!(v.as_ref().is::<number::Number>());
@@ -351,11 +351,9 @@ mod tets {
         assert!(!v.as_ref().is::<string::NString>());
 
         //list
-        let item = number::Integer::alloc(&mut heap, 10).into_nboxvalue();
-        let v = list::List::alloc(&mut heap, &item, v.into_nbox::<list::List>().unwrap()).into_nboxvalue();
+        let item = number::Integer::alloc(&mut ctx, 10).into_nboxvalue();
+        let v = list::List::alloc(&mut ctx, &item, v.into_nbox::<list::List>().unwrap()).into_nboxvalue();
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
-
-        heap.free();
     }
 }
