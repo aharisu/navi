@@ -50,6 +50,15 @@ impl List {
         nbox
     }
 
+    fn alloc_tail(v: &NBox<Value>, ctx: &mut Object) -> NPtr<List> {
+        let mut nbox = ctx.alloc::<List>();
+        //確保したメモリ内に値を書き込む
+        nbox.as_mut().v = NPtr::new(v.as_mut_ptr());
+        nbox.as_mut().next = Self::nil();
+
+        nbox
+    }
+
     pub fn head_ref(&self) -> NPtr<Value> {
         self.v.clone()
     }
@@ -147,5 +156,108 @@ impl <'a> std::iter::Iterator for ListIterator<'a> {
                 Some(v)
             }
         }
+    }
+}
+
+use std::pin::Pin;
+
+pub struct ListBuilder {
+    pub start: NBox<List>,
+    pub end: NBox<List>,
+    pub len: usize,
+    pub _pinned: std::marker::PhantomPinned,
+}
+
+#[macro_export]
+macro_rules! let_listbuilder {
+    ($name:ident, $ctx:expr) => {
+        let $name = crate::value::list::ListBuilder {
+            start: NBox::new(crate::value::list::List::nil(), $ctx),
+            end: NBox::new(crate::value::list::List::nil(), $ctx),
+            len: 0,
+            _pinned: std::marker::PhantomPinned,
+        };
+        pin_utils::pin_mut!($name);
+    };
+}
+
+
+impl ListBuilder {
+    pub fn append(self: &mut Pin<&mut Self>, v: &NBox<Value>, ctx: &mut Object) {
+        if self.start.as_ref().is_nil() {
+            unsafe {
+                let this = self.as_mut().get_unchecked_mut();
+                let cell = List::alloc_tail(v, ctx);
+                this.start = NBox::new(cell.clone(), ctx);
+                this.end = NBox::new(cell, ctx);
+                this.len += 1;
+            }
+        } else {
+
+            unsafe {
+                let this = self.as_mut().get_unchecked_mut();
+                let cell = List::alloc_tail(v, ctx);
+                this.end.as_mut().next = cell.clone();
+                this.end = NBox::new(cell, ctx);
+                this.len += 1;
+            }
+        }
+    }
+
+    pub fn get(self: Pin<&mut Self>) -> NPtr<List> {
+        self.start.get().clone()
+    }
+
+    pub fn get_with_size(self: Pin<&mut Self>) -> (NPtr<List>, usize) {
+        (self.start.get().clone(), self.len)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::value::*;
+    use crate::object::{Object};
+
+    #[test]
+    fn test() {
+        let mut ctx = Object::new("list");
+        let ctx = &mut ctx;
+
+        let mut ans_ctx = Object::new("ans");
+        let ans_ctx = &mut ans_ctx;
+
+        {
+            let_listbuilder!(builder, ctx);
+
+            let result = NBox::new(builder.get(), ctx);
+            let ans = NBox::new(list::List::nil(), ans_ctx);
+
+            assert_eq!(result, ans);
+        }
+
+        {
+            let_listbuilder!(builder, ctx);
+
+            let item1= NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx);
+            let item2= NBox::new(number::Integer::alloc(2, ctx).into_value(), ctx);
+            let item3= NBox::new(number::Integer::alloc(3, ctx).into_value(), ctx);
+
+            builder.append(&item1, ctx);
+            builder.append(&item2, ctx);
+            builder.append(&item3, ctx);
+
+            let result = NBox::new(builder.get(), ctx);
+
+            let _1 = NBox::new(number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
+            let _2 = NBox::new(number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
+            let _3 = NBox::new(number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
+            let ans = NBox::new(list::List::nil(), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+
+            assert_eq!(result, ans);
+        }
+
     }
 }

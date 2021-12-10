@@ -1,6 +1,7 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+use crate::let_listbuilder;
 use crate::value::*;
 use crate::object::{Object};
 
@@ -53,7 +54,8 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
     //skip first char
     ctx.input.next();
 
-    let mut acc: Vec<NBox<Value>> = Vec::new();
+    let_listbuilder!(builder, &mut ctx.obj);
+
     loop {
         skip_whitespace(ctx);
         match ctx.input.peek() {
@@ -61,7 +63,7 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
             Some(')') => {
                 ctx.input.next();
                 // complete!
-                let list = list::List::from_vec(acc, &mut ctx.obj);
+                let list = builder.get();
                 return Ok(list.into_value());
             }
             Some(_) => {
@@ -69,8 +71,7 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
                 match read_internal(ctx) {
                     //内部でエラーが発生した場合は途中停止
                     Err(msg) => return Err(msg),
-                    //リストの要素としてvec内に保存してループを継続
-                    Ok(v) => acc.push(NBox::new(v, ctx.obj)),
+                    Ok(v) => builder.append(&NBox::new(v, ctx.obj), &mut ctx.obj)
                 }
             }
         }

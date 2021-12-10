@@ -95,12 +95,15 @@ impl Array {
         }
     }
 
-    pub fn from_slice(ary: &[NBox<Value>], ctx: &mut Object) -> NPtr<Array>
-    {
-        let size = ary.len();
+    pub fn from_list(list: &NBox<list::List>, size: Option<usize>, ctx: &mut Object) -> NPtr<Array> {
+        let size = match size {
+            Some(s) => s,
+            None => list.as_ref().count(),
+        };
+
         let mut obj = Self::alloc(size, ctx);
 
-        for (index, v) in ary.iter().enumerate() {
+        for (index, v) in list.as_ref().iter().enumerate() {
             obj.as_mut().set(v, index);
         }
 
@@ -144,7 +147,7 @@ impl Debug for Array {
 
 #[cfg(test)]
 mod tests {
-    use crate::value::*;
+    use crate::{value::*, let_listbuilder};
     use crate::object::{Object};
 
     #[test]
@@ -156,15 +159,16 @@ mod tests {
         let ans_ctx = &mut ans_ctx;
 
         {
-            let item1= NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx);
-            let item2= NBox::new(number::Real::alloc(3.14, ctx).into_value(), ctx);
+            let_listbuilder!(builder, ctx);
 
-            let ary = array::Array::from_slice(&vec![
-                item1,
-                item2,
-                NBox::new(list::List::nil().into_value(), ctx),
-                NBox::new(bool::Bool::true_().into_value(), ctx),
-            ], ctx);
+            builder.append(&NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx), ctx);
+            builder.append(&NBox::new(number::Real::alloc(3.14, ctx).into_value(), ctx), ctx);
+            builder.append(&NBox::new(list::List::nil().into_value(), ctx), ctx);
+            builder.append(&NBox::new(bool::Bool::true_().into_value(), ctx), ctx);
+
+            let (list, size) = builder.get_with_size();
+            let list = NBox::new(list, ctx);
+            let ary = array::Array::from_list(&list, Some(size), ctx);
 
             let ans= number::Integer::alloc(1, ans_ctx).into_value();
             assert_eq!(ary.as_ref().get(0).as_ref(), ans.as_ref());

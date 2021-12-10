@@ -1,6 +1,6 @@
 use crate::mm::{GCAllocationStruct};
 use crate::eval::{eval};
-use crate::value::*;
+use crate::{value::*, let_listbuilder};
 use crate::value::list;
 use crate::object::{Object};
 use std::fmt::Debug;
@@ -104,7 +104,8 @@ fn syntax_if(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
 
 fn syntax_fun(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
     //TODO GC Capture: params_vec
-    let mut params_vec: Vec<NBox<Value>> = Vec::new();
+    //let mut params_vec: Vec<NBox<Value>> = Vec::new();
+    let_listbuilder!(builder, ctx);
 
     //引数指定の内容を解析
     let params = args.as_ref().head_ref();
@@ -113,7 +114,7 @@ fn syntax_fun(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
         for p in params.as_ref().iter() {
             match p.try_cast::<symbol::Symbol>() {
                 Some(sym) => {
-                    params_vec.push(NBox::new(sym.cast_value().clone(), ctx));
+                    builder.append(&NBox::new(sym.cast_value().clone(), ctx), ctx);
                 }
                 None => {
                     panic!("parameter require symbol. But got {:?}", p.as_ref())
@@ -125,7 +126,9 @@ fn syntax_fun(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
     }
 
     //GC Capture:
-    let params = NBox::new( array::Array::from_slice(&params_vec, ctx), ctx);
+    let (list, size) = builder.get_with_size();
+    let list = NBox::new(list, ctx);
+    let params = NBox::new( array::Array::from_list(&list, Some(size), ctx), ctx);
     let body = NBox::new(args.as_ref().tail_ref(), ctx);
 
     closure::Closure::alloc(&params, &body, ctx).into_value()
