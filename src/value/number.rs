@@ -17,6 +17,7 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     Integer::eq,
     Integer::fmt,
     Integer::is_type,
+    None,
 );
 
 impl NaviType for Integer {
@@ -33,9 +34,9 @@ impl Integer {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(ctx : &mut Object, num: i64) -> NBox<Integer> {
+    pub fn alloc(num: i64, ctx : &mut Object) -> NPtr<Integer> {
         let mut nbox = ctx.alloc::<Integer>();
-        let obj = nbox.as_mut_ref();
+        let obj = nbox.as_mut();
         obj.num = num;
 
         nbox
@@ -56,6 +57,7 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     Real::eq,
     Real::fmt,
     Real::is_type,
+    None,
 );
 
 impl NaviType for Real {
@@ -70,9 +72,9 @@ impl Real {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(ctx : &mut Object, num: f64) -> NBox<Real> {
+    pub fn alloc(num: f64, ctx : &mut Object) -> NPtr<Real> {
         let mut nbox = ctx.alloc::<Real>();
-        let obj = nbox.as_mut_ref();
+        let obj = nbox.as_mut();
         obj.num = num;
 
         nbox
@@ -91,6 +93,7 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number::eq,
     Number::fmt,
     Number::is_type,
+    None,
 );
 
 impl NaviType for Number {
@@ -119,7 +122,7 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
+fn func_add(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
     let v = &args[0];
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -152,13 +155,13 @@ fn func_add(ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
     }
 
     if int.is_some() {
-        number::Integer::alloc(ctx, int.unwrap()).into_nboxvalue()
+        number::Integer::alloc(int.unwrap(), ctx).into_value()
     } else {
-        number::Real::alloc(ctx, real.unwrap()).into_nboxvalue()
+        number::Real::alloc(real.unwrap(), ctx).into_value()
     }
 }
 
-fn func_eqv(ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
+fn func_eqv(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
     let v = &args[0];
 
     let (int,real) = match number_to(&v.as_ref()) {
@@ -202,18 +205,18 @@ fn func_eqv(ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
     }
 
     if result {
-        bool::Bool::true_().into_nboxvalue()
+        bool::Bool::true_().into_value()
     } else {
-        bool::Bool::false_().into_nboxvalue()
+        bool::Bool::false_().into_value()
     }
 }
 
-fn func_abs(ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
+fn func_abs(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
     let v = &args[0];
 
     match number_to(v.as_ref()) {
-        Num::Int(num) => number::Integer::alloc(ctx, num.abs()).into_nboxvalue(),
-        Num::Real(num) => number::Real::alloc(ctx, num.abs()).into_nboxvalue(),
+        Num::Int(num) => number::Integer::alloc(num.abs(), ctx).into_value(),
+        Num::Real(num) => number::Real::alloc(num.abs(), ctx).into_value(),
     }
 }
 
@@ -249,7 +252,7 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 
 
 pub fn register_global(ctx: &mut Object) {
-    ctx.define_value("+", NBox::new(&FUNC_ADD.value as *const Func as *mut Func).into_nboxvalue());
-    ctx.define_value("=", NBox::new(&FUNC_EQV.value as *const Func as *mut Func).into_nboxvalue());
-    ctx.define_value("abs", NBox::new(&FUNC_ABS.value as *const Func as *mut Func).into_nboxvalue());
+    ctx.define_value("+", &NPtr::new(&FUNC_ADD.value as *const Func as *mut Func).into_value());
+    ctx.define_value("=", &NPtr::new(&FUNC_EQV.value as *const Func as *mut Func).into_value());
+    ctx.define_value("abs", &NPtr::new(&FUNC_ABS.value as *const Func as *mut Func).into_value());
 }

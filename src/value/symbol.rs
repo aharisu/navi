@@ -14,6 +14,7 @@ static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Symbol::eq,
     Symbol::fmt,
     Symbol::is_type,
+    None,
 );
 
 impl NaviType for Symbol {
@@ -27,8 +28,8 @@ impl Symbol {
         std::ptr::eq(&SYMBOL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(ctx : &mut Object, str: &String) -> NBox<Symbol> {
-        string::NString::alloc_inner::<Symbol>(ctx, str)
+    pub fn alloc(str: &String, ctx : &mut Object) -> NPtr<Symbol> {
+        string::NString::alloc_inner::<Symbol>(str, ctx)
     }
 
 }

@@ -10,6 +10,7 @@ static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Bool::eq,
     Bool::fmt,
     Bool::is_type,
+    None,
 );
 
 impl NaviType for Bool {
@@ -25,13 +26,13 @@ impl Bool {
     }
 
     #[inline(always)]
-    pub fn true_() -> NBox<Bool> {
-        NBox::<Bool>::new_immidiate(IMMIDATE_TRUE)
+    pub fn true_() -> NPtr<Bool> {
+        NPtr::<Bool>::new_immidiate(IMMIDATE_TRUE)
     }
 
     #[inline(always)]
-    pub fn false_() -> NBox<Bool> {
-        NBox::<Bool>::new_immidiate(IMMIDATE_FALSE)
+    pub fn false_() -> NPtr<Bool> {
+        NPtr::<Bool>::new_immidiate(IMMIDATE_FALSE)
     }
 
     #[inline(always)]

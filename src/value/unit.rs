@@ -10,6 +10,7 @@ static UNIT_TYPEINFO: TypeInfo = new_typeinfo!(
     Unit::eq,
     Unit::fmt,
     Unit::is_type,
+    None,
 );
 
 impl NaviType for Unit {
@@ -25,8 +26,8 @@ impl Unit {
     }
 
     #[inline(always)]
-    pub fn unit() -> NBox<Unit> {
-        NBox::<Unit>::new_immidiate(IMMIDATE_UNIT)
+    pub fn unit() -> NPtr<Unit> {
+        NPtr::<Unit>::new_immidiate(IMMIDATE_UNIT)
     }
 
     #[inline(always)]

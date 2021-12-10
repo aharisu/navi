@@ -15,6 +15,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure::eq,
     Closure::fmt,
     Closure::is_type,
+    Some(Closure::child_traversal),
 );
 
 impl NaviType for Closure {
@@ -28,15 +29,20 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(ctx: &mut Object, params: &NBox<array::Array>, body: &NBox<list::List>) -> NBox<Self> {
+    fn child_traversal(&self, arg: usize, callback: fn(&NPtr<Value>, arg: usize)) {
+        callback(self.params.cast_value(), arg);
+        callback(self.body.cast_value(), arg);
+    }
+
+    pub fn alloc(params: &NBox<array::Array>, body: &NBox<list::List>, ctx: &mut Object) -> NPtr<Self> {
         let mut nbox = ctx.alloc::<Closure>();
-        nbox.as_mut_ref().params = NPtr::new(params.as_mut_ptr());
-        nbox.as_mut_ref().body = NPtr::new(body.as_mut_ptr());
+        nbox.as_mut().params = NPtr::new(params.as_mut_ptr());
+        nbox.as_mut().body = NPtr::new(body.as_mut_ptr());
 
         nbox
     }
 
-    pub fn process_arguments_descriptor(&self, ctx: &mut Object, args: &mut Vec<NBox<Value>>) -> bool {
+    pub fn process_arguments_descriptor(&self, args: &mut Vec<NBox<Value>>, ctx: &mut Object) -> bool {
         let count = args.len();
         if count < self.params.as_ref().len() {
             false
@@ -45,7 +51,7 @@ impl Closure {
         }
     }
 
-    pub fn apply(&self, ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
+    pub fn apply(&self, args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
 
         //ローカルフレームを構築
         let mut frame = Vec::<(&NPtr<symbol::Symbol>, &NBox<Value>)>::new();
@@ -55,7 +61,7 @@ impl Closure {
 
         let iter = iter1.zip(iter2);
         for (sym, v) in iter {
-            let sym = sym.cast::<symbol::Symbol>();
+            let sym = unsafe { sym.cast_unchecked::<symbol::Symbol>() };
             frame.push((sym, v));
         }
 
@@ -65,15 +71,14 @@ impl Closure {
         //Closure本体を実行
         let mut result:Option<NBox<Value>> = None;
         for sexp in self.body.as_ref().iter() {
-            //TODO GC Capture:
-            let sexp = NBox::new(sexp.as_mut_ptr());
-            result = Some(eval::eval(&sexp, ctx));
+            let sexp = eval::eval(&NBox::new(sexp.clone(), ctx), ctx);
+            result = Some(NBox::new(sexp, ctx));
         }
 
         //ローカルフレームを環境からポップ
         ctx.pop_local_frame();
 
-        result.unwrap()
+        result.unwrap().get().clone()
     }
 
 }

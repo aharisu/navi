@@ -12,6 +12,7 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     Array::eq,
     Array::fmt,
     Array::is_type,
+    Some(Array::child_traversal),
 );
 
 impl NaviType for Array {
@@ -26,9 +27,15 @@ impl Array {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn alloc(ctx: &mut Object, size: usize) -> NBox<Array> {
+    fn child_traversal(&self, arg: usize, callback: fn(&NPtr<Value>, usize)) {
+        for index in 0..self.len {
+            callback(self.get_internal(index), arg);
+        }
+    }
+
+    fn alloc(size: usize, ctx: &mut Object) -> NPtr<Array> {
         let mut ary = ctx.alloc_with_additional_size::<Array>(size * std::mem::size_of::<NPtr<Value>>());
-        ary.as_mut_ref().len = size;
+        ary.as_mut().len = size;
 
         ary
     }
@@ -72,10 +79,9 @@ impl Array {
         }
     }
 
-    pub fn get(&self, index: usize) -> NBox<Value> {
+    pub fn get(&self, index: usize) -> NPtr<Value> {
         let refer = self.get_internal(index);
-
-        NBox::new(refer.as_mut_ptr())
+        refer.clone()
     }
 
     pub fn len(&self) -> usize {
@@ -89,15 +95,13 @@ impl Array {
         }
     }
 
-    pub fn from_slice<T>(ctx: &mut Object, ary: &[&T]) -> NBox<Array>
-    where
-        T: crate::value::AsPtr<Value>
+    pub fn from_slice(ary: &[NBox<Value>], ctx: &mut Object) -> NPtr<Array>
     {
         let size = ary.len();
-        let mut obj = Self::alloc(ctx, size);
+        let mut obj = Self::alloc(size, ctx);
 
         for (index, v) in ary.iter().enumerate() {
-            obj.as_mut_ref().set(*v, index);
+            obj.as_mut().set(v, index);
         }
 
         obj
@@ -146,30 +150,33 @@ mod tests {
     #[test]
     fn test() {
         let mut ctx = Object::new("array");
+        let ctx = &mut ctx;
+
         let mut ans_ctx = Object::new("ans");
+        let ans_ctx = &mut ans_ctx;
 
         {
-            let item1= number::Integer::alloc(&mut ctx, 1);
-            let item2= number::Real::alloc(&mut ctx, 3.14);
+            let item1= NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx);
+            let item2= NBox::new(number::Real::alloc(3.14, ctx).into_value(), ctx);
 
-            let ary = array::Array::from_slice(&mut ctx, &vec![
-                &item1.into_nboxvalue(),
-                &item2.into_nboxvalue(),
-                &list::List::nil().into_nboxvalue(),
-                &bool::Bool::true_().into_nboxvalue(),
-            ]);
+            let ary = array::Array::from_slice(&vec![
+                item1,
+                item2,
+                NBox::new(list::List::nil().into_value(), ctx),
+                NBox::new(bool::Bool::true_().into_value(), ctx),
+            ], ctx);
 
-            let ans= number::Integer::alloc(&mut ans_ctx, 1);
-            assert_eq!(ary.as_ref().get(0), ans.into_nboxvalue());
+            let ans= number::Integer::alloc(1, ans_ctx).into_value();
+            assert_eq!(ary.as_ref().get(0).as_ref(), ans.as_ref());
 
-            let ans= number::Real::alloc(&mut ans_ctx, 3.14);
-            assert_eq!(ary.as_ref().get(1), ans.into_nboxvalue());
+            let ans= number::Real::alloc(3.14, ans_ctx).into_value();
+            assert_eq!(ary.as_ref().get(1).as_ref(), ans.as_ref());
 
-            let ans= list::List::nil();
-            assert_eq!(ary.as_ref().get(2), ans.into_nboxvalue());
+            let ans= list::List::nil().into_value();
+            assert_eq!(ary.as_ref().get(2).as_ref(), ans.as_ref());
 
-            let ans= bool::Bool::true_();
-            assert_eq!(ary.as_ref().get(3), ans.into_nboxvalue());
+            let ans= bool::Bool::true_().into_value();
+            assert_eq!(ary.as_ref().get(3).as_ref(), ans.as_ref());
         }
     }
 }

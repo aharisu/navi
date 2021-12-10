@@ -15,6 +15,7 @@ static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
     NString::eq,
     NString::fmt,
     NString::is_type,
+    None,
 );
 
 impl NaviType for NString {
@@ -29,12 +30,12 @@ impl NString {
         std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(ctx : &mut Object, str: &String) -> NBox<NString> {
-        Self::alloc_inner(ctx, str)
+    pub fn alloc(str: &String, ctx : &mut Object) -> NPtr<NString> {
+        Self::alloc_inner(str, ctx)
     }
 
     //NStringとSymbolクラス共有のアロケーション用関数。TはNSTringもしくはSymbolのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType>(ctx : &mut Object, str: &String) -> NBox<T> {
+    pub(crate) fn alloc_inner<T: NaviType>(str: &String, ctx : &mut Object) -> NPtr<T> {
         let len_inbytes = str.len();
         let nbox = ctx.alloc_with_additional_size::<T>(len_inbytes);
 

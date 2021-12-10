@@ -4,10 +4,17 @@ pub struct PatriciaTree<T: Debug> {
     children: Vec<Node<T>>,
 }
 
-struct Node<T: Debug> {
+pub struct Node<T: Debug> {
     prefix: String,
     value: Option<T>,
     children: Vec<Node<T>>,
+}
+
+impl <T: Debug> Node<T> {
+    pub fn value_as_ref(&self) -> Option<&T> {
+        self.value.as_ref()
+    }
+
 }
 
 impl <T: Debug> PatriciaTree<T> {
@@ -292,7 +299,7 @@ impl <T: Debug> PatriciaTree<T> {
         }
     }
 
-    fn to_vec_preorder<'a>(&'a self) -> Vec::<&'a Node<T>> {
+    pub fn to_vec_preorder<'a>(&'a self) -> Vec::<&'a Node<T>> {
         fn rec<'a, T: Debug>(node: &'a Node<T>, acc: &mut Vec::<&'a Node<T>>) {
             acc.push(node);
 

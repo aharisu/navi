@@ -13,6 +13,7 @@ static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
     List::eq,
     List::fmt,
     List::is_type,
+    Some(List::child_traversal),
 );
 
 impl NaviType for List {
@@ -27,29 +28,34 @@ impl List {
         std::ptr::eq(&LIST_TYPEINFO, other_typeinfo)
     }
 
-    pub fn nil() -> NBox<List> {
-        NBox::<List>::new_immidiate(IMMIDATE_NIL)
+    fn child_traversal(&self, arg: usize, callback: fn(&NPtr<Value>, arg: usize)) {
+        callback(&self.v, arg);
+        callback(self.next.cast_value(), arg);
+    }
+
+    pub fn nil() -> NPtr<List> {
+        NPtr::<List>::new_immidiate(IMMIDATE_NIL)
     }
 
     pub fn is_nil(&self) -> bool {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc(ctx: &mut Object, v: &NBox<Value>, next: NBox<List>) -> NBox<List> {
+    pub fn alloc(v: &NBox<Value>, next: &NBox<List>, ctx: &mut Object) -> NPtr<List> {
         let mut nbox = ctx.alloc::<List>();
         //確保したメモリ内に値を書き込む
-        nbox.as_mut_ref().v = NPtr::new(v.as_mut_ptr());
-        nbox.as_mut_ref().next = NPtr::new(next.as_mut_ptr());
+        nbox.as_mut().v = NPtr::new(v.as_mut_ptr());
+        nbox.as_mut().next = NPtr::new(next.as_mut_ptr());
 
         nbox
     }
 
-    pub fn head_ref(&self) -> NBox<Value> {
-        NBox::new(self.v.as_mut_ptr())
+    pub fn head_ref(&self) -> NPtr<Value> {
+        self.v.clone()
     }
 
-    pub fn tail_ref(&self) -> NBox<List> {
-        NBox::new(self.next.as_mut_ptr())
+    pub fn tail_ref(&self) -> NPtr<List> {
+        self.next.clone()
     }
 
     pub fn count(&self) -> usize {
@@ -68,14 +74,14 @@ impl List {
         count
     }
 
-    pub fn from_vec(ctx: &mut Object, vec: Vec<NBox<Value>>) -> NBox<List> {
+    pub fn from_vec(vec: Vec<NBox<Value>>, ctx: &mut Object) -> NPtr<List> {
         //TODO gc guard
-        let mut acc = Self::nil();
+        let mut acc = NBox::new(Self::nil(), ctx);
         for v in vec.iter().rev() {
-            acc = Self::alloc(ctx, v, acc);
+            acc = NBox::new(Self::alloc(v, &acc, ctx), ctx);
         }
 
-        acc
+        acc.get().clone()
     }
 
     pub fn iter(&self) -> ListIterator {

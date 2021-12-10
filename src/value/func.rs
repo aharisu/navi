@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 pub struct Func {
     params: Vec<Param>,
-    body: fn(&mut Object, &[NBox<Value>]) -> NBox<Value>,
+    body:  fn(&[NBox<Value>], &mut Object) -> NPtr<Value>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -39,6 +39,7 @@ static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func::eq,
     Func::fmt,
     Func::is_type,
+    None,
 );
 
 impl NaviType for Func {
@@ -49,7 +50,7 @@ impl NaviType for Func {
 }
 
 impl Func {
-    pub fn new(params: &[Param], body: fn(&mut Object, &[NBox<Value>]) -> NBox<Value>) -> Func {
+    pub fn new(params: &[Param], body: fn(&[NBox<Value>], &mut Object) -> NPtr<Value>) -> Func {
         Func {
             params: params.to_vec(),
             body: body,
@@ -61,7 +62,7 @@ impl Func {
     }
 
     //TODO 戻り値をboolからResultに変更。Errorには適切なエラー内容を含んだenum
-    pub fn process_arguments_descriptor<'a>(&self, ctx: &mut Object, args: &mut Vec<NBox<Value>>) -> bool {
+    pub fn process_arguments_descriptor(&self, args: &mut Vec<NBox<Value>>, ctx: &mut Object) -> bool {
         fn check_type(v: &NBox<Value>, param: &Param) -> bool {
             v.is_type(param.typeinfo)
         }
@@ -82,7 +83,7 @@ impl Func {
                     //Optionalなパラメータに対応する引数がなければ
                     if args.len() <= index {
                         //Unit値をデフォルト値として設定
-                        args.push(unit::Unit::unit().into_nboxvalue());
+                        args.push(NBox::new(unit::Unit::unit().into_value(), ctx));
 
                     } else if check_type(&args[index], param) == false {
                         //型チェックエラー
@@ -91,7 +92,7 @@ impl Func {
                 }
                 ParamKind::Rest => {
                     if args.len() <= index {
-                        args.push(list::List::nil().into_nboxvalue());
+                        args.push(NBox::new(list::List::nil().into_value(), ctx));
 
                     } else {
                         let rest:Vec<_> = args.drain(index..).collect();
@@ -100,8 +101,8 @@ impl Func {
                             return false;
                         }
 
-                        let rest = list::List::from_vec(ctx, rest);
-                        args.push(rest.into_nboxvalue());
+                        let rest = list::List::from_vec(rest, ctx);
+                        args.push(NBox::new(rest.into_value(), ctx));
                     }
                 }
             }
@@ -110,8 +111,8 @@ impl Func {
         true
     }
 
-    pub fn apply(&self, ctx: &mut Object, args: &[NBox<Value>]) -> NBox<Value> {
-        (self.body)(ctx, args)
+    pub fn apply(&self, args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
+        (self.body)(args, ctx)
     }
 }
 

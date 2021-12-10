@@ -11,7 +11,7 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&mut Object, &NBox<list::List>) -> NBox<Value>,
+    body: fn(&NBox<list::List>, &mut Object) -> NPtr<Value>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -20,6 +20,7 @@ static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
     Syntax::eq,
     Syntax::fmt,
     Syntax::is_type,
+    None,
 );
 
 impl NaviType for Syntax {
@@ -30,7 +31,7 @@ impl NaviType for Syntax {
 }
 
 impl Syntax {
-    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&mut Object, &NBox<list::List>) -> NBox<Value>) -> Self {
+    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&NBox<list::List>, &mut Object) -> NPtr<Value>) -> Self {
         Syntax {
             require: require,
             optional: optional,
@@ -54,8 +55,8 @@ impl Syntax {
         }
     }
 
-    pub fn apply(&self, ctx: &mut Object, args: &NBox<list::List>) -> NBox<Value> {
-        (self.body)(ctx, args)
+    pub fn apply(&self, args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
+        (self.body)(args, ctx)
     }
 }
 
@@ -73,10 +74,9 @@ impl Debug for Syntax {
     }
 }
 
-fn syntax_if(ctx: &mut Object, args: &NBox<list::List>) -> NBox<Value> {
-    //TODO GC Capture:
-    let pred = args.as_ref().head_ref();
-    let pred = eval(&pred, ctx);
+fn syntax_if(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
+    let pred = NBox::new(args.as_ref().head_ref(), ctx);
+    let pred = NBox::new(eval(&pred, ctx), ctx);
 
     let pred = if let Some(pred) = pred.as_ref().try_cast::<bool::Bool>() {
         pred.is_true()
@@ -87,37 +87,37 @@ fn syntax_if(ctx: &mut Object, args: &NBox<list::List>) -> NBox<Value> {
     let args = args.as_ref().tail_ref();
     if pred {
         //TODO GC Capture:
-        let true_sexp = args.as_ref().head_ref();
+        let true_sexp = NBox::new(args.as_ref().head_ref(), ctx);
         eval(&true_sexp, ctx)
 
     } else {
         let args = args.as_ref().tail_ref();
         if args.as_ref().is_nil() {
-            unit::Unit::unit().into_nboxvalue()
+            unit::Unit::unit().into_value()
         } else {
             //TODO GC Capture:
-            let false_sexp = args.as_ref().head_ref();
+            let false_sexp = NBox::new(args.as_ref().head_ref(), ctx);
             eval(&false_sexp, ctx)
         }
     }
 }
 
-fn syntax_fun(ctx: &mut Object, args: &NBox<list::List>) -> NBox<Value> {
+fn syntax_fun(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
     //TODO GC Capture: params_vec
-    let mut params_vec: Vec<&NPtr<Value>> = Vec::new();
+    let mut params_vec: Vec<NBox<Value>> = Vec::new();
 
     //引数指定の内容を解析
     let params = args.as_ref().head_ref();
     if let Some(params) = params.try_cast::<list::List>() {
         //TODO :optionalと:rest引数の対応
-        //TODO GC Capture: iter
-        let iter = params.as_ref().iter();
-        for p in iter {
-            if p.as_ref().is::<symbol::Symbol>() {
-
-                params_vec.push(p);
-            } else {
-                panic!("parameter require symbol. But got {:?}", p.as_ref())
+        for p in params.as_ref().iter() {
+            match p.try_cast::<symbol::Symbol>() {
+                Some(sym) => {
+                    params_vec.push(NBox::new(sym.cast_value().clone(), ctx));
+                }
+                None => {
+                    panic!("parameter require symbol. But got {:?}", p.as_ref())
+                }
             }
         }
     } else {
@@ -125,13 +125,10 @@ fn syntax_fun(ctx: &mut Object, args: &NBox<list::List>) -> NBox<Value> {
     }
 
     //GC Capture:
-    let params = array::Array::from_slice(ctx, &params_vec);
-    let body = args.as_ref().tail_ref();
+    let params = NBox::new( array::Array::from_slice(&params_vec, ctx), ctx);
+    let body = NBox::new(args.as_ref().tail_ref(), ctx);
 
-    closure::Closure::alloc(ctx
-        , &params
-        , &body
-    ).into_nboxvalue()
+    closure::Closure::alloc(&params, &body, ctx).into_value()
 }
 
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
@@ -143,6 +140,6 @@ static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
 });
 
 pub fn register_global(ctx: &mut Object) {
-    ctx.define_value("if", NBox::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_nboxvalue());
-    ctx.define_value("fun", NBox::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_nboxvalue());
+    ctx.define_value("if", &NPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("fun", &NPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
 }

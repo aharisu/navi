@@ -29,58 +29,59 @@ impl World {
         self.area.get(key)
     }
 
+    pub(crate) fn get_all_values(&self) -> Vec<&NPtr<Value>> {
+        let vec = self.area.to_vec_preorder();
+        vec.iter().filter_map(|node| {
+            node.value_as_ref()
+        }).collect()
+    }
+
 }
 
 
 #[cfg(test)]
 mod tets {
     use crate::value::*;
-    use crate::world::*;
     use crate::object::Object;
 
-    fn world_get(world: &mut World, symbol: &NBox<symbol::Symbol>) -> NBox<Value> {
-        let result = world.get(symbol.as_ref());
+    fn world_get(symbol: &NBox<symbol::Symbol>, ctx: &mut Object) -> NBox<Value> {
+        let result = ctx.find_value(symbol);
         assert!(result.is_some());
-        NBox::<Value>::new(result.unwrap().as_mut_ptr())
+        NBox::new(result.unwrap(), ctx)
     }
 
     #[test]
     fn set_get() {
-        let mut ctx = Object::new("string");
-        let mut ans_ctx = Object::new("ans");
+        let mut ctx = Object::new("world");
+        let ctx = &mut ctx;
 
         {
-            let mut world = World::new();
+            let v = NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx);
+            ctx.define_value("symbol", &v);
 
-            let symbol = symbol::Symbol::alloc(&mut ctx, &"symbol".to_string());
-            let v = number::Integer::alloc(&mut ctx, 1).into_nboxvalue();
-            world.set(symbol.as_ref(), v.into_nptr());
-
-            let symbol = symbol::Symbol::alloc(&mut ctx, &"symbol".to_string());
-            let result = world_get(&mut world, &symbol);
-            let ans = number::Integer::alloc(&mut ans_ctx, 1).into_nboxvalue();
+            let symbol = NBox::new(symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
+            let result = world_get(&symbol, ctx);
+            let ans = NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx);
             assert_eq!(result, ans);
 
 
-            let symbol = symbol::Symbol::alloc(&mut ctx, &"symbol".to_string());
-            let v = number::Real::alloc(&mut ctx, 3.14).into_nboxvalue();
-            world.set(symbol.as_ref(), v.into_nptr());
+            let v = NBox::new(number::Real::alloc(3.14, ctx).into_value(), ctx);
+            ctx.define_value("symbol", &v);
 
-            let symbol = symbol::Symbol::alloc(&mut ctx, &"symbol".to_string());
-            let result = world_get(&mut world, &symbol);
-            let ans = number::Real::alloc(&mut ans_ctx, 3.14).into_nboxvalue();
+            let symbol = NBox::new(symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
+            let result = world_get(&symbol, ctx);
+            let ans = NBox::new(number::Real::alloc(3.14, ctx).into_value(), ctx);
             assert_eq!(result, ans);
 
-            let symbol2 = symbol::Symbol::alloc(&mut ctx, &"hoge".to_string());
-            let v2 = string::NString::alloc(&mut ctx, &"bar".to_string()).into_nboxvalue();
-            world.set(symbol2.as_ref(), v2.into_nptr());
+            let v2 = NBox::new(string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
+            ctx.define_value("hoge", &v2);
 
-            let symbol2 = symbol::Symbol::alloc(&mut ctx, &"hoge".to_string());
-            let result = world_get(&mut world, &symbol2);
-            let ans2 = string::NString::alloc(&mut ans_ctx, &"bar".to_string()).into_nboxvalue();
+            let symbol2 = NBox::new(symbol::Symbol::alloc(&"hoge".to_string(), ctx), ctx);
+            let result = world_get(&symbol2, ctx);
+            let ans2 = NBox::new(string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
             assert_eq!(result, ans2);
 
-            let result = world_get(&mut world, &symbol);
+            let result = world_get(&symbol, ctx);
             assert_eq!(result, ans);
         }
     }

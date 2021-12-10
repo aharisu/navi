@@ -13,7 +13,7 @@ fn readerror(msg: String) -> ReadError {
     ReadError { msg: msg}
 }
 
-pub type ReadResult = Result<NBox<Value>, ReadError>;
+pub type ReadResult = Result<NPtr<Value>, ReadError>;
 
 pub struct ReadContext<'i, 'o> {
     input: Peekable<Chars<'i>>,
@@ -21,7 +21,7 @@ pub struct ReadContext<'i, 'o> {
 }
 
 impl <'i, 'o> ReadContext<'i, 'o> {
-    pub fn new(ctx: &'o mut Object, input: Peekable<Chars<'i>>) -> Self {
+    pub fn new(input: Peekable<Chars<'i>>, ctx: &'o mut Object) -> Self {
         ReadContext {
             input: input,
             obj: ctx,
@@ -29,7 +29,7 @@ impl <'i, 'o> ReadContext<'i, 'o> {
     }
 }
 
-pub fn read<'a>(ctx: &'a mut ReadContext) -> ReadResult {
+pub fn read(ctx: &mut ReadContext) -> ReadResult {
     read_internal(ctx)
 }
 
@@ -61,8 +61,8 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
             Some(')') => {
                 ctx.input.next();
                 // complete!
-                let list = list::List::from_vec(&mut ctx.obj, acc);
-                return Ok(list.into_nboxvalue());
+                let list = list::List::from_vec(acc, &mut ctx.obj);
+                return Ok(list.into_value());
             }
             Some(_) => {
                 //再帰的にreadを呼び出す
@@ -70,7 +70,7 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
                     //内部でエラーが発生した場合は途中停止
                     Err(msg) => return Err(msg),
                     //リストの要素としてvec内に保存してループを継続
-                    Ok(v) => acc.push(v),
+                    Ok(v) => acc.push(NBox::new(v, ctx.obj)),
                 }
             }
         }
@@ -88,8 +88,8 @@ fn read_string(ctx: &mut ReadContext) -> ReadResult {
             None => return Err(readerror("文字列が完結する前にEOFになった".to_string())),
             Some('\"') => {
                 let str: String = acc.into_iter().collect();
-                let str = string::NString::alloc(&mut ctx.obj, &str);
-                return Ok(str.into_nboxvalue());
+                let str = string::NString::alloc(&str, &mut ctx.obj);
+                return Ok(str.into_value());
             }
             Some(ch) => {
                 acc.push(ch);
@@ -107,19 +107,19 @@ fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
         Ok(str) => match str.parse::<i64>() {
                 Ok(num) => {
                     //integer
-                    let num = number::Integer::alloc(&mut ctx.obj, num);
-                    return Ok(num.into_nboxvalue());
+                    let num = number::Integer::alloc(num, &mut ctx.obj);
+                    return Ok(num.into_value());
                 },
                 Err(_) => match str.parse::<f64>() {
                     Ok(num) => {
                         //floating number
-                        let num = number::Real::alloc(&mut ctx.obj, num);
-                        return Ok(num.into_nboxvalue());
+                        let num = number::Real::alloc(num, &mut ctx.obj);
+                        return Ok(num.into_value());
                     }
                     Err(_) => {
                         //symbol
-                        let symbol = symbol::Symbol::alloc(&mut ctx.obj, &str);
-                        return Ok(symbol.into_nboxvalue());
+                        let symbol = symbol::Symbol::alloc(&str, &mut ctx.obj);
+                        return Ok(symbol.into_value());
                     }
                 }
             }
@@ -130,9 +130,9 @@ fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
 fn read_symbol(ctx: &mut ReadContext) -> ReadResult {
     match read_word(ctx) {
         Ok(str) => match &*str {
-            "true" =>Ok(bool::Bool::true_().into_nboxvalue()),
-            "false" =>Ok(bool::Bool::false_().into_nboxvalue()),
-            _ => Ok(symbol::Symbol::alloc(&mut ctx.obj, &str).into_nboxvalue()),
+            "true" =>Ok(bool::Bool::true_().into_value()),
+            "false" =>Ok(bool::Bool::false_().into_value()),
+            _ => Ok(symbol::Symbol::alloc(&str, &mut ctx.obj).into_value()),
         }
         Err(err) => Err(err),
     }
@@ -216,8 +216,8 @@ mod tets {
     use crate::value::*;
     use crate::object::Object;
 
-    fn make_read_context<'a, 'b>(ctx: &'a mut Object, s: &'b str) -> ReadContext<'b, 'a> {
-        ReadContext::new(ctx, s.chars().peekable())
+    fn make_read_context<'a, 'b>(s: &'a str, ctx: &'b mut Object) -> ReadContext<'a, 'b> {
+        ReadContext::new( s.chars().peekable(), ctx)
     }
 
     #[test]
@@ -228,40 +228,45 @@ mod tets {
                 
         "#;
 
-        let mut ctx = make_read_context(&mut ctx, program);
+        let mut ctx = make_read_context( program, &mut ctx);
         let result  = crate::read::read(&mut ctx);
         assert!(result.is_err());
     }
 
-    fn read<T: NaviType>(ctx: &mut Object, program: &str) -> NBox<T> {
+    fn read<T: NaviType>(program: &str, ctx: &mut Object) -> NBox<T> {
         //let mut heap = navi::mm::Heap::new(1024, name.to_string());
-        let mut ctx = make_read_context(ctx, program);
+        let mut ctx = make_read_context(program, ctx);
 
         read_with_ctx(&mut ctx)
     }
 
     fn read_with_ctx<T: NaviType>(ctx: &mut ReadContext) -> NBox<T> {
-        let result = crate::read::read(ctx);
-        assert!(result.is_ok());
+        let result = {
+            let result = crate::read::read(ctx);
+            assert!(result.is_ok());
 
-        let result: Option<NBox<T>> = result.unwrap().into_nbox::<T>();
-        assert!(result.is_some());
+            let result = result.unwrap().try_into::<T>();
+            assert!(result.is_some());
+            result.unwrap()
+        };
 
-        result.unwrap()
+        NBox::new(result, &mut ctx.obj)
     }
 
     #[test]
     fn read_string() {
         let mut ctx = Object::new("string");
+        let ctx = &mut ctx;
         let mut ans_ctx = Object::new(" ans");
+        let ans_ctx = &mut ans_ctx;
 
         {
             let program = r#"
             "aiueo"
             "#;
 
-            let result = read::<string::NString>(&mut ctx, program);
-            let ans = string::NString::alloc(&mut ans_ctx, &"aiueo".to_string());
+            let result = read::<string::NString>(program, ctx);
+            let ans = NBox::new(string::NString::alloc(&"aiueo".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
@@ -271,14 +276,14 @@ mod tets {
             "3 * (4 / 2) - 12 = -6   "
             "#;
 
-            let mut ctx = make_read_context(&mut ctx, program);
+            let mut ctx = make_read_context(program, ctx);
 
             let result = read_with_ctx::<string::NString>(&mut ctx);
-            let ans = string::NString::alloc(&mut ans_ctx, &"1 + (1 - 3) = -1".to_string());
+            let ans = NBox::new(string::NString::alloc(&"1 + (1 - 3) = -1".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
 
             let result = read_with_ctx::<string::NString>(&mut ctx);
-            let ans = string::NString::alloc(&mut ans_ctx, &"3 * (4 / 2) - 12 = -6   ".to_string());
+            let ans = NBox::new(string::NString::alloc(&"3 * (4 / 2) - 12 = -6   ".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
     }
@@ -286,75 +291,79 @@ mod tets {
     #[test]
     fn read_int() {
         let mut ctx = Object::new("int");
-        let mut ans_ctx = Object::new("int ans");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Object::new(" ans");
+        let ans_ctx = &mut ans_ctx;
 
         {
             let program = "1";
 
-            let result = read::<number::Integer>(&mut ctx, program);
-            let ans = number::Integer::alloc(&mut ans_ctx, 1);
+            let result = read::<number::Integer>(program, ctx);
+            let ans = NBox::new(number::Integer::alloc(1, ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "-1";
 
-            let result = read::<number::Integer>(&mut ctx, program);
-            let ans = number::Integer::alloc(&mut ans_ctx, -1);
+            let result = read::<number::Integer>(program, ctx);
+            let ans = NBox::new(number::Integer::alloc(-1, ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "+1";
 
-            let result = read::<number::Integer>(&mut ctx, program);
-            let ans = number::Integer::alloc(&mut ans_ctx, 1);
+            let result = read::<number::Integer>(program, ctx);
+            let ans = NBox::new(number::Integer::alloc(1, ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
     }
 
     #[test]
     fn read_float() {
-        let mut ctx = Object::new("int");
-        let mut ans_ctx = Object::new("int ans");
+        let mut ctx = Object::new("float");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Object::new(" ans");
+        let ans_ctx = &mut ans_ctx;
 
         {
             let program = "1.0";
 
-            let result = read::<number::Real>(&mut ctx, program);
-            let ans = number::Real::alloc(&mut ans_ctx, 1.0);
+            let result = read::<number::Real>(program, ctx);
+            let ans = NBox::new(number::Real::alloc(1.0, ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "-1.0";
 
-            let result = read::<number::Real>(&mut ctx, program);
-            let ans = number::Real::alloc(&mut ans_ctx, -1.0);
+            let result = read::<number::Real>(program, ctx);
+            let ans = NBox::new(number::Real::alloc(-1.0, ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "+1.0";
 
-            let result = read::<number::Real>(&mut ctx, program);
-            let ans = number::Real::alloc(&mut ans_ctx, 1.0);
+            let result = read::<number::Real>(program, ctx);
+            let ans = NBox::new(number::Real::alloc(1.0, ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "3.14";
 
-            let result = read::<number::Real>(&mut ctx, program);
-            let ans = number::Real::alloc(&mut ans_ctx, 3.14);
+            let result = read::<number::Real>(program, ctx);
+            let ans = NBox::new(number::Real::alloc(3.14, ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "0.5";
 
-            let result = read::<number::Real>(&mut ctx, program);
-            let ans = number::Real::alloc(&mut ans_ctx, 0.5);
+            let result = read::<number::Real>(program, ctx);
+            let ans = NBox::new(number::Real::alloc(0.5, ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
     }
@@ -362,54 +371,56 @@ mod tets {
     #[test]
     fn read_symbol() {
         let mut ctx = Object::new("symbol");
-        let mut ans_ctx = Object::new("symbol ans");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Object::new(" ans");
+        let ans_ctx = &mut ans_ctx;
 
         {
             let program = "symbol";
 
-            let result = read::<symbol::Symbol>(&mut ctx, program);
-            let ans = symbol::Symbol::alloc(&mut ans_ctx, &"symbol".to_string());
+            let result = read::<symbol::Symbol>(program, ctx);
+            let ans = NBox::new(symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "s1 s2   s3";
 
-            let mut ctx = make_read_context(&mut ctx, program);
+            let mut ctx = make_read_context(program, ctx);
 
             let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
-            let ans = symbol::Symbol::alloc(&mut ans_ctx, &"s1".to_string());
+            let ans = NBox::new(symbol::Symbol::alloc(&"s1".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
 
             let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
-            let ans = symbol::Symbol::alloc(&mut ans_ctx, &"s2".to_string());
+            let ans = NBox::new(symbol::Symbol::alloc(&"s2".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
 
 
             let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
-            let ans = symbol::Symbol::alloc(&mut ans_ctx, &"s3".to_string());
+            let ans = NBox::new(symbol::Symbol::alloc(&"s3".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "+ - +1-2 -2*3/4";
 
-            let mut ctx = make_read_context(&mut ctx, program);
+            let mut ctx = make_read_context(program, ctx);
 
             let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
-            let ans = symbol::Symbol::alloc(&mut ans_ctx, &"+".to_string());
+            let ans = NBox::new(symbol::Symbol::alloc(&"+".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
 
             let result = read_with_ctx(&mut ctx);
-            let ans = symbol::Symbol::alloc(&mut ans_ctx, &"-".to_string());
+            let ans = NBox::new(symbol::Symbol::alloc(&"-".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
 
             let result = read_with_ctx(&mut ctx);
-            let ans = symbol::Symbol::alloc(&mut ans_ctx, &"+1-2".to_string());
+            let ans = NBox::new(symbol::Symbol::alloc(&"+1-2".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
 
             let result = read_with_ctx(&mut ctx);
-            let ans = symbol::Symbol::alloc(&mut ans_ctx, &"-2*3/4".to_string());
+            let ans = NBox::new(symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_ctx), ans_ctx);
             assert_eq!(result, ans);
         }
 
@@ -417,14 +428,14 @@ mod tets {
         {
             let program = "true false";
 
-            let mut ctx = make_read_context(&mut ctx, program);
+            let mut ctx = make_read_context(program, ctx);
 
             let result = read_with_ctx(&mut ctx);
-            let ans = bool::Bool::true_();
+            let ans = NBox::new(bool::Bool::true_(), ans_ctx);
             assert_eq!(result, ans);
 
             let result = read_with_ctx(&mut ctx);
-            let ans = bool::Bool::false_();
+            let ans = NBox::new(bool::Bool::false_(), ans_ctx);
             assert_eq!(result, ans);
         }
     }
@@ -432,28 +443,30 @@ mod tets {
     #[test]
     fn read_list() {
         let mut ctx = Object::new("list");
-        let mut ans_ctx = Object::new("list ans");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Object::new(" ans");
+        let ans_ctx = &mut ans_ctx;
 
         {
             let program = "()";
 
-            let result = read(&mut ctx, program);
-            let ans = list::List::nil();
+            let result = read(program, ctx);
+            let ans = NBox::new(list::List::nil(), ans_ctx);
             assert_eq!(result, ans);
         }
 
         {
             let program = "(1 2 3)";
 
-            let result = read(&mut ctx, program);
+            let result = read(program, ctx);
 
-            let _1 = number::Integer::alloc(&mut ans_ctx, 1).into_nboxvalue();
-            let _2 = number::Integer::alloc(&mut ans_ctx, 2).into_nboxvalue();
-            let _3 = number::Integer::alloc(&mut ans_ctx, 3).into_nboxvalue();
-            let ans = list::List::nil();
-            let ans = list::List::alloc(&mut ans_ctx, &_3, ans);
-            let ans = list::List::alloc(&mut ans_ctx, &_2, ans);
-            let ans = list::List::alloc(&mut ans_ctx, &_1, ans);
+            let _1 = NBox::new(number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
+            let _2 = NBox::new(number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
+            let _3 = NBox::new(number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
+            let ans = NBox::new(list::List::nil(), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
 
             assert_eq!(result, ans);
         }
@@ -461,17 +474,17 @@ mod tets {
         {
             let program = "(1 3.14 \"hohoho\" symbol)";
 
-            let result = read(&mut ctx, program);
+            let result = read(program, ctx);
 
-            let _1 = number::Integer::alloc(&mut ans_ctx, 1).into_nboxvalue();
-            let _3_14 = number::Real::alloc(&mut ans_ctx, 3.14).into_nboxvalue();
-            let hohoho = string::NString::alloc(&mut ans_ctx, &"hohoho".to_string()).into_nboxvalue();
-            let symbol = symbol::Symbol::alloc(&mut ans_ctx, &"symbol".to_string()).into_nboxvalue();
-            let ans = list::List::nil();
-            let ans = list::List::alloc(&mut ans_ctx, &symbol, ans);
-            let ans = list::List::alloc(&mut ans_ctx, &hohoho, ans);
-            let ans = list::List::alloc(&mut ans_ctx, &_3_14, ans);
-            let ans = list::List::alloc(&mut ans_ctx, &_1, ans);
+            let _1 = NBox::new(number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
+            let _3_14 = NBox::new(number::Real::alloc(3.14, ans_ctx).into_value(), ans_ctx);
+            let hohoho = NBox::new(string::NString::alloc(&"hohoho".to_string(), ans_ctx).into_value(), ans_ctx);
+            let symbol = NBox::new(symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
+            let ans = NBox::new(list::List::nil(), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&hohoho, &ans, ans_ctx), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&_3_14, &ans, ans_ctx), ans_ctx);
+            let ans = NBox::new(list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
 
             assert_eq!(result, ans);
         }
