@@ -57,12 +57,11 @@ const fn gc_flags_pack(alloc_size: u16, forwarding_index: u16, alive: bool) -> u
     (alive as usize)
 }
 
-#[allow(dead_code)]
 #[inline]
 const fn gc_flags_unpack(flags: usize) -> (u16, u16, bool) {
     (
-        (flags >> (12 - SIZE_BIT_SHIFT) & 0x07FF) as u16, //allocation size 11bit
-        (flags << (SIZE_BIT_SHIFT - 1) & 0x07FF) as u16, //forwarding index
+        ((flags & 0x7F_F000) >> (12 - SIZE_BIT_SHIFT)) as u16, //allocation size 11bit
+        ((flags & 0xFFE) << (SIZE_BIT_SHIFT - 1)) as u16, //forwarding index
         (flags & 1) == 1 //GC到達可能フラグ 1bit
         )
 }
@@ -102,6 +101,9 @@ impl Heap {
     pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, ctx: &Object) -> NPtr<T> {
         debug_assert!(!self.freed);
 
+        //GCのバグを発見しやすいように、allocのたびにGCを実行する
+        self.debug_gc(ctx);
+
         let gc_header_size = mem::size_of::<GCHeader>();
         let obj_size = std::mem::size_of::<T>();
 
@@ -116,8 +118,6 @@ impl Heap {
 
         let alloc_size = aligned_size;
 
-        println!("[alloc {}]struct:{}, add:{}, aligned:{}, alloc:{}, cur_used={}", self.name, obj_size, additional_size, aligned_size, alloc_size, self.used);
-
         let mut try_count = 0;
         loop {
             if self.used + alloc_size < self.page_layout.size() {
@@ -129,7 +129,6 @@ impl Heap {
                     gc_header.typeinfo = T::typeinfo();
 
                     let obj_ptr = gc_header_ptr.add(gc_header_size) as *mut T;
-                    //println!("[ptr {}] header:{:x} obj:{:x}", self.name, ptr_to_usize(gc_header_ptr), ptr_to_usize(obj_ptr));
 
                     self.used += alloc_size;
 
@@ -145,7 +144,45 @@ impl Heap {
         }
     }
 
-    fn gc(&mut self, ctx: &Object) {
+    pub fn used(&self) -> usize {
+        self.used
+    }
+
+    fn debug_gc(&mut self, ctx: &Object) {
+        self.gc(ctx);
+
+        //ダングリングポインタを発見しやすくするために未使用の領域を全て0埋め
+        unsafe {
+            let ptr = self.pool_ptr.add(self.used);
+            std::ptr::write_bytes(ptr, 0, self.page_layout.size() - self.used);
+        }
+    }
+
+    #[allow(dead_code)]
+    fn dump_heap(&self, _ctx: &Object) {
+        unsafe {
+            let mut ptr = self.pool_ptr;
+            let end = self.pool_ptr.add(self.used);
+
+            while ptr < end {
+                let header = &mut *(ptr as *mut GCHeader);
+                let (size, forwarding_index, marked) = gc_flags_unpack(header.flags);
+
+                println!("[dump] {:<8}, size:{}, mark:{}, forwarding:{:x}, ptr:{:x}",
+                    header.typeinfo.as_ref().name,
+                    size,
+                    marked,
+                    forwarding_index,
+                    ptr.offset_from(self.pool_ptr)
+                );
+
+                ptr = ptr.add(size as usize);
+            }
+        }
+
+    }
+
+    pub(crate) fn gc(&mut self, ctx: &Object) {
         self.mark_phase(ctx);
         self.setup_forwad_ptr(ctx);
         self.update_reference(ctx);
@@ -189,7 +226,7 @@ impl Heap {
     }
 
     fn mark_phase(&mut self, ctx: &Object) {
-        ctx.for_each_all_alived_value(|v| {
+        ctx.for_each_all_alived_value(0, |v, _| {
             let v = v.as_ref();
             if Self::is_need_mark(v) {
                 Self::mark(v);
@@ -202,6 +239,7 @@ impl Heap {
             let mut ptr = self.pool_ptr;
             let end = self.pool_ptr.add(self.used);
 
+            let mut is_moving = false;
             let mut forwarding_index:usize = 0;
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
@@ -209,12 +247,17 @@ impl Heap {
                 //生きているオブジェクトなら
                 if marked {
                     //再配置される先のアドレス(スタート地点のポインタからのオフセット)をヘッダー内に一時保存する
-                    header.flags = gc_flags_pack(size, forwarding_index as u16, true);
-                    forwarding_index += size as usize / std::mem::size_of::<usize>();
+                    if is_moving {
+                        header.flags = gc_flags_pack(size, forwarding_index as u16, true);
+                    }
+                    forwarding_index += size as usize;
 
                 } else {
                     //マークがないオブジェクトは開放する
                     //TODO オブジェクトに対するファイナライザを実装する場合ここで実行する
+
+                    //解放するオブジェクトが一つでも見つかったら、それ以降のオブジェクトは移動される
+                    is_moving = true;
                 }
 
 
@@ -227,9 +270,29 @@ impl Heap {
         //生きているオブジェクトの内部で保持したままのアドレスを、
         //再配置後のアドレスで上書きする
 
+        fn update_child_pointer(child: &NPtr<Value>, start_addr: usize) {
+            //子オブジェクトへのポインタを移動先の新しいポインタで置き換える
+            if value::value_is_pointer(child.as_ref()) {
+                let header = crate::mm::Heap::get_gc_header(child.as_ref());
+                let (_, forwarding_index, _) = gc_flags_unpack(header.flags);
+
+                //子オブジェクトが移動しているなら移動先のポインタを参照するように更新する
+                if forwarding_index != 0 {
+                    let offset = forwarding_index as usize + std::mem::size_of::<GCHeader>();
+                    let new_ptr = unsafe { (start_addr as *mut u8).add(offset) } as *mut Value;
+
+
+                    child.update_pointer(new_ptr);
+                }
+            }
+        }
+
         unsafe {
             let mut ptr = self.pool_ptr;
             let start = ptr_to_usize(ptr);
+
+            ctx.for_each_all_alived_value(start, update_child_pointer);
+
             let end = ptr.add(self.used);
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
@@ -241,15 +304,7 @@ impl Heap {
                         let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
                         let v = &*(v_ptr as *const Value);
 
-                        func(v, start,|child, start| {
-                            //子オブジェクトへのポインタを移動先の新しいポインタで置き換える
-                            if value::value_is_pointer(child.as_ref()) {
-                                let header = Self::get_gc_header(child.as_ref());
-                                let (_, forwarding_index, _) = gc_flags_unpack(header.flags);
-                                let new_ptr = (start as *mut u8).add(forwarding_index as usize) as *mut Value;
-                                child.update_pointer(new_ptr);
-                            }
-                        });
+                        func(v, start, update_child_pointer);
                     }
 
                 }
@@ -274,9 +329,10 @@ impl Heap {
                     //GC中に使用したフラグをすべてリセット
                     header.flags = gc_flags_pack(size, 0, false);
 
-                    let new_ptr = start.add(forwarding_index as usize);
                     //現在のポインタと新しい位置のポインタが変わっていたら
-                    if ptr != new_ptr {
+                    if forwarding_index != 0 {
+                        let new_ptr = start.add(forwarding_index as usize);
+
                         //新しい位置へデータをすべてコピー
                         std::ptr::copy(ptr, new_ptr, size as usize);
                     }
@@ -340,4 +396,36 @@ pub fn ptr_to_usize<T>(ptr: *const T) -> usize {
         ptr: ptr as *const u8,
     };
     unsafe { u.v }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{let_cap, new_cap};
+    use crate::value::*;
+    use crate::object::*;
+
+    #[test]
+    fn gc_test() {
+        let mut ctx = Object::new("gc");
+        let ctx = &mut ctx;
+
+        {
+            let_cap!(_1, number::Integer::alloc(1, ctx).into_value(), ctx);
+            {
+                let_cap!(_2, number::Integer::alloc(2, ctx).into_value(), ctx);
+                let_cap!(_3, number::Integer::alloc(3, ctx).into_value(), ctx);
+
+                ctx.do_gc();
+                let used = (std::mem::size_of::<crate::mm::GCHeader>() + std::mem::size_of::<number::Integer>()) * 3;
+                assert_eq!(ctx.heap_used(), used);
+            }
+
+            ctx.do_gc();
+            let used = (std::mem::size_of::<crate::mm::GCHeader>() + std::mem::size_of::<number::Integer>()) * 1;
+            assert_eq!(ctx.heap_used(), used);
+        }
+
+        ctx.do_gc();
+        assert_eq!(ctx.heap_used(), 0);
+    }
 }

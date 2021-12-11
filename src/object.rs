@@ -1,4 +1,6 @@
-use crate::value::*;
+#![allow(unused_unsafe)]
+
+use crate::value::{self, *};
 use crate::mm::{Heap};
 use crate::world::World;
 
@@ -76,6 +78,11 @@ impl Object {
     }
 
     pub fn add_capture(&self, nbox: &mut Capture<Value>) {
+        //ポインタ以外の値はキャプチャの必要がないので何もしない
+        if value::value_is_pointer(nbox.as_ref()) == false {
+            return
+        }
+
         unsafe {
             let nbox_ptr= NonNull::new_unchecked(nbox as *mut Capture<Value>);
 
@@ -94,6 +101,11 @@ impl Object {
     }
 
     pub fn drop_capture(&self, nbox: &mut Capture<Value>) {
+        //ポインタ以外の値はキャプチャの必要がないので何もしない
+        if value::value_is_pointer(nbox.as_ref()) == false {
+            return
+        }
+
         match nbox.prev {
             Some(prev) => {
                 unsafe {
@@ -113,20 +125,44 @@ impl Object {
         };
     }
 
-    pub(crate) fn for_each_all_alived_value(&self, callback: fn(&NPtr<Value>)) {
+    pub(crate) fn for_each_all_alived_value(&self, arg: usize, callback: fn(&NPtr<Value>, usize)) {
         //ローカルフレーム内で保持している値
         for frame in self.frames.iter() {
             for (sym, v) in frame.iter() {
-                callback(sym.cast_value());
-                callback(v);
+                callback(sym.cast_value(), arg);
+                callback(v, arg);
             }
         }
 
         //グローバルスペース内で保持している値
         for v in self.world.get_all_values().iter() {
-            callback(v);
+            callback(v, arg);
+        }
+
+        //ローカル変数として捕捉している値
+        let mut node = self.nbox_root.get();
+        loop {
+            match node {
+                Some(capture_ptr) => {
+                    let capture = unsafe { capture_ptr.as_ref() };
+                    callback(&capture.v, arg);
+                    node = capture.next;
+                }
+                None => break,
+            }
         }
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn heap_used(&self) -> usize {
+        self.heap.borrow().used()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn do_gc(&self) {
+        self.heap.borrow_mut().gc(self);
+    }
+
 }
 
 impl Drop for Object {
@@ -151,9 +187,10 @@ macro_rules! new_cap {
 #[macro_export]
 macro_rules! let_cap {
     ($name:ident, $ptr:expr, $ctx:expr) => {
-        let mut $name = new_cap!($ptr, $ctx);
-        ($ctx).add_capture(&mut ($name).cast_value());
+        #[allow(dead_code)]
+        let $name = new_cap!($ptr, $ctx);
         pin_utils::pin_mut!($name);
+        ($ctx).add_capture(&mut ($name).cast_value());
     };
 }
 
@@ -176,18 +213,6 @@ pub struct Capture<T: NaviType> {
 }
 
 impl <T: NaviType> Capture<T> {
-    /*
-    pub fn new(ptr: NPtr<T>, ctx: &Object) -> Self {
-        Capture {
-            v: ptr,
-            ctx: unsafe { NonNull::new_unchecked( ctx as *const Object as *mut Object) },
-            next: None,
-            prev: None,
-            _pinned: std::marker::PhantomPinned,
-        }
-    }
-    */
-
     pub fn nptr(&self) -> &NPtr<T> {
         &self.v
     }
@@ -195,7 +220,6 @@ impl <T: NaviType> Capture<T> {
     pub fn cast_value(&self) -> &mut Capture<Value> {
         unsafe { &mut *(self as *const Capture<T> as *const Capture<Value> as *mut Capture<Value>) }
     }
-
 }
 
 impl Capture<Value> {

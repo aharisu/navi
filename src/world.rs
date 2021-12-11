@@ -60,29 +60,29 @@ mod tets {
             ctx.define_value("symbol", &v);
 
             let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
-            let result = world_get(&symbol, ctx);
-            let ans = number::Integer::alloc(1, ctx).into_value();
-            assert_eq!(result.as_ref(), ans.as_ref());
+            let_cap!(result, world_get(&symbol, ctx), ctx);
+            let_cap!(ans, number::Integer::alloc(1, ctx).into_value(), ctx);
+            assert_eq!((*result).as_ref(), ans.nptr().as_ref());
 
 
             let_cap!(v, number::Real::alloc(3.14, ctx).into_value(), ctx);
             ctx.define_value("symbol", &v);
 
             let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
-            let result = world_get(&symbol, ctx);
-            let ans = number::Real::alloc(3.14, ctx).into_value();
-            assert_eq!(result.as_ref(), ans.as_ref());
+            let_cap!(result, world_get(&symbol, ctx), ctx);
+            let_cap!(ans, number::Real::alloc(3.14, ctx).into_value(), ctx);
+            assert_eq!(result.nptr().as_ref(), ans.nptr().as_ref());
 
             let_cap!(v2, string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
             ctx.define_value("hoge", &v2);
 
             let_cap!(symbol2, symbol::Symbol::alloc(&"hoge".to_string(), ctx), ctx);
-            let result = world_get(&symbol2, ctx);
-            let ans2 = string::NString::alloc(&"bar".to_string(), ctx).into_value();
-            assert_eq!(result.as_ref(), ans2.as_ref());
+            let_cap!(result, world_get(&symbol2, ctx), ctx);
+            let_cap!(ans2, string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
+            assert_eq!(result.nptr().as_ref(), ans2.nptr().as_ref());
 
-            let result = world_get(&symbol, ctx);
-            assert_eq!(result.as_ref(), ans.as_ref());
+            let_cap!(result, world_get(&symbol, ctx), ctx);
+            assert_eq!(result.nptr().as_ref(), ans.nptr().as_ref());
         }
     }
 
