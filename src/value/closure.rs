@@ -1,4 +1,5 @@
-use crate::eval;
+use crate::{eval, with_cap, let_cap, new_cap};
+use crate::object::Capture;
 use crate::value::*;
 use crate::object::{Object};
 use std::fmt::Debug;
@@ -34,7 +35,7 @@ impl Closure {
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc(params: &NBox<array::Array>, body: &NBox<list::List>, ctx: &mut Object) -> NPtr<Self> {
+    pub fn alloc(params: &Capture<array::Array>, body: &Capture<list::List>, ctx: &mut Object) -> NPtr<Self> {
         let mut nbox = ctx.alloc::<Closure>();
         nbox.as_mut().params = NPtr::new(params.as_mut_ptr());
         nbox.as_mut().body = NPtr::new(body.as_mut_ptr());
@@ -42,8 +43,8 @@ impl Closure {
         nbox
     }
 
-    pub fn process_arguments_descriptor(&self, args: &mut Vec<NBox<Value>>, ctx: &mut Object) -> bool {
-        let count = args.len();
+    pub fn process_arguments_descriptor(&self, args: &Capture<list::List>, ctx: &mut Object) -> bool {
+        let count = args.as_ref().count();
         if count < self.params.as_ref().len() {
             false
         } else {
@@ -51,13 +52,13 @@ impl Closure {
         }
     }
 
-    pub fn apply(&self, args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
+    pub fn apply(&self, args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
 
         //ローカルフレームを構築
-        let mut frame = Vec::<(&NPtr<symbol::Symbol>, &NBox<Value>)>::new();
+        let mut frame = Vec::<(&NPtr<symbol::Symbol>, &NPtr<Value>)>::new();
 
         let iter1 = self.params.as_ref().iter();
-        let iter2 = args.iter();
+        let iter2 = args.as_ref().iter();
 
         let iter = iter1.zip(iter2);
         for (sym, v) in iter {
@@ -69,16 +70,20 @@ impl Closure {
         ctx.push_local_frame(&frame);
 
         //Closure本体を実行
-        let mut result:Option<NBox<Value>> = None;
+        let mut result = new_cap!(unit::Unit::unit().into_value(), ctx);
         for sexp in self.body.as_ref().iter() {
-            let sexp = eval::eval(&NBox::new(sexp.clone(), ctx), ctx);
-            result = Some(NBox::new(sexp, ctx));
+            let e = with_cap!(sexp, sexp.clone(), ctx, {
+                eval::eval(&sexp, ctx)
+            });
+
+            result = new_cap!(e, ctx);
+            ctx.add_capture(&mut result);
         }
 
         //ローカルフレームを環境からポップ
         ctx.pop_local_frame();
 
-        result.unwrap().get().clone()
+        result.nptr().clone()
     }
 
 }

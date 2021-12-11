@@ -1,5 +1,5 @@
-use crate::value::*;
-use crate::object::{Object};
+use crate::{value::*, new_cap};
+use crate::object::{Object, Capture};
 use std::fmt::{self, Debug};
 
 pub struct List {
@@ -41,7 +41,7 @@ impl List {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc(v: &NBox<Value>, next: &NBox<List>, ctx: &mut Object) -> NPtr<List> {
+    pub fn alloc(v: &Capture<Value>, next: &Capture<List>, ctx: &mut Object) -> NPtr<List> {
         let mut nbox = ctx.alloc::<List>();
         //確保したメモリ内に値を書き込む
         nbox.as_mut().v = NPtr::new(v.as_mut_ptr());
@@ -50,7 +50,7 @@ impl List {
         nbox
     }
 
-    fn alloc_tail(v: &NBox<Value>, ctx: &mut Object) -> NPtr<List> {
+    fn alloc_tail(v: &Capture<Value>, ctx: &mut Object) -> NPtr<List> {
         let mut nbox = ctx.alloc::<List>();
         //確保したメモリ内に値を書き込む
         nbox.as_mut().v = NPtr::new(v.as_mut_ptr());
@@ -81,16 +81,6 @@ impl List {
         }
 
         count
-    }
-
-    pub fn from_vec(vec: Vec<NBox<Value>>, ctx: &mut Object) -> NPtr<List> {
-        //TODO gc guard
-        let mut acc = NBox::new(Self::nil(), ctx);
-        for v in vec.iter().rev() {
-            acc = NBox::new(Self::alloc(v, &acc, ctx), ctx);
-        }
-
-        acc.get().clone()
     }
 
     pub fn iter(&self) -> ListIterator {
@@ -162,8 +152,8 @@ impl <'a> std::iter::Iterator for ListIterator<'a> {
 use std::pin::Pin;
 
 pub struct ListBuilder {
-    pub start: NBox<List>,
-    pub end: NBox<List>,
+    pub start: Capture<List>,
+    pub end: Capture<List>,
     pub len: usize,
     pub _pinned: std::marker::PhantomPinned,
 }
@@ -172,8 +162,8 @@ pub struct ListBuilder {
 macro_rules! let_listbuilder {
     ($name:ident, $ctx:expr) => {
         let $name = crate::value::list::ListBuilder {
-            start: NBox::new(crate::value::list::List::nil(), $ctx),
-            end: NBox::new(crate::value::list::List::nil(), $ctx),
+            start: new_cap!(crate::value::list::List::nil(), $ctx), //nilはimmidiate valueのためadd_captureしなくてもOK
+            end: new_cap!(crate::value::list::List::nil(), $ctx),
             len: 0,
             _pinned: std::marker::PhantomPinned,
         };
@@ -183,13 +173,18 @@ macro_rules! let_listbuilder {
 
 
 impl ListBuilder {
-    pub fn append(self: &mut Pin<&mut Self>, v: &NBox<Value>, ctx: &mut Object) {
+    pub fn append(self: &mut Pin<&mut Self>, v: &Capture<Value>, ctx: &mut Object) {
         if self.start.as_ref().is_nil() {
             unsafe {
                 let this = self.as_mut().get_unchecked_mut();
                 let cell = List::alloc_tail(v, ctx);
-                this.start = NBox::new(cell.clone(), ctx);
-                this.end = NBox::new(cell, ctx);
+
+                this.start = new_cap!(cell.clone(), ctx);
+                ctx.add_capture(this.start.cast_value());
+
+                this.end = new_cap!(cell, ctx);
+                ctx.add_capture(this.end.cast_value());
+
                 this.len += 1;
             }
         } else {
@@ -198,24 +193,27 @@ impl ListBuilder {
                 let this = self.as_mut().get_unchecked_mut();
                 let cell = List::alloc_tail(v, ctx);
                 this.end.as_mut().next = cell.clone();
-                this.end = NBox::new(cell, ctx);
+
+                this.end = new_cap!(cell, ctx);
+                ctx.add_capture(this.end.cast_value());
+
                 this.len += 1;
             }
         }
     }
 
     pub fn get(self: Pin<&mut Self>) -> NPtr<List> {
-        self.start.get().clone()
+        self.start.nptr().clone()
     }
 
     pub fn get_with_size(self: Pin<&mut Self>) -> (NPtr<List>, usize) {
-        (self.start.get().clone(), self.len)
+        (self.start.nptr().clone(), self.len)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::value::*;
+    use crate::{value::*, let_cap, new_cap};
     use crate::object::{Object};
 
     #[test]
@@ -229,34 +227,35 @@ mod tests {
         {
             let_listbuilder!(builder, ctx);
 
-            let result = NBox::new(builder.get(), ctx);
-            let ans = NBox::new(list::List::nil(), ans_ctx);
+            let_cap!(result, builder.get(), ctx);
+            let_cap!(ans, list::List::nil(), ans_ctx);
 
-            assert_eq!(result, ans);
+            assert_eq!(result.nptr().as_ref(), ans.nptr().as_ref());
         }
 
         {
             let_listbuilder!(builder, ctx);
 
-            let item1= NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx);
-            let item2= NBox::new(number::Integer::alloc(2, ctx).into_value(), ctx);
-            let item3= NBox::new(number::Integer::alloc(3, ctx).into_value(), ctx);
+            let_cap!(item1, number::Integer::alloc(1, ctx).into_value(), ctx);
+            let_cap!(item2, number::Integer::alloc(2, ctx).into_value(), ctx);
+            let_cap!(item3, number::Integer::alloc(3, ctx).into_value(), ctx);
 
             builder.append(&item1, ctx);
             builder.append(&item2, ctx);
             builder.append(&item3, ctx);
+            let_cap!(result, builder.get(), ctx);
 
-            let result = NBox::new(builder.get(), ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_2, number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_3, number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
 
-            let _1 = NBox::new(number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let _2 = NBox::new(number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
-            let _3 = NBox::new(number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
-            let ans = NBox::new(list::List::nil(), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::nil(), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
 
-            assert_eq!(result, ans);
+
+            assert_eq!(result.nptr().as_ref(), ans.nptr().as_ref());
         }
 
     }

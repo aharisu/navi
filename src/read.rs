@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
-use crate::let_listbuilder;
+use crate::{let_listbuilder, new_cap, with_cap, let_cap};
 use crate::value::*;
 use crate::object::{Object};
 
@@ -54,7 +54,7 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
     //skip first char
     ctx.input.next();
 
-    let_listbuilder!(builder, &mut ctx.obj);
+    let_listbuilder!(builder, ctx.obj);
 
     loop {
         skip_whitespace(ctx);
@@ -71,7 +71,11 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
                 match read_internal(ctx) {
                     //内部でエラーが発生した場合は途中停止
                     Err(msg) => return Err(msg),
-                    Ok(v) => builder.append(&NBox::new(v, ctx.obj), &mut ctx.obj)
+                    Ok(v) => {
+                        with_cap!(v, v, ctx.obj, {
+                            builder.append(&v, &mut ctx.obj)
+                        })
+                    }
                 }
             }
         }
@@ -234,24 +238,20 @@ mod tets {
         assert!(result.is_err());
     }
 
-    fn read<T: NaviType>(program: &str, ctx: &mut Object) -> NBox<T> {
+    fn read<T: NaviType>(program: &str, ctx: &mut Object) -> NPtr<T> {
         //let mut heap = navi::mm::Heap::new(1024, name.to_string());
         let mut ctx = make_read_context(program, ctx);
 
         read_with_ctx(&mut ctx)
     }
 
-    fn read_with_ctx<T: NaviType>(ctx: &mut ReadContext) -> NBox<T> {
-        let result = {
-            let result = crate::read::read(ctx);
-            assert!(result.is_ok());
+    fn read_with_ctx<T: NaviType>(ctx: &mut ReadContext) -> NPtr<T> {
+        let result = crate::read::read(ctx);
+        assert!(result.is_ok());
 
-            let result = result.unwrap().try_into::<T>();
-            assert!(result.is_some());
-            result.unwrap()
-        };
-
-        NBox::new(result, &mut ctx.obj)
+        let result = result.unwrap().try_into::<T>();
+        assert!(result.is_some());
+        result.unwrap()
     }
 
     #[test]
@@ -267,8 +267,8 @@ mod tets {
             "#;
 
             let result = read::<string::NString>(program, ctx);
-            let ans = NBox::new(string::NString::alloc(&"aiueo".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = string::NString::alloc(&"aiueo".to_string(), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
@@ -280,12 +280,12 @@ mod tets {
             let mut ctx = make_read_context(program, ctx);
 
             let result = read_with_ctx::<string::NString>(&mut ctx);
-            let ans = NBox::new(string::NString::alloc(&"1 + (1 - 3) = -1".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = string::NString::alloc(&"1 + (1 - 3) = -1".to_string(), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let result = read_with_ctx::<string::NString>(&mut ctx);
-            let ans = NBox::new(string::NString::alloc(&"3 * (4 / 2) - 12 = -6   ".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = string::NString::alloc(&"3 * (4 / 2) - 12 = -6   ".to_string(), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 
@@ -300,24 +300,24 @@ mod tets {
             let program = "1";
 
             let result = read::<number::Integer>(program, ctx);
-            let ans = NBox::new(number::Integer::alloc(1, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = number::Integer::alloc(1, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "-1";
 
             let result = read::<number::Integer>(program, ctx);
-            let ans = NBox::new(number::Integer::alloc(-1, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = number::Integer::alloc(-1, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "+1";
 
             let result = read::<number::Integer>(program, ctx);
-            let ans = NBox::new(number::Integer::alloc(1, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = number::Integer::alloc(1, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 
@@ -332,40 +332,40 @@ mod tets {
             let program = "1.0";
 
             let result = read::<number::Real>(program, ctx);
-            let ans = NBox::new(number::Real::alloc(1.0, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = number::Real::alloc(1.0, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "-1.0";
 
             let result = read::<number::Real>(program, ctx);
-            let ans = NBox::new(number::Real::alloc(-1.0, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = number::Real::alloc(-1.0, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "+1.0";
 
             let result = read::<number::Real>(program, ctx);
-            let ans = NBox::new(number::Real::alloc(1.0, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = number::Real::alloc(1.0, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "3.14";
 
             let result = read::<number::Real>(program, ctx);
-            let ans = NBox::new(number::Real::alloc(3.14, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = number::Real::alloc(3.14, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "0.5";
 
             let result = read::<number::Real>(program, ctx);
-            let ans = NBox::new(number::Real::alloc(0.5, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = number::Real::alloc(0.5, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 
@@ -380,8 +380,8 @@ mod tets {
             let program = "symbol";
 
             let result = read::<symbol::Symbol>(program, ctx);
-            let ans = NBox::new(symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
@@ -390,17 +390,17 @@ mod tets {
             let mut ctx = make_read_context(program, ctx);
 
             let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
-            let ans = NBox::new(symbol::Symbol::alloc(&"s1".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = symbol::Symbol::alloc(&"s1".to_string(), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
-            let ans = NBox::new(symbol::Symbol::alloc(&"s2".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = symbol::Symbol::alloc(&"s2".to_string(), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
 
 
             let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
-            let ans = NBox::new(symbol::Symbol::alloc(&"s3".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = symbol::Symbol::alloc(&"s3".to_string(), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
@@ -409,20 +409,20 @@ mod tets {
             let mut ctx = make_read_context(program, ctx);
 
             let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
-            let ans = NBox::new(symbol::Symbol::alloc(&"+".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let ans = symbol::Symbol::alloc(&"+".to_string(), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx(&mut ctx);
-            let ans = NBox::new(symbol::Symbol::alloc(&"-".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let result = read_with_ctx::<Value>(&mut ctx);
+            let ans = symbol::Symbol::alloc(&"-".to_string(), ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx(&mut ctx);
-            let ans = NBox::new(symbol::Symbol::alloc(&"+1-2".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let result = read_with_ctx::<Value>(&mut ctx).into_value();
+            let ans = symbol::Symbol::alloc(&"+1-2".to_string(), ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx(&mut ctx);
-            let ans = NBox::new(symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let result = read_with_ctx::<Value>(&mut ctx).into_value();
+            let ans = symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         //special symbol
@@ -431,13 +431,13 @@ mod tets {
 
             let mut ctx = make_read_context(program, ctx);
 
-            let result = read_with_ctx(&mut ctx);
-            let ans = NBox::new(bool::Bool::true_(), ans_ctx);
-            assert_eq!(result, ans);
+            let result = read_with_ctx::<Value>(&mut ctx);
+            let ans = bool::Bool::true_().into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx(&mut ctx);
-            let ans = NBox::new(bool::Bool::false_(), ans_ctx);
-            assert_eq!(result, ans);
+            let result = read_with_ctx::<Value>(&mut ctx);
+            let ans = bool::Bool::false_().into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 
@@ -451,43 +451,44 @@ mod tets {
         {
             let program = "()";
 
-            let result = read(program, ctx);
-            let ans = NBox::new(list::List::nil(), ans_ctx);
-            assert_eq!(result, ans);
+            let result = read::<Value>(program, ctx);
+            let ans = list::List::nil().into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(1 2 3)";
 
-            let result = read(program, ctx);
+            let result = read::<Value>(program, ctx);
 
-            let _1 = NBox::new(number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let _2 = NBox::new(number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
-            let _3 = NBox::new(number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
-            let ans = NBox::new(list::List::nil(), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_2, number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_3, number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
+            let_cap!(ans, list::List::nil(), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
 
-            assert_eq!(result, ans);
+            assert_eq!(result.as_ref(), (*ans).nptr().cast_value().as_ref());
         }
 
         {
             let program = "(1 3.14 \"hohoho\" symbol)";
 
-            let result = read(program, ctx);
+            let result = read::<Value>(program, ctx);
 
-            let _1 = NBox::new(number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let _3_14 = NBox::new(number::Real::alloc(3.14, ans_ctx).into_value(), ans_ctx);
-            let hohoho = NBox::new(string::NString::alloc(&"hohoho".to_string(), ans_ctx).into_value(), ans_ctx);
-            let symbol = NBox::new(symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
-            let ans = NBox::new(list::List::nil(), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&hohoho, &ans, ans_ctx), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&_3_14, &ans, ans_ctx), ans_ctx);
-            let ans = NBox::new(list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_3_14, number::Real::alloc(3.14, ans_ctx).into_value(), ans_ctx);
+            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_ctx).into_value(), ans_ctx);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
 
-            assert_eq!(result, ans);
+            let_cap!(ans, list::List::nil(), ans_ctx);
+            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+
+            assert_eq!(result.as_ref(), (*ans).nptr().cast_value().as_ref());
         }
     }
 

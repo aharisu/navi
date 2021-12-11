@@ -41,13 +41,13 @@ impl World {
 
 #[cfg(test)]
 mod tets {
-    use crate::value::*;
-    use crate::object::Object;
+    use crate::{value::*, let_cap, new_cap};
+    use crate::object::{Object, Capture};
 
-    fn world_get(symbol: &NBox<symbol::Symbol>, ctx: &mut Object) -> NBox<Value> {
+    fn world_get(symbol: &Capture<symbol::Symbol>, ctx: &mut Object) -> NPtr<Value> {
         let result = ctx.find_value(symbol);
         assert!(result.is_some());
-        NBox::new(result.unwrap(), ctx)
+        result.unwrap()
     }
 
     #[test]
@@ -56,33 +56,33 @@ mod tets {
         let ctx = &mut ctx;
 
         {
-            let v = NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx);
+            let_cap!(v, number::Integer::alloc(1, ctx).into_value(), ctx);
             ctx.define_value("symbol", &v);
 
-            let symbol = NBox::new(symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
             let result = world_get(&symbol, ctx);
-            let ans = NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx);
-            assert_eq!(result, ans);
+            let ans = number::Integer::alloc(1, ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
 
 
-            let v = NBox::new(number::Real::alloc(3.14, ctx).into_value(), ctx);
+            let_cap!(v, number::Real::alloc(3.14, ctx).into_value(), ctx);
             ctx.define_value("symbol", &v);
 
-            let symbol = NBox::new(symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
             let result = world_get(&symbol, ctx);
-            let ans = NBox::new(number::Real::alloc(3.14, ctx).into_value(), ctx);
-            assert_eq!(result, ans);
+            let ans = number::Real::alloc(3.14, ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
 
-            let v2 = NBox::new(string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
+            let_cap!(v2, string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
             ctx.define_value("hoge", &v2);
 
-            let symbol2 = NBox::new(symbol::Symbol::alloc(&"hoge".to_string(), ctx), ctx);
+            let_cap!(symbol2, symbol::Symbol::alloc(&"hoge".to_string(), ctx), ctx);
             let result = world_get(&symbol2, ctx);
-            let ans2 = NBox::new(string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
-            assert_eq!(result, ans2);
+            let ans2 = string::NString::alloc(&"bar".to_string(), ctx).into_value();
+            assert_eq!(result.as_ref(), ans2.as_ref());
 
             let result = world_get(&symbol, ctx);
-            assert_eq!(result, ans);
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 

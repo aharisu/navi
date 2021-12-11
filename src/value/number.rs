@@ -1,6 +1,6 @@
 use crate::value::*;
 use crate::value::func::*;
-use crate::object::{Object};
+use crate::object::{Object, Capture};
 use crate::mm::{GCAllocationStruct};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -122,18 +122,17 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
-    let v = &args[0];
+fn func_add(args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
+    let v = args.as_ref().get(0);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
         Num::Int(num) => (Some(num), None),
         Num::Real(num) => (None, Some(num)),
     };
 
-    let rest = &args[1];
+    let rest = args.as_ref().get(1);
     let rest = rest.try_cast::<list::List>().unwrap();
 
-    //TODO GC Capture: iter
     let iter =  rest.as_ref().iter();
     for v in iter {
         match (number_to(&v.as_ref()), int, real) {
@@ -161,8 +160,8 @@ fn func_add(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
     }
 }
 
-fn func_eqv(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
-    let v = &args[0];
+fn func_eqv(args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
+    let v = args.as_ref().get(0);
 
     let (int,real) = match number_to(&v.as_ref()) {
         Num::Int(num) => (Some(num), None),
@@ -187,14 +186,13 @@ fn func_eqv(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
         }
     }
 
-    let v = &args[1];
+    let v = args.as_ref().get(1);
     let (mut int, mut real, mut result) = check(int, real, v.as_ref());
 
     if result {
-        let rest = &args[2];
+        let rest = args.as_ref().get(2);
         let rest = rest.try_cast::<list::List>().unwrap();
 
-        //TODO GC Capture: iter
         let mut iter = rest.as_ref().iter();
         result = iter.all(|v| {
             let (i, r, result) = check(int, real, v.as_ref());
@@ -211,8 +209,8 @@ fn func_eqv(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
     }
 }
 
-fn func_abs(args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
-    let v = &args[0];
+fn func_abs(args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
+    let v = args.as_ref().get(0);
 
     match number_to(v.as_ref()) {
         Num::Int(num) => number::Integer::alloc(num.abs(), ctx).into_value(),

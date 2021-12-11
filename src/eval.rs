@@ -1,61 +1,77 @@
-use crate::value::*;
-use crate::object::{Object};
+use crate::{value::*, let_cap, new_cap, with_cap, let_listbuilder};
+use crate::object::{Object, Capture};
 
-pub fn eval(sexp: &NBox<Value>, ctx: &mut Object) -> NPtr<Value> {
+pub fn eval(sexp: &Capture<Value>, ctx: &mut Object) -> NPtr<Value> {
     if let Some(sexp) = sexp.try_cast::<list::List>() {
         if sexp.as_ref().is_nil() {
-            sexp.get().clone().into_value()
+            sexp.nptr().clone().into_value()
         } else {
-            let head = NBox::new(sexp.as_ref().head_ref(), ctx);
             //リスト先頭の式を評価
-            let head = NBox::new(eval(&head, ctx), ctx);
+            let head_ptr = with_cap!(head, sexp.as_ref().head_ref(), ctx, {
+                eval(&head, ctx)
+            });
+            let_cap!(head, head_ptr, ctx);
 
             if let Some(func) = head.try_cast::<func::Func>() {
                 //関数適用
 
-                //引数を順に評価してvec内に保存
-                let mut args: Vec<NBox<Value>> = Vec::new();
-                let args_sexp = NBox::new(sexp.as_ref().tail_ref(), ctx);
+                //引数を順に評価してリスト内に保存
+                let_listbuilder!(builder, ctx);
+                let args_sexp = sexp.as_ref().tail_ref();
                 for sexp in args_sexp.as_ref().iter() {
-                    let sexp = NBox::new(sexp.clone(), ctx);
-                    args.push(NBox::new(eval(&sexp, ctx), ctx));
+                    let ptr = with_cap!(sexp, sexp.clone(), ctx, {
+                        eval(&sexp, ctx)
+                    });
+                    with_cap!(v, ptr, ctx, {
+                        builder.append(&v, ctx);
+                    });
                 }
+                let_cap!(args, builder.get(), ctx);
 
-                if func.as_ref().process_arguments_descriptor(&mut args, ctx) {
-                    func.as_ref().apply(&args, ctx)
+                if let Some(args) = func.as_ref().process_arguments_descriptor(&args, ctx) {
+                    let ary_ptr = with_cap!(v, args, ctx, {
+                        array::Array::from_list(&v, None, ctx)
+                    });
 
+                    with_cap!(args, ary_ptr, ctx, {
+                        func.as_ref().apply(&args, ctx)
+                    })
                 } else {
-                    panic!("Invalid arguments: {:?} {:?}", func, args)
+                    panic!("Invalid arguments: {:?} {:?}", func.as_ref(), args.as_ref())
                 }
 
             } else if let Some(syntax) = head.try_cast::<syntax::Syntax>() {
                 //シンタックス適用
-                //TODO GC Capture:
-                let args = NBox::new(sexp.as_ref().tail_ref(), ctx);
+                let_cap!(args, sexp.as_ref().tail_ref(), ctx);
                 if syntax.as_ref().check_arguments(&args) {
                     syntax.as_ref().apply(&args, ctx)
 
                 } else {
-                    panic!("Invalid arguments: {:?} {:?}", syntax, args)
+                    panic!("Invalid arguments: {:?} {:?}", syntax.as_ref(), args.as_ref())
                 }
             } else if let Some(closure) = head.try_cast::<closure::Closure>() {
                 //クロージャ適用
 
-                //TODO GC capture: args, iter
-                let mut args: Vec<NBox<Value>> = Vec::new();
-
-                let args_sexp = NBox::new(sexp.as_ref().tail_ref(), ctx);
-
+                //引数を順に評価してリスト内に保存
+                let_listbuilder!(builder, ctx);
+                let args_sexp = sexp.as_ref().tail_ref();
                 for sexp in args_sexp.as_ref().iter() {
-                    let sexp = NBox::new(sexp.clone(), ctx);
-                    args.push(NBox::new(eval(&sexp, ctx), ctx));
+                    let ptr = with_cap!(sexp, sexp.clone(), ctx, {
+                        eval(&sexp, ctx)
+                    });
+                    with_cap!(v, ptr, ctx, {
+                        builder.append(&v, ctx);
+                    });
                 }
+                let_cap!(args, builder.get(), ctx);
 
-                if closure.as_ref().process_arguments_descriptor(&mut args, ctx) {
-                    closure.as_ref().apply(&args, ctx)
+                if closure.as_ref().process_arguments_descriptor(&args, ctx) {
+                    with_cap!(args, array::Array::from_list(&args, None, ctx), ctx, {
+                        closure.as_ref().apply(&args, ctx)
+                    })
 
                 } else {
-                    panic!("Invalid arguments: {:?} {:?}", closure, args)
+                    panic!("Invalid arguments: {:?} {:?}", closure.as_ref(), args.as_ref())
                 }
 
             } else {
@@ -71,35 +87,27 @@ pub fn eval(sexp: &NBox<Value>, ctx: &mut Object) -> NPtr<Value> {
         }
 
     } else {
-        sexp.get().clone()
+        sexp.nptr().clone()
     }
 }
 
 #[cfg(test)]
 mod tets {
+    use crate::{let_cap, new_cap};
     use crate::read::*;
     use crate::value::*;
     use crate::object::*;
 
-    fn read(program: &str, ctx: &mut Object) -> NBox<Value> {
-        let exp = {
-            let mut ctx = ReadContext::new(program.chars().peekable(), ctx);
+    fn read(program: &str, ctx: &mut Object) -> NPtr<Value> {
+        let mut ctx = ReadContext::new(program.chars().peekable(), ctx);
 
-            let result = crate::read::read(&mut ctx);
-            assert!(result.is_ok());
-            result.unwrap()
-        };
-
-        NBox::new(exp, ctx)
+        let result = crate::read::read(&mut ctx);
+        assert!(result.is_ok());
+        result.unwrap()
     }
 
-    fn eval<T: NaviType>(sexp: &NBox<Value>, ctx: &mut Object) -> NBox<T> {
-        let result = crate::eval::eval(&sexp, ctx);
-
-        let result = result.try_cast::<T>();
-        assert!(result.is_some());
-
-        NBox::new(result.unwrap().clone(), ctx)
+    fn eval(sexp: &Capture<Value>, ctx: &mut Object) -> NPtr<Value> {
+        crate::eval::eval(&sexp, ctx)
     }
 
     #[test]
@@ -113,49 +121,48 @@ mod tets {
 
         {
             let program = "(abs 1)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(1, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
 
             let program = "(abs -1)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(1, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx).into_value(), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            assert_eq!((*result).as_ref(), ans.as_ref());
 
             let program = "(abs -3.14)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Real::alloc(3.14, ans_ctx), ans_ctx);
-
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Real::alloc(3.14, ans_ctx).into_value();
+            assert_eq!((*result).as_ref(), ans.as_ref());
         }
 
         {
             let program = "(+ 1)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(1, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
 
             let program = "(+ 3.14)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Real::alloc(3.14, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Real::alloc(3.14, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
 
             let program = "(+ 1 2 3 -4)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(2, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Integer::alloc(2, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
 
             let program = "(+ 1.5 2 3 -4.5)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Real::alloc(2.0, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Real::alloc(2.0, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
         }
 
         //TODO Optional引数のテスト
@@ -174,26 +181,26 @@ mod tets {
 
         {
             let program = "(if (= 1 1) 10 100)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(10, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Integer::alloc(10, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
 
             let program = "(if (= 1 2) 10 100)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(100, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Integer::alloc(100, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
 
             let program = "(if (= 1 1 1) 10)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(10, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Integer::alloc(10, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
 
             let program = "(if (= 1 1 2) 10)";
-            let result = read(program, ctx);
-            let result:NBox<Value>  = eval(&result, ctx);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
             assert!(result.is::<unit::Unit>())
         }
     }
@@ -210,16 +217,16 @@ mod tets {
 
         {
             let program = "((fun (a) (+ 10 a)) 1)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(11, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Integer::alloc(11, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
 
             let program = "((fun (a b) (+ a b) (+ ((fun (a) (+ a 10)) b) a)) 100 200)";
-            let result = read(program, ctx);
-            let result = eval(&result, ctx);
-            let ans = NBox::new(number::Integer::alloc(310, ans_ctx), ans_ctx);
-            assert_eq!(result, ans);
+            let_cap!(result, read(program, ctx), ctx);
+            let_cap!(result, eval(&result, ctx), ctx);
+            let ans = number::Integer::alloc(310, ans_ctx).into_value();
+            assert_eq!(result.nptr().as_ref(), ans.as_ref());
         }
     }
 

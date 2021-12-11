@@ -1,11 +1,11 @@
-use crate::value::*;
-use crate::object::{Object};
+use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
+use crate::object::{Object, Capture};
 use std::fmt::Debug;
 
 
 pub struct Func {
     params: Vec<Param>,
-    body:  fn(&[NBox<Value>], &mut Object) -> NPtr<Value>,
+    body:  fn(&Capture<array::Array>, &mut Object) -> NPtr<Value>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -26,9 +26,9 @@ pub struct Param {
 impl Param {
     pub fn new<T: Into<String>>(name: T, kind: ParamKind, typeinfo: NonNullConst<TypeInfo>) -> Param {
         Param {
-             name: name.into(),
-              typeinfo: typeinfo,
-               kind: kind,
+            name: name.into(),
+            typeinfo: typeinfo,
+            kind: kind,
         }
     }
 }
@@ -50,7 +50,7 @@ impl NaviType for Func {
 }
 
 impl Func {
-    pub fn new(params: &[Param], body: fn(&[NBox<Value>], &mut Object) -> NPtr<Value>) -> Func {
+    pub fn new(params: &[Param], body: fn(&Capture<array::Array>, &mut Object) -> NPtr<Value>) -> Func {
         Func {
             params: params.to_vec(),
             body: body,
@@ -62,56 +62,92 @@ impl Func {
     }
 
     //TODO 戻り値をboolからResultに変更。Errorには適切なエラー内容を含んだenum
-    pub fn process_arguments_descriptor(&self, args: &mut Vec<NBox<Value>>, ctx: &mut Object) -> bool {
-        fn check_type(v: &NBox<Value>, param: &Param) -> bool {
+    pub fn process_arguments_descriptor(&self, args: &Capture<list::List>, ctx: &mut Object) -> Option<NPtr<list::List>> {
+        fn check_type(v: &NPtr<Value>, param: &Param) -> bool {
             v.is_type(param.typeinfo)
         }
 
+        let_listbuilder!(builder, ctx);
+
+        let mut args_iter = args.as_ref().iter();
         for (index, param) in self.params.iter().enumerate() {
+            let arg = args_iter.next();
+
             match param.kind {
                 ParamKind::Require => {
-                    if args.len() <= index {
-                        //引数の個数が足らない
-                        return false;
-
-                    } else if check_type(&args[index], param) == false {
-                        //型チェックエラー
-                        return false;
+                    if let Some(arg) = arg {
+                        if check_type(&arg, param) == false {
+                            //型チェックエラー
+                            return None;
+                        } else {
+                            //OK!!
+                            with_cap!(v, arg.clone(), ctx, {
+                                builder.append(&v, ctx);
+                            });
+                        }
+                    } else {
+                        //必須の引数が足らないエラー
+                        return None;
                     }
                 }
                 ParamKind::Optional => {
-                    //Optionalなパラメータに対応する引数がなければ
-                    if args.len() <= index {
+                    if let Some(arg) = arg {
+                        if check_type(&arg, param) == false {
+                            //型チェックエラー
+                            return None;
+                        } else {
+                            //OK!!
+                            with_cap!(v, arg.clone(), ctx, {
+                                builder.append(&v, ctx);
+                            });
+                        }
+                    } else {
+                        //Optionalなパラメータに対応する引数がなければ
                         //Unit値をデフォルト値として設定
-                        args.push(NBox::new(unit::Unit::unit().into_value(), ctx));
-
-                    } else if check_type(&args[index], param) == false {
-                        //型チェックエラー
-                        return false;
+                        with_cap!(v, unit::Unit::unit().into_value(), ctx, {
+                            builder.append(&v, ctx);
+                        });
                     }
                 }
                 ParamKind::Rest => {
-                    if args.len() <= index {
-                        args.push(NBox::new(list::List::nil().into_value(), ctx));
+                    if let Some(arg) = arg {
+                        let_listbuilder!(rest, ctx);
+                        let mut arg = arg;
+                        loop {
+                            if check_type(&arg, param) == false {
+                                //型チェックエラー
+                                return None;
+                            } else {
+                                //OK!!
+                                with_cap!(v, arg.clone(), ctx, {
+                                    rest.append(&v, ctx);
+                                });
+                            }
 
-                    } else {
-                        let rest:Vec<_> = args.drain(index..).collect();
-                        //型チェック
-                        if rest.iter().all(|v| check_type(v, param)) == false {
-                            return false;
+                            match args_iter.next() {
+                                Some(a) => arg = a,
+                                None => break
+                            }
                         }
 
-                        let rest = list::List::from_vec(rest, ctx);
-                        args.push(NBox::new(rest.into_value(), ctx));
+                        with_cap!(v, rest.get().into_value(), ctx, {
+                            builder.append(&v, ctx);
+                        });
+                    } else {
+                        //restパラメータに対応する引数がなければ
+                        //nilをデフォルト値として設定
+                        with_cap!(v, list::List::nil().into_value(), ctx, {
+                            builder.append(&v, ctx);
+                        });
                     }
                 }
             }
         }
 
-        true
+        Some(builder.get())
     }
 
-    pub fn apply(&self, args: &[NBox<Value>], ctx: &mut Object) -> NPtr<Value> {
+    pub fn apply(&self, args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
         (self.body)(args, ctx)
     }
 }

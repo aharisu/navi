@@ -1,8 +1,8 @@
 use crate::mm::{GCAllocationStruct};
 use crate::eval::{eval};
-use crate::{value::*, let_listbuilder};
+use crate::{value::*, let_listbuilder, with_cap, let_cap, new_cap};
 use crate::value::list;
-use crate::object::{Object};
+use crate::object::{Object, Capture};
 use std::fmt::Debug;
 use std::panic;
 use once_cell::sync::Lazy;
@@ -11,7 +11,7 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&NBox<list::List>, &mut Object) -> NPtr<Value>,
+    body: fn(&Capture<list::List>, &mut Object) -> NPtr<Value>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -31,7 +31,7 @@ impl NaviType for Syntax {
 }
 
 impl Syntax {
-    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&NBox<list::List>, &mut Object) -> NPtr<Value>) -> Self {
+    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&Capture<list::List>, &mut Object) -> NPtr<Value>) -> Self {
         Syntax {
             require: require,
             optional: optional,
@@ -44,7 +44,7 @@ impl Syntax {
         std::ptr::eq(&SYNTAX_TYPEINFO, other_typeinfo)
     }
 
-    pub fn check_arguments(&self, args: &NBox<list::List>) -> bool {
+    pub fn check_arguments(&self, args: &Capture<list::List>) -> bool {
         let count = args.as_ref().count();
         if count < self.require {
             false
@@ -55,7 +55,7 @@ impl Syntax {
         }
     }
 
-    pub fn apply(&self, args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
+    pub fn apply(&self, args: &Capture<list::List>, ctx: &mut Object) -> NPtr<Value> {
         (self.body)(args, ctx)
     }
 }
@@ -74,37 +74,37 @@ impl Debug for Syntax {
     }
 }
 
-fn syntax_if(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
-    let pred = NBox::new(args.as_ref().head_ref(), ctx);
-    let pred = NBox::new(eval(&pred, ctx), ctx);
+fn syntax_if(args: &Capture<list::List>, ctx: &mut Object) -> NPtr<Value> {
+    let pred_ptr = with_cap!(pred, args.as_ref().head_ref(), ctx, {
+        eval(&pred, ctx)
+    });
+    let_cap!(pred, pred_ptr, ctx);
 
     let pred = if let Some(pred) = pred.as_ref().try_cast::<bool::Bool>() {
-        pred.is_true()
+        pred.as_ref().is_true()
     } else {
         panic!("boolean required. but got {:?}", pred)
     };
 
     let args = args.as_ref().tail_ref();
     if pred {
-        //TODO GC Capture:
-        let true_sexp = NBox::new(args.as_ref().head_ref(), ctx);
-        eval(&true_sexp, ctx)
+        with_cap!(true_clause, args.as_ref().head_ref(), ctx, {
+            eval(&true_clause, ctx)
+        })
 
     } else {
         let args = args.as_ref().tail_ref();
         if args.as_ref().is_nil() {
             unit::Unit::unit().into_value()
         } else {
-            //TODO GC Capture:
-            let false_sexp = NBox::new(args.as_ref().head_ref(), ctx);
-            eval(&false_sexp, ctx)
+            with_cap!(false_clause, args.as_ref().head_ref(), ctx, {
+                eval(&false_clause, ctx)
+            })
         }
     }
 }
 
-fn syntax_fun(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
-    //TODO GC Capture: params_vec
-    //let mut params_vec: Vec<NBox<Value>> = Vec::new();
+fn syntax_fun(args: &Capture<list::List>, ctx: &mut Object) -> NPtr<Value> {
     let_listbuilder!(builder, ctx);
 
     //引数指定の内容を解析
@@ -114,7 +114,9 @@ fn syntax_fun(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
         for p in params.as_ref().iter() {
             match p.try_cast::<symbol::Symbol>() {
                 Some(sym) => {
-                    builder.append(&NBox::new(sym.cast_value().clone(), ctx), ctx);
+                    with_cap!(sym, sym.cast_value().clone(), ctx, {
+                        builder.append(&sym, ctx);
+                    });
                 }
                 None => {
                     panic!("parameter require symbol. But got {:?}", p.as_ref())
@@ -125,11 +127,12 @@ fn syntax_fun(args: &NBox<list::List>, ctx: &mut Object) -> NPtr<Value> {
         panic!("The fun paramters require list. But got {:?}", params.as_ref())
     }
 
-    //GC Capture:
     let (list, size) = builder.get_with_size();
-    let list = NBox::new(list, ctx);
-    let params = NBox::new( array::Array::from_list(&list, Some(size), ctx), ctx);
-    let body = NBox::new(args.as_ref().tail_ref(), ctx);
+    let params_ptr = with_cap!(list, list, ctx, {
+        array::Array::from_list(&list, Some(size), ctx)
+    });
+    let_cap!(params, params_ptr, ctx);
+    let_cap!(body, args.as_ref().tail_ref(), ctx);
 
     closure::Closure::alloc(&params, &body, ctx).into_value()
 }

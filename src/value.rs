@@ -25,11 +25,9 @@ pub mod func;
 pub mod syntax;
 pub mod unit;
 
-use std::ptr::{self, NonNull};
+use std::ptr::{self};
 use std::cell::Cell;
 use crate::util::non_null_const::*;
-
-use crate::object::Object;
 
 // [tagged value]
 // Nil, true, false, ...
@@ -202,114 +200,6 @@ pub trait AsPtr<T: ?Sized> {
     fn as_mut_ptr(&self) -> *mut T;
 }
 
-pub struct NBox<T: NaviType> {
-    v: NPtr<T>,
-    ctx: NonNull<Object>,
-    pub(crate) next: Option<NonNull<NBox<Value>>>,
-    pub(crate) prev: Option<NonNull<NBox<Value>>>,
-    _pinned: std::marker::PhantomPinned,
-}
-
-impl <T: NaviType> NBox<T> {
-    pub fn new(ptr: NPtr<T>, ctx: &Object) -> Self {
-        let nbox = NBox {
-            v: ptr,
-            ctx: unsafe { NonNull::new_unchecked( ctx as *const Object as *mut Object) },
-            next: None,
-            prev: None,
-            _pinned: std::marker::PhantomPinned,
-        };
-
-        ctx.add_capture(nbox.cast_value());
-
-        nbox
-    }
-
-    pub fn get(&self) -> &NPtr<T> {
-        &self.v
-    }
-
-    pub fn cast_value(&self) -> &mut NBox<Value> {
-        unsafe { &mut *(self as *const NBox<T> as *const NBox<Value> as *mut NBox<Value>) }
-    }
-
-}
-
-impl NBox<Value> {
-    pub fn try_cast<U: NaviType>(&self) -> Option<&NBox<U>> {
-        if self.as_ref().is::<U>() {
-            Some(unsafe { &*(self as *const NBox<Value> as *const NBox<U>) })
-
-        } else {
-            None
-        }
-    }
-
-    pub fn is<U: NaviType>(&self) -> bool {
-        self.as_ref().is::<U>()
-    }
-
-    pub fn is_type(&self, typeinfo: NonNullConst<TypeInfo>) -> bool {
-        self.as_ref().is_type(typeinfo)
-    }
-}
-
-
-impl <T: NaviType> AsRef<T> for NBox<T> {
-
-    fn as_ref(&self) -> &T {
-        self.v.as_ref()
-    }
-}
-
-impl <T: NaviType> AsMut<T> for NBox<T> {
-
-    fn as_mut(&mut self) -> &mut T {
-        self.v.as_mut()
-    }
-}
-
-impl <T: NaviType> AsPtr<T> for NBox<T> {
-    fn as_ptr(&self) -> *const T {
-        self.v.as_ptr()
-    }
-
-    fn as_mut_ptr(&self) -> *mut T {
-        self.v.as_mut_ptr()
-    }
-}
-
-impl <T: NaviType> Eq for NBox<T> {}
-
-impl <T: NaviType> PartialEq for NBox<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_ref().eq(other.as_ref())
-    }
-}
-
-impl <T: NaviType> std::fmt::Debug for NBox<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_ref().fmt(f)
-    }
-}
-
-impl std::hash::Hash for NBox<symbol::Symbol> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_ref().hash(state);
-    }
-}
-
-impl <T: NaviType> Drop for NBox<T> {
-
-    fn drop(&mut self) {
-        unsafe { self.ctx.as_ref() }.drop_capture(self.cast_value())
-    }
-
-}
-
-//TODO 勉強
-unsafe impl<T: NaviType> Sync for NBox<T> {}
-//unsafe impl<T> Send for NBox<T> {}
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -406,7 +296,7 @@ impl <T: NaviType> Clone for NPtr<T> {
 
 #[cfg(test)]
 mod tets {
-    use crate::value::*;
+    use crate::{value::*, let_cap, new_cap};
     use crate::object::Object;
 
     #[test]
@@ -427,13 +317,13 @@ mod tets {
         assert!(v.as_ref().is::<number::Number>());
 
         //nil
-        let v = NBox::new(list::List::nil().into_value(), ctx);
+        let_cap!(v, list::List::nil().into_value(), ctx);
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
 
         //list
-        let item = NBox::new(number::Integer::alloc(10, ctx).into_value(), ctx);
-        let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), ctx).into_value();
+        let_cap!(item, number::Integer::alloc(10, ctx).into_value(), ctx);
+        let_cap!(v, list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), ctx).into_value(), ctx);
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
     }

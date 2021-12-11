@@ -1,4 +1,4 @@
-use crate::value::*;
+use crate::{value::*, object::Capture};
 use crate::object::Object;
 use std::fmt::{self, Debug};
 
@@ -95,7 +95,7 @@ impl Array {
         }
     }
 
-    pub fn from_list(list: &NBox<list::List>, size: Option<usize>, ctx: &mut Object) -> NPtr<Array> {
+    pub fn from_list(list: &Capture<list::List>, size: Option<usize>, ctx: &mut Object) -> NPtr<Array> {
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
@@ -147,7 +147,7 @@ impl Debug for Array {
 
 #[cfg(test)]
 mod tests {
-    use crate::{value::*, let_listbuilder};
+    use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
     use crate::object::{Object};
 
     #[test]
@@ -161,13 +161,21 @@ mod tests {
         {
             let_listbuilder!(builder, ctx);
 
-            builder.append(&NBox::new(number::Integer::alloc(1, ctx).into_value(), ctx), ctx);
-            builder.append(&NBox::new(number::Real::alloc(3.14, ctx).into_value(), ctx), ctx);
-            builder.append(&NBox::new(list::List::nil().into_value(), ctx), ctx);
-            builder.append(&NBox::new(bool::Bool::true_().into_value(), ctx), ctx);
+            with_cap!(v, number::Integer::alloc(1, ctx).into_value(), ctx, {
+                builder.append(&v, ctx);
+            });
+            with_cap!(v, number::Real::alloc(3.14, ctx).into_value(), ctx, {
+                builder.append(&v, ctx);
+            });
+            with_cap!(v, list::List::nil().into_value(), ctx, {
+                builder.append(&v, ctx);
+            });
+            with_cap!(v, bool::Bool::true_().into_value(), ctx, {
+                builder.append(&v, ctx);
+            });
 
             let (list, size) = builder.get_with_size();
-            let list = NBox::new(list, ctx);
+            let_cap!(list, list, ctx);
             let ary = array::Array::from_list(&list, Some(size), ctx);
 
             let ans= number::Integer::alloc(1, ans_ctx).into_value();
