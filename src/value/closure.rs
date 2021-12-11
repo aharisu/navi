@@ -43,7 +43,7 @@ impl Closure {
         nbox
     }
 
-    pub fn process_arguments_descriptor(&self, args: &Capture<list::List>, ctx: &mut Object) -> bool {
+    pub fn process_arguments_descriptor(&self, args: &Capture<list::List>, _ctx: &mut Object) -> bool {
         let count = args.as_ref().count();
         if count < self.params.as_ref().len() {
             false

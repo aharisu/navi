@@ -216,7 +216,7 @@ impl Heap {
 
         //対象オブジェクトが子オブジェクトを持っているなら、再帰的にマーク処理を行う
         if let Some(func) = unsafe { header.typeinfo.as_ref() }.child_traversal_func {
-            func(v, 0, |child, arg| {
+            func(v, 0, |child, _| {
                 let child = child.as_ref();
                 if Self::is_need_mark(child) {
                     Self::mark(child);
@@ -234,7 +234,7 @@ impl Heap {
         });
     }
 
-    fn setup_forwad_ptr(&mut self, ctx: &Object) {
+    fn setup_forwad_ptr(&mut self, _ctx: &Object) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let end = self.pool_ptr.add(self.used);
@@ -314,7 +314,7 @@ impl Heap {
         }
     }
 
-    fn move_object(&mut self, ctx: &Object) {
+    fn move_object(&mut self, _ctx: &Object) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let start = ptr;

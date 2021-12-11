@@ -160,7 +160,7 @@ fn func_add(args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
     }
 }
 
-fn func_eqv(args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
+fn func_eqv(args: &Capture<array::Array>, _ctx: &mut Object) -> NPtr<Value> {
     let v = args.as_ref().get(0);
 
     let (int,real) = match number_to(&v.as_ref()) {

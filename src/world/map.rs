@@ -87,6 +87,7 @@ impl <T: Debug> PatriciaTree<T> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn delete<K: AsRef<str>>(&mut self, key: K) {
         fn delete_node_rec<'a, T: Debug>(node: &'a mut Node<T>, key: &str) -> bool {
             let mut key_iter = key.chars();

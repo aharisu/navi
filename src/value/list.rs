@@ -1,3 +1,5 @@
+#![allow(unused_unsafe)]
+
 use crate::{value::*, new_cap};
 use crate::object::{Object, Capture};
 use std::fmt::{self, Debug};

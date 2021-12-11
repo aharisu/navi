@@ -177,19 +177,19 @@ impl Value {
     }
 
     //Value型のインスタンスは存在しないため、これらのメソッドが呼び出されることはない
-    fn _eq(&self, other: &Self) -> bool {
+    fn _eq(&self, _other: &Self) -> bool {
         unreachable!()
     }
 
-    fn _fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn _fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         unreachable!()
     }
 
-    fn _is_type(other_typeinfo: &TypeInfo) -> bool {
+    fn _is_type(_other_typeinfo: &TypeInfo) -> bool {
         unreachable!()
     }
 
-    fn _child_traversal(&self, callback: fn(&Value)) {
+    fn _child_traversal(&self, _callback: fn(&Value)) {
         unreachable!()
     }
 
@@ -295,7 +295,7 @@ impl <T: NaviType> Clone for NPtr<T> {
 
 
 #[cfg(test)]
-mod tets {
+mod tests {
     use crate::{value::*, let_cap, new_cap};
     use crate::object::Object;
 

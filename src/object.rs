@@ -44,7 +44,7 @@ impl Object {
     pub fn find_value(&self, symbol: &Capture<symbol::Symbol>) -> Option<NPtr<Value>> {
         //ローカルフレームから対応する値を探す
         for frame in self.frames.iter().rev() {
-            let result = frame.iter().find(|(sym, v)| {
+            let result = frame.iter().find(|(sym, _v)| {
                 symbol.as_ref().eq(sym.as_ref())
             });
 

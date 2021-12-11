@@ -70,7 +70,7 @@ impl Func {
         let_listbuilder!(builder, ctx);
 
         let mut args_iter = args.as_ref().iter();
-        for (index, param) in self.params.iter().enumerate() {
+        for param in self.params.iter() {
             let arg = args_iter.next();
 
             match param.kind {

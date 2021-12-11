@@ -92,7 +92,7 @@ pub fn eval(sexp: &Capture<Value>, ctx: &mut Object) -> NPtr<Value> {
 }
 
 #[cfg(test)]
-mod tets {
+mod tests {
     use crate::{let_cap, new_cap};
     use crate::read::*;
     use crate::value::*;

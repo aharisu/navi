@@ -40,7 +40,7 @@ impl World {
 
 
 #[cfg(test)]
-mod tets {
+mod tests {
     use crate::{value::*, let_cap, new_cap};
     use crate::object::{Object, Capture};
 

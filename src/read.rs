@@ -103,8 +103,9 @@ fn read_string(ctx: &mut ReadContext) -> ReadResult {
     }
 }
 
-fn read_char(ctx: &mut ReadContext) -> ReadResult {
-    Err(readerror("TODO".to_string()))
+fn read_char(_ctx: &mut ReadContext) -> ReadResult {
+    //TODO
+    unimplemented!()
 }
 
 fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
@@ -216,9 +217,8 @@ const fn is_delimiter(ch: char) -> bool {
 }
 
 #[cfg(test)]
-mod tets {
+mod tests {
     use crate::read::*;
-    use crate::value::*;
     use crate::object::Object;
 
     fn make_read_context<'a, 'b>(s: &'a str, ctx: &'b mut Object) -> ReadContext<'a, 'b> {
