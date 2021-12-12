@@ -43,7 +43,7 @@ fn read_internal(ctx: &mut ReadContext) -> ReadResult {
         Some(ch) => match ch {
             '(' => read_list(ctx),
             '"' => read_string(ctx),
-            '\'' => read_char(ctx),
+            '\'' => read_quote(ctx),
             '+' | '-' | '0' ..= '9' => read_number_or_symbol(ctx),
             _ => read_symbol(ctx),
         }
@@ -104,9 +104,28 @@ fn read_string(ctx: &mut ReadContext) -> ReadResult {
     }
 }
 
+#[allow(dead_code)]
 fn read_char(_ctx: &mut ReadContext) -> ReadResult {
     //TODO
     unimplemented!()
+}
+
+fn read_quote(ctx: &mut ReadContext) -> ReadResult {
+    //skip first char
+    ctx.input.next();
+
+    //再帰的に式を一つ読み込んでquoteで囲む
+    let sexp = match read_internal(ctx) {
+        //内部でエラーが発生した場合は途中停止
+        Err(msg) => return Err(msg),
+        Ok(v) => v,
+    };
+    let_cap!(sexp, sexp, ctx.obj);
+
+    let_listbuilder!(builder, ctx.obj);
+    builder.append(syntax::Syntax::quote().cast_value(), ctx.obj);
+    builder.append(&sexp, ctx.obj);
+    Ok(builder.get().into_value())
 }
 
 fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
@@ -493,6 +512,28 @@ mod tests {
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
+    }
+
+    #[test]
+    fn read_quote() {
+        let mut ctx = Object::new("list");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Object::new(" ans");
+        let ans_ctx = &mut ans_ctx;
+
+        {
+            let program = "'symbol";
+
+            let result = read::<Value>(program, ctx);
+
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
+            let ans = list::List::nil();
+            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&syntax::Syntax::quote().into_value(), &ans, ans_ctx), ans_ctx);
+
+            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+        }
+
     }
 
 }

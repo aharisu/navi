@@ -66,6 +66,10 @@ impl Syntax {
     {
         (self.body)(args.as_reachable(), ctx)
     }
+
+    pub fn quote() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax)
+    }
 }
 
 impl Eq for Syntax { }
@@ -136,6 +140,11 @@ fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
     closure::Closure::alloc(&params, body, ctx).into_value()
 }
 
+fn syntax_quote(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
+    let sexp = args.as_ref().head_ref();
+    sexp.clone().into_fptr()
+}
+
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(2, 1, false, syntax_if))
 });
@@ -144,7 +153,12 @@ static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(1, 0, true, syntax_fun))
 });
 
+static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new(1, 0, false, syntax_quote))
+});
+
 pub fn register_global(ctx: &mut Object) {
     ctx.define_value("if", &RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("quote", &RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax).into_value());
 }
