@@ -1,11 +1,12 @@
 use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
-use crate::object::{Object, Capture};
+use crate::object::Object;
+use crate::ptr::*;
 use std::fmt::Debug;
 
 
 pub struct Func {
     params: Vec<Param>,
-    body:  fn(&Capture<array::Array>, &mut Object) -> NPtr<Value>,
+    body:  fn(&RPtr<array::Array>, &mut Object) -> FPtr<Value>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -50,7 +51,7 @@ impl NaviType for Func {
 }
 
 impl Func {
-    pub fn new(params: &[Param], body: fn(&Capture<array::Array>, &mut Object) -> NPtr<Value>) -> Func {
+    pub fn new(params: &[Param], body: fn(&RPtr<array::Array>, &mut Object) -> FPtr<Value>) -> Func {
         Func {
             params: params.to_vec(),
             body: body,
@@ -62,8 +63,12 @@ impl Func {
     }
 
     //TODO 戻り値をboolからResultに変更。Errorには適切なエラー内容を含んだenum
-    pub fn process_arguments_descriptor(&self, args: &Capture<list::List>, ctx: &mut Object) -> Option<NPtr<list::List>> {
-        fn check_type(v: &NPtr<Value>, param: &Param) -> bool {
+    pub fn process_arguments_descriptor<T>(&self, args: &T, ctx: &mut Object) -> Option<FPtr<list::List>>
+    where
+        T: AsReachable<list::List>
+    {
+        let args = args.as_reachable();
+        fn check_type(v: &RPtr<Value>, param: &Param) -> bool {
             v.is_type(param.typeinfo)
         }
 
@@ -81,9 +86,7 @@ impl Func {
                             return None;
                         } else {
                             //OK!!
-                            with_cap!(v, arg.clone(), ctx, {
-                                builder.append(&v, ctx);
-                            });
+                            builder.append(arg, ctx);
                         }
                     } else {
                         //必須の引数が足らないエラー
@@ -97,16 +100,12 @@ impl Func {
                             return None;
                         } else {
                             //OK!!
-                            with_cap!(v, arg.clone(), ctx, {
-                                builder.append(&v, ctx);
-                            });
+                            builder.append(arg, ctx);
                         }
                     } else {
                         //Optionalなパラメータに対応する引数がなければ
                         //Unit値をデフォルト値として設定
-                        with_cap!(v, unit::Unit::unit().into_value(), ctx, {
-                            builder.append(&v, ctx);
-                        });
+                        builder.append(unit::Unit::unit().cast_value(), ctx);
                     }
                 }
                 ParamKind::Rest => {
@@ -119,9 +118,7 @@ impl Func {
                                 return None;
                             } else {
                                 //OK!!
-                                with_cap!(v, arg.clone(), ctx, {
-                                    rest.append(&v, ctx);
-                                });
+                                rest.append(arg, ctx);
                             }
 
                             match args_iter.next() {
@@ -136,9 +133,7 @@ impl Func {
                     } else {
                         //restパラメータに対応する引数がなければ
                         //nilをデフォルト値として設定
-                        with_cap!(v, list::List::nil().into_value(), ctx, {
-                            builder.append(&v, ctx);
-                        });
+                        builder.append(list::List::nil().cast_value(), ctx);
                     }
                 }
             }
@@ -147,8 +142,11 @@ impl Func {
         Some(builder.get())
     }
 
-    pub fn apply(&self, args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
-        (self.body)(args, ctx)
+    pub fn apply<T>(&self, args: &T, ctx: &mut Object) -> FPtr<Value>
+    where
+        T: AsReachable<array::Array>,
+    {
+        (self.body)(args.as_reachable(), ctx)
     }
 }
 

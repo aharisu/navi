@@ -1,4 +1,5 @@
-use crate::{value::*, object::Capture};
+use crate::value::*;
+use crate::ptr::*;
 use crate::object::Object;
 use std::fmt::{self, Debug};
 
@@ -27,41 +28,43 @@ impl Array {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: usize, callback: fn(&NPtr<Value>, usize)) {
+    fn child_traversal(&self, arg: usize, callback: fn(&RPtr<Value>, usize)) {
         for index in 0..self.len {
-            callback(self.get_internal(index), arg);
+            callback(self.get(index), arg);
         }
     }
 
-    fn alloc(size: usize, ctx: &mut Object) -> NPtr<Array> {
-        let mut ary = ctx.alloc_with_additional_size::<Array>(size * std::mem::size_of::<NPtr<Value>>());
-        ary.as_mut().len = size;
+    fn alloc(size: usize, ctx: &mut Object) -> FPtr<Array> {
+        let mut ptr = ctx.alloc_with_additional_size::<Array>(size * std::mem::size_of::<RPtr<Value>>());
+        let ary = unsafe { ptr.as_mut() };
+        ary.len = size;
 
-        ary
+        ptr.into_fptr()
     }
 
     fn set<T>(&mut self, v: &T, index: usize)
     where
-        T: crate::value::AsPtr<Value>
+        T: AsReachable<Value>
     {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
 
+        let v = v.as_reachable();
         let ptr = self as *mut Array;
         unsafe {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut NPtr<Value>;
+            let storage_ptr = ptr as *mut RPtr<Value>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
-            std::ptr::write(storage_ptr, NPtr::new(v.as_mut_ptr()));
+            std::ptr::write(storage_ptr, v.clone());
         };
     }
 
-    pub(crate) fn get_internal<'a>(&'a self, index: usize) -> &'a NPtr<Value> {
+    pub fn get<'a>(&'a self, index: usize) -> &'a RPtr<Value> {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -71,17 +74,12 @@ impl Array {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut NPtr<Value>;
+            let storage_ptr = ptr as *mut RPtr<Value>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
 
             &*(storage_ptr)
         }
-    }
-
-    pub fn get(&self, index: usize) -> NPtr<Value> {
-        let refer = self.get_internal(index);
-        refer.clone()
     }
 
     pub fn len(&self) -> usize {
@@ -95,14 +93,17 @@ impl Array {
         }
     }
 
-    pub fn from_list(list: &Capture<list::List>, size: Option<usize>, ctx: &mut Object) -> NPtr<Array> {
+    pub fn from_list<T>(list: &T, size: Option<usize>, ctx: &mut Object) -> FPtr<Array>
+    where
+        T: AsReachable<list::List>,
+    {
+        let list = list.as_reachable();
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
         };
 
         let mut obj = Self::alloc(size, ctx);
-
         for (index, v) in list.as_ref().iter().enumerate() {
             obj.as_mut().set(v, index);
         }
@@ -117,13 +118,13 @@ pub struct ArrayIterator<'a> {
 }
 
 impl <'a> std::iter::Iterator for ArrayIterator<'a> {
-    type Item = &'a NPtr<Value>;
+    type Item = &'a RPtr<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.ary.len() <= self.index {
             None
         } else {
-            let result = self.ary.get_internal(self.index);
+            let result = self.ary.get(self.index);
             self.index += 1;
             Some(result)
         }
@@ -167,12 +168,8 @@ mod tests {
             with_cap!(v, number::Real::alloc(3.14, ctx).into_value(), ctx, {
                 builder.append(&v, ctx);
             });
-            with_cap!(v, list::List::nil().into_value(), ctx, {
-                builder.append(&v, ctx);
-            });
-            with_cap!(v, bool::Bool::true_().into_value(), ctx, {
-                builder.append(&v, ctx);
-            });
+            builder.append(&list::List::nil().into_value(), ctx);
+            builder.append(&bool::Bool::true_().into_value(), ctx);
 
             let (list, size) = builder.get_with_size();
             let_cap!(list, list, ctx);

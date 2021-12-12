@@ -2,7 +2,8 @@ use crate::mm::{GCAllocationStruct};
 use crate::eval::{eval};
 use crate::{value::*, let_listbuilder, with_cap, let_cap, new_cap};
 use crate::value::list;
-use crate::object::{Object, Capture};
+use crate::ptr::*;
+use crate::object::Object;
 use std::fmt::Debug;
 use std::panic;
 use once_cell::sync::Lazy;
@@ -11,7 +12,7 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&Capture<list::List>, &mut Object) -> NPtr<Value>,
+    body: fn(&RPtr<list::List>, &mut Object) -> FPtr<Value>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -31,7 +32,7 @@ impl NaviType for Syntax {
 }
 
 impl Syntax {
-    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&Capture<list::List>, &mut Object) -> NPtr<Value>) -> Self {
+    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&RPtr<list::List>, &mut Object) -> FPtr<Value>) -> Self {
         Syntax {
             require: require,
             optional: optional,
@@ -44,7 +45,11 @@ impl Syntax {
         std::ptr::eq(&SYNTAX_TYPEINFO, other_typeinfo)
     }
 
-    pub fn check_arguments(&self, args: &Capture<list::List>) -> bool {
+    pub fn check_arguments<T>(&self, args: &T) -> bool
+    where
+        T: AsReachable<list::List>
+    {
+        let args = args.as_reachable();
         let count = args.as_ref().count();
         if count < self.require {
             false
@@ -55,8 +60,11 @@ impl Syntax {
         }
     }
 
-    pub fn apply(&self, args: &Capture<list::List>, ctx: &mut Object) -> NPtr<Value> {
-        (self.body)(args, ctx)
+    pub fn apply<T>(&self, args: &T, ctx: &mut Object) -> FPtr<Value>
+    where
+        T: AsReachable<list::List>
+    {
+        (self.body)(args.as_reachable(), ctx)
     }
 }
 
@@ -74,37 +82,30 @@ impl Debug for Syntax {
     }
 }
 
-fn syntax_if(args: &Capture<list::List>, ctx: &mut Object) -> NPtr<Value> {
-    let pred_ptr = with_cap!(pred, args.as_ref().head_ref(), ctx, {
-        eval(&pred, ctx)
-    });
-    let_cap!(pred, pred_ptr, ctx);
+fn syntax_if(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
+    let_cap!(pred, eval(args.as_ref().head_ref(), ctx), ctx);
 
-    let pred = if let Some(pred) = pred.as_ref().try_cast::<bool::Bool>() {
+    let pred = if let Some(pred) = pred.as_reachable().try_cast::<bool::Bool>() {
         pred.as_ref().is_true()
     } else {
-        panic!("boolean required. but got {:?}", pred)
+        panic!("boolean required. but got {:?}", pred.as_ref())
     };
 
     let args = args.as_ref().tail_ref();
     if pred {
-        with_cap!(true_clause, args.as_ref().head_ref(), ctx, {
-            eval(&true_clause, ctx)
-        })
+        eval(args.as_ref().head_ref(), ctx)
 
     } else {
         let args = args.as_ref().tail_ref();
         if args.as_ref().is_nil() {
-            unit::Unit::unit().into_value()
+            unit::Unit::unit().into_value().into_fptr()
         } else {
-            with_cap!(false_clause, args.as_ref().head_ref(), ctx, {
-                eval(&false_clause, ctx)
-            })
+            eval(args.as_ref().head_ref(), ctx)
         }
     }
 }
 
-fn syntax_fun(args: &Capture<list::List>, ctx: &mut Object) -> NPtr<Value> {
+fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
     let_listbuilder!(builder, ctx);
 
     //引数指定の内容を解析
@@ -114,9 +115,7 @@ fn syntax_fun(args: &Capture<list::List>, ctx: &mut Object) -> NPtr<Value> {
         for p in params.as_ref().iter() {
             match p.try_cast::<symbol::Symbol>() {
                 Some(sym) => {
-                    with_cap!(sym, sym.cast_value().clone(), ctx, {
-                        builder.append(&sym, ctx);
-                    });
+                    builder.append(sym.cast_value(), ctx);
                 }
                 None => {
                     panic!("parameter require symbol. But got {:?}", p.as_ref())
@@ -127,14 +126,14 @@ fn syntax_fun(args: &Capture<list::List>, ctx: &mut Object) -> NPtr<Value> {
         panic!("The fun paramters require list. But got {:?}", params.as_ref())
     }
 
-    let (list, size) = builder.get_with_size();
-    let params_ptr = with_cap!(list, list, ctx, {
+    let (list_ptr, size) = builder.get_with_size();
+    let params_ptr = with_cap!(list, list_ptr, ctx, {
         array::Array::from_list(&list, Some(size), ctx)
     });
     let_cap!(params, params_ptr, ctx);
-    let_cap!(body, args.as_ref().tail_ref(), ctx);
+    let body = args.as_ref().tail_ref();
 
-    closure::Closure::alloc(&params, &body, ctx).into_value()
+    closure::Closure::alloc(&params, body, ctx).into_value()
 }
 
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
@@ -146,6 +145,6 @@ static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
 });
 
 pub fn register_global(ctx: &mut Object) {
-    ctx.define_value("if", &NPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
-    ctx.define_value("fun", &NPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("if", &RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
 }

@@ -1,13 +1,13 @@
-use crate::{eval, with_cap, let_cap, new_cap};
-use crate::object::Capture;
+use crate::{eval, new_cap};
 use crate::value::*;
+use crate::ptr::*;
 use crate::object::{Object};
 use std::fmt::Debug;
 
 
 pub struct Closure {
-    params: NPtr<array::Array>,
-    body: NPtr<list::List>,
+    params: RPtr<array::Array>,
+    body: RPtr<list::List>,
 }
 
 static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -30,21 +30,29 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: usize, callback: fn(&NPtr<Value>, arg: usize)) {
+    fn child_traversal(&self, arg: usize, callback: fn(&RPtr<Value>, arg: usize)) {
         callback(self.params.cast_value(), arg);
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc(params: &Capture<array::Array>, body: &Capture<list::List>, ctx: &mut Object) -> NPtr<Self> {
-        let mut nbox = ctx.alloc::<Closure>();
-        nbox.as_mut().params = NPtr::new(params.as_mut_ptr());
-        nbox.as_mut().body = NPtr::new(body.as_mut_ptr());
+    pub fn alloc<T, U>(params: &T, body: &U, ctx: &mut Object) -> FPtr<Self>
+    where
+        T: AsReachable<array::Array>,
+        U: AsReachable<list::List>,
+    {
+        let mut ptr = ctx.alloc::<Closure>();
+        let closure = unsafe { ptr.as_mut() };
+        closure.params = params.as_reachable().clone();
+        closure.body = body.as_reachable().clone();
 
-        nbox
+        ptr.into_fptr()
     }
 
-    pub fn process_arguments_descriptor(&self, args: &Capture<list::List>, _ctx: &mut Object) -> bool {
-        let count = args.as_ref().count();
+    pub fn process_arguments_descriptor<T>(&self, args: &T, _ctx: &mut Object) -> bool
+    where
+        T: AsReachable<list::List>
+    {
+        let count = args.as_reachable().as_ref().count();
         if count < self.params.as_ref().len() {
             false
         } else {
@@ -52,13 +60,15 @@ impl Closure {
         }
     }
 
-    pub fn apply(&self, args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
-
+    pub fn apply<T>(&self, args: &T, ctx: &mut Object) -> FPtr<Value>
+    where
+        T: AsReachable<array::Array>,
+    {
         //ローカルフレームを構築
-        let mut frame = Vec::<(&NPtr<symbol::Symbol>, &NPtr<Value>)>::new();
+        let mut frame = Vec::<(&RPtr<symbol::Symbol>, &RPtr<Value>)>::new();
 
         let iter1 = self.params.as_ref().iter();
-        let iter2 = args.as_ref().iter();
+        let iter2 = args.as_reachable().as_ref().iter();
 
         let iter = iter1.zip(iter2);
         for (sym, v) in iter {
@@ -70,20 +80,18 @@ impl Closure {
         ctx.push_local_frame(&frame);
 
         //Closure本体を実行
-        let mut result = new_cap!(unit::Unit::unit().into_value(), ctx);
+        let mut result = new_cap!(unit::Unit::unit().into_value().into_fptr(), ctx);
         for sexp in self.body.as_ref().iter() {
-            let e = with_cap!(sexp, sexp.clone(), ctx, {
-                eval::eval(&sexp, ctx)
-            });
+            let e = eval::eval(sexp, ctx);
 
             result = new_cap!(e, ctx);
-            ctx.add_capture(&mut result);
+            ctx.add_capture(result.cast_value_mut());
         }
 
         //ローカルフレームを環境からポップ
         ctx.pop_local_frame();
 
-        result.nptr().clone()
+        result.as_reachable().clone().into_fptr()
     }
 
 }

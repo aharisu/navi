@@ -1,5 +1,6 @@
 use crate::value::*;
 use crate::object::{Object};
+use crate::ptr::*;
 use std::fmt::{self, Debug};
 
 type StringRef = std::mem::ManuallyDrop<String>;
@@ -30,16 +31,16 @@ impl NString {
         std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(str: &String, ctx : &mut Object) -> NPtr<NString> {
+    pub fn alloc(str: &String, ctx : &mut Object) -> FPtr<NString> {
         Self::alloc_inner(str, ctx)
     }
 
     //NStringとSymbolクラス共有のアロケーション用関数。TはNSTringもしくはSymbolのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType>(str: &String, ctx : &mut Object) -> NPtr<T> {
+    pub(crate) fn alloc_inner<T: NaviType>(str: &String, ctx : &mut Object) -> FPtr<T> {
         let len_inbytes = str.len();
-        let nbox = ctx.alloc_with_additional_size::<T>(len_inbytes);
+        let ptr = ctx.alloc_with_additional_size::<T>(len_inbytes);
 
-        let obj = unsafe { &mut *(nbox.as_mut_ptr() as *mut NString) };
+        let obj = unsafe { &mut *(ptr.as_ptr() as *mut NString) };
         obj.len_inbytes = len_inbytes;
         obj.len = str.chars().count();
         unsafe {
@@ -47,7 +48,7 @@ impl NString {
             std::ptr::copy_nonoverlapping(str.as_bytes().as_ptr(), ptr, len_inbytes);
         }
 
-        nbox
+        ptr.into_fptr()
     }
 
     #[inline]

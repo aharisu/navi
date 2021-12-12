@@ -1,6 +1,7 @@
 use std::alloc;
 use std::mem;
-use crate::value::{self, TypeInfo, NaviType, NPtr, Value};
+use crate::ptr::*;
+use crate::value::{self, TypeInfo, NaviType, Value};
 use crate::object::Object;
 use crate::util::non_null_const::*;
 
@@ -94,11 +95,11 @@ impl Heap {
         heap
     }
 
-    pub fn alloc<T: NaviType>(&mut self, ctx: &Object) -> NPtr<T> {
+    pub fn alloc<T: NaviType>(&mut self, ctx: &Object) -> UIPtr<T> {
         self.alloc_with_additional_size::<T>(0, ctx)
     }
 
-    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, ctx: &Object) -> NPtr<T> {
+    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, ctx: &Object) -> UIPtr<T> {
         debug_assert!(!self.freed);
 
         //GCのバグを発見しやすいように、allocのたびにGCを実行する
@@ -132,7 +133,7 @@ impl Heap {
 
                     self.used += alloc_size;
 
-                    return NPtr::new(obj_ptr);
+                    return UIPtr::new(obj_ptr);
                 }
             } else if try_count == 0 {
                 self.gc(ctx);
@@ -270,7 +271,7 @@ impl Heap {
         //生きているオブジェクトの内部で保持したままのアドレスを、
         //再配置後のアドレスで上書きする
 
-        fn update_child_pointer(child: &NPtr<Value>, start_addr: usize) {
+        fn update_child_pointer(child: &RPtr<Value>, start_addr: usize) {
             //子オブジェクトへのポインタを移動先の新しいポインタで置き換える
             if value::value_is_pointer(child.as_ref()) {
                 let header = crate::mm::Heap::get_gc_header(child.as_ref());

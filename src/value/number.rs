@@ -1,6 +1,7 @@
+use crate::ptr::*;
 use crate::value::*;
 use crate::value::func::*;
-use crate::object::{Object, Capture};
+use crate::object::Object;
 use crate::mm::{GCAllocationStruct};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -34,12 +35,12 @@ impl Integer {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(num: i64, ctx : &mut Object) -> NPtr<Integer> {
-        let mut nbox = ctx.alloc::<Integer>();
-        let obj = nbox.as_mut();
+    pub fn alloc(num: i64, ctx : &mut Object) -> FPtr<Integer> {
+        let mut ptr = ctx.alloc::<Integer>();
+        let obj = unsafe { ptr.as_mut() };
         obj.num = num;
 
-        nbox
+        ptr.into_fptr()
     }
 }
 
@@ -72,13 +73,14 @@ impl Real {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(num: f64, ctx : &mut Object) -> NPtr<Real> {
-        let mut nbox = ctx.alloc::<Real>();
-        let obj = nbox.as_mut();
+    pub fn alloc(num: f64, ctx : &mut Object) -> FPtr<Real> {
+        let mut ptr = ctx.alloc::<Real>();
+        let obj = unsafe { ptr.as_mut() };
         obj.num = num;
 
-        nbox
+        ptr.into_fptr()
     }
+
 }
 
 #[derive(Debug, PartialEq)]
@@ -122,7 +124,7 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
+fn func_add(args: &RPtr<array::Array>, ctx: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -160,7 +162,7 @@ fn func_add(args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
     }
 }
 
-fn func_eqv(args: &Capture<array::Array>, _ctx: &mut Object) -> NPtr<Value> {
+fn func_eqv(args: &RPtr<array::Array>, _ctx: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     let (int,real) = match number_to(&v.as_ref()) {
@@ -203,13 +205,13 @@ fn func_eqv(args: &Capture<array::Array>, _ctx: &mut Object) -> NPtr<Value> {
     }
 
     if result {
-        bool::Bool::true_().into_value()
+        bool::Bool::true_().into_fptr().into_value()
     } else {
-        bool::Bool::false_().into_value()
+        bool::Bool::false_().into_fptr().into_value()
     }
 }
 
-fn func_abs(args: &Capture<array::Array>, ctx: &mut Object) -> NPtr<Value> {
+fn func_abs(args: &RPtr<array::Array>, ctx: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     match number_to(v.as_ref()) {
@@ -250,7 +252,7 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 
 
 pub fn register_global(ctx: &mut Object) {
-    ctx.define_value("+", &NPtr::new(&FUNC_ADD.value as *const Func as *mut Func).into_value());
-    ctx.define_value("=", &NPtr::new(&FUNC_EQV.value as *const Func as *mut Func).into_value());
-    ctx.define_value("abs", &NPtr::new(&FUNC_ABS.value as *const Func as *mut Func).into_value());
+    ctx.define_value("+", &RPtr::new(&FUNC_ADD.value as *const Func as *mut Func).into_value());
+    ctx.define_value("=", &RPtr::new(&FUNC_EQV.value as *const Func as *mut Func).into_value());
+    ctx.define_value("abs", &RPtr::new(&FUNC_ABS.value as *const Func as *mut Func).into_value());
 }

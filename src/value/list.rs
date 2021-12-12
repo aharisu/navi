@@ -1,12 +1,13 @@
 #![allow(unused_unsafe)]
 
 use crate::{value::*, new_cap};
-use crate::object::{Object, Capture};
+use crate::ptr::*;
+use crate::object::{Object};
 use std::fmt::{self, Debug};
 
 pub struct List {
-    v: NPtr<Value>,
-    next: NPtr<List>,
+    v: RPtr<Value>,
+    next: RPtr<List>,
 }
 
 static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -30,43 +31,55 @@ impl List {
         std::ptr::eq(&LIST_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: usize, callback: fn(&NPtr<Value>, arg: usize)) {
+    fn child_traversal(&self, arg: usize, callback: fn(&RPtr<Value>, arg: usize)) {
         callback(&self.v, arg);
         callback(self.next.cast_value(), arg);
     }
 
-    pub fn nil() -> NPtr<List> {
-        NPtr::<List>::new_immidiate(IMMIDATE_NIL)
+    pub fn nil() -> RPtr<List> {
+        RPtr::<List>::new_immidiate(IMMIDATE_NIL)
     }
 
     pub fn is_nil(&self) -> bool {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc(v: &Capture<Value>, next: &Capture<List>, ctx: &mut Object) -> NPtr<List> {
-        let mut nbox = ctx.alloc::<List>();
+    pub fn alloc<V, N>(v: &V, next: &N, ctx: &mut Object) -> FPtr<List>
+    where
+        V: AsReachable<Value>,
+        N: AsReachable<List>,
+    {
+        let v = v.as_reachable();
+        let next = next.as_reachable();
+        let mut ptr = ctx.alloc::<List>();
+        let list = unsafe { ptr.as_mut() };
         //確保したメモリ内に値を書き込む
-        nbox.as_mut().v = NPtr::new(v.as_mut_ptr());
-        nbox.as_mut().next = NPtr::new(next.as_mut_ptr());
+        list.v = v.clone();
+        list.next = next.clone();
 
-        nbox
+        ptr.into_fptr()
     }
 
-    fn alloc_tail(v: &Capture<Value>, ctx: &mut Object) -> NPtr<List> {
-        let mut nbox = ctx.alloc::<List>();
+    fn alloc_tail<V>(v: &V, ctx: &mut Object) -> FPtr<List>
+    where
+        V: AsReachable<Value>,
+    {
+        let v = v.as_reachable();
+        let mut ptr = ctx.alloc::<List>();
+        let list = unsafe { ptr.as_mut() };
         //確保したメモリ内に値を書き込む
-        nbox.as_mut().v = NPtr::new(v.as_mut_ptr());
-        nbox.as_mut().next = Self::nil();
+        list.v = v.clone();
+        list.next = Self::nil();
 
-        nbox
+        ptr.into_fptr()
     }
 
-    pub fn head_ref(&self) -> NPtr<Value> {
-        self.v.clone()
+    pub fn head_ref(&self) -> &RPtr<Value> {
+        &self.v
     }
 
-    pub fn tail_ref(&self) -> NPtr<List> {
-        self.next.clone()
+    pub fn tail_ref(&self) -> &RPtr<List> {
+        &self.next
     }
 
     pub fn count(&self) -> usize {
@@ -113,7 +126,7 @@ impl Debug for List {
 //TODO この構造体の値をローカルで保持する場合はGC Captureが必要
 pub struct ListIterator<'a> {
     list: &'a List,
-    cur: Option<&'a NPtr<List>>,
+    cur: Option<&'a RPtr<List>>,
 }
 
 impl <'a> ListIterator<'a> {
@@ -126,7 +139,7 @@ impl <'a> ListIterator<'a> {
 }
 
 impl <'a> std::iter::Iterator for ListIterator<'a> {
-    type Item = &'a NPtr<Value>;
+    type Item = &'a RPtr<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(cur) = self.cur {
@@ -164,8 +177,8 @@ pub struct ListBuilder {
 macro_rules! let_listbuilder {
     ($name:ident, $ctx:expr) => {
         let $name = crate::value::list::ListBuilder {
-            start: new_cap!(crate::value::list::List::nil(), $ctx), //nilはimmidiate valueのためadd_captureしなくてもOK
-            end: new_cap!(crate::value::list::List::nil(), $ctx),
+            start: new_cap!(crate::value::list::List::nil().into_fptr(), $ctx), //nilはimmidiate valueのためadd_captureしなくてもOK
+            end: new_cap!(crate::value::list::List::nil().into_fptr(), $ctx),
             len: 0,
             _pinned: std::marker::PhantomPinned,
         };
@@ -175,17 +188,21 @@ macro_rules! let_listbuilder {
 
 
 impl ListBuilder {
-    pub fn append(self: &mut Pin<&mut Self>, v: &Capture<Value>, ctx: &mut Object) {
+    pub fn append<T>(self: &mut Pin<&mut Self>, v: &T, ctx: &mut Object)
+    where
+        T: AsReachable<Value>
+    {
+
         if self.start.as_ref().is_nil() {
             unsafe {
                 let this = self.as_mut().get_unchecked_mut();
                 let cell = List::alloc_tail(v, ctx);
 
-                this.start = new_cap!(cell.clone(), ctx);
-                ctx.add_capture(this.start.cast_value());
+                this.start = new_cap!(FPtr::new(cell.as_ptr()), ctx);
+                ctx.add_capture(this.start.cast_value_mut());
 
                 this.end = new_cap!(cell, ctx);
-                ctx.add_capture(this.end.cast_value());
+                ctx.add_capture(this.end.cast_value_mut());
 
                 this.len += 1;
             }
@@ -194,22 +211,22 @@ impl ListBuilder {
             unsafe {
                 let this = self.as_mut().get_unchecked_mut();
                 let cell = List::alloc_tail(v, ctx);
-                this.end.as_mut().next = cell.clone();
+                this.end.as_mut().next = RPtr::new(cell.as_ptr());
 
                 this.end = new_cap!(cell, ctx);
-                ctx.add_capture(this.end.cast_value());
+                ctx.add_capture(this.end.cast_value_mut());
 
                 this.len += 1;
             }
         }
     }
 
-    pub fn get(self: Pin<&mut Self>) -> NPtr<List> {
-        self.start.nptr().clone()
+    pub fn get(self: Pin<&mut Self>) -> FPtr<List> {
+        self.start.as_reachable().clone().into_fptr()
     }
 
-    pub fn get_with_size(self: Pin<&mut Self>) -> (NPtr<List>, usize) {
-        (self.start.nptr().clone(), self.len)
+    pub fn get_with_size(self: Pin<&mut Self>) -> (FPtr<List>, usize) {
+        (self.start.as_reachable().clone().into_fptr(), self.len)
     }
 }
 
@@ -230,9 +247,9 @@ mod tests {
             let_listbuilder!(builder, ctx);
 
             let_cap!(result, builder.get(), ctx);
-            let_cap!(ans, list::List::nil(), ans_ctx);
+            let ans = list::List::nil();
 
-            assert_eq!(result.nptr().as_ref(), ans.nptr().as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
@@ -251,13 +268,14 @@ mod tests {
             let_cap!(_2, number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
             let_cap!(_3, number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
 
-            let_cap!(ans, list::List::nil(), ans_ctx);
+
+            let ans = list::List::nil();
             let_cap!(ans, list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
             let_cap!(ans, list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
             let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
 
 
-            assert_eq!(result.nptr().as_ref(), ans.nptr().as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
     }

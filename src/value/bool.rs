@@ -1,4 +1,5 @@
 use crate::value::*;
+use crate::ptr::RPtr;
 use std::fmt::{self, Debug};
 
 pub struct Bool {
@@ -26,13 +27,13 @@ impl Bool {
     }
 
     #[inline(always)]
-    pub fn true_() -> NPtr<Bool> {
-        NPtr::<Bool>::new_immidiate(IMMIDATE_TRUE)
+    pub fn true_() -> RPtr<Bool> {
+        RPtr::<Bool>::new_immidiate(IMMIDATE_TRUE)
     }
 
     #[inline(always)]
-    pub fn false_() -> NPtr<Bool> {
-        NPtr::<Bool>::new_immidiate(IMMIDATE_FALSE)
+    pub fn false_() -> RPtr<Bool> {
+        RPtr::<Bool>::new_immidiate(IMMIDATE_FALSE)
     }
 
     #[inline(always)]

@@ -7,7 +7,7 @@ macro_rules! new_typeinfo {
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
             child_traversal_func: match $child_traversal_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, usize, fn(&NPtr<Value>, usize)), fn(&Value, usize, fn(&NPtr<Value>, usize))>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, usize, fn(&RPtr<Value>, usize)), fn(&Value, usize, fn(&RPtr<Value>, usize))>(func) }),
                 None => None
              },
         }
@@ -25,9 +25,10 @@ pub mod func;
 pub mod syntax;
 pub mod unit;
 
+
 use std::ptr::{self};
-use std::cell::Cell;
 use crate::util::non_null_const::*;
+use crate::ptr::*;
 
 // [tagged value]
 // Nil, true, false, ...
@@ -89,7 +90,7 @@ pub struct TypeInfo {
     pub eq_func: fn(&Value, &Value) -> bool,
     pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: fn(&TypeInfo) -> bool,
-    pub child_traversal_func: Option<fn(&Value, usize, fn(&NPtr<Value>, usize))>,
+    pub child_traversal_func: Option<fn(&Value, usize, fn(&RPtr<Value>, usize))>,
 }
 
 pub struct Value { }
@@ -195,105 +196,6 @@ impl Value {
 
 }
 
-pub trait AsPtr<T: ?Sized> {
-    fn as_ptr(&self) -> *const T;
-    fn as_mut_ptr(&self) -> *mut T;
-}
-
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct NPtr<T: NaviType> {
-    pointer: Cell<*mut T>,
-}
-
-impl <T: NaviType> NPtr<T> {
-    pub fn new(ptr: *mut T) -> Self {
-        NPtr { pointer: Cell::new(ptr) }
-    }
-
-    pub fn new_immidiate(value: usize) -> Self {
-        let ptr = value as *mut usize;
-        let ptr = ptr as *mut T;
-        NPtr::new(ptr)
-    }
-
-    pub fn into_value(self) -> NPtr<Value> {
-        self.cast_value().clone()
-    }
-
-    pub fn cast_value(&self) -> &NPtr<Value> {
-        unsafe { &*(self as *const NPtr<T> as *const NPtr<Value>) }
-    }
-
-    pub fn update_pointer(&self, ptr: *mut T) {
-        self.pointer.set(ptr);
-    }
-}
-
-impl NPtr<Value> {
-    pub fn try_into<'b, U: NaviType>(self) -> Option<NPtr<U>> {
-        if let Some(v) = self.try_cast::<U>() {
-            Some(v.clone())
-        } else {
-            None
-        }
-    }
-
-    pub fn try_cast<U: NaviType>(&self) -> Option<&NPtr<U>> {
-        if self.as_ref().is::<U>() {
-            Some(unsafe { &*(self as *const NPtr<Value> as *const NPtr<U>) })
-
-        } else {
-            None
-        }
-    }
-
-    pub unsafe fn cast_unchecked<U: NaviType>(&self) -> &NPtr<U> {
-        &*(self as *const NPtr<Value> as *const NPtr<U>)
-    }
-
-    pub fn is<U: NaviType>(&self) -> bool {
-        self.as_ref().is::<U>()
-    }
-
-    pub fn is_type(&self, typeinfo: NonNullConst<TypeInfo>) -> bool {
-        self.as_ref().is_type(typeinfo)
-    }
-}
-
-
-impl <T: NaviType> AsRef<T> for NPtr<T> {
-
-    fn as_ref(&self) -> &T {
-        unsafe { & *(self.pointer.get()) }
-    }
-}
-
-impl <T: NaviType> AsMut<T> for NPtr<T> {
-
-    fn as_mut(&mut self) -> &mut T {
-        unsafe { &mut *(self.pointer.get()) }
-    }
-}
-
-impl <T: NaviType> crate::value::AsPtr<T> for NPtr<T> {
-    fn as_ptr(&self) -> *const T {
-        self.pointer.get()
-    }
-
-    fn as_mut_ptr(&self) -> *mut T {
-        self.pointer.get()
-    }
-}
-
-impl <T: NaviType> Clone for NPtr<T> {
-    fn clone(&self) -> Self {
-        NPtr::new(self.pointer.get())
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
     use crate::{value::*, let_cap, new_cap};
@@ -317,7 +219,7 @@ mod tests {
         assert!(v.as_ref().is::<number::Number>());
 
         //nil
-        let_cap!(v, list::List::nil().into_value(), ctx);
+        let v = list::List::nil().into_value();
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
 

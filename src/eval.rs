@@ -1,28 +1,27 @@
 use crate::{value::*, let_cap, new_cap, with_cap, let_listbuilder};
-use crate::object::{Object, Capture};
+use crate::object::Object;
+use crate::ptr::*;
 
-pub fn eval(sexp: &Capture<Value>, ctx: &mut Object) -> NPtr<Value> {
+pub fn eval<T>(sexp: &T, ctx: &mut Object) -> FPtr<Value>
+where
+    T: AsReachable<Value>
+{
+    let sexp = sexp.as_reachable();
     if let Some(sexp) = sexp.try_cast::<list::List>() {
         if sexp.as_ref().is_nil() {
-            sexp.nptr().clone().into_value()
+            sexp.cast_value().clone().into_fptr()
         } else {
             //リスト先頭の式を評価
-            let head_ptr = with_cap!(head, sexp.as_ref().head_ref(), ctx, {
-                eval(&head, ctx)
-            });
-            let_cap!(head, head_ptr, ctx);
+            let_cap!(head, eval(sexp.as_ref().head_ref(), ctx), ctx);
 
-            if let Some(func) = head.try_cast::<func::Func>() {
+            if let Some(func) = head.as_reachable().try_cast::<func::Func>() {
                 //関数適用
 
                 //引数を順に評価してリスト内に保存
                 let_listbuilder!(builder, ctx);
                 let args_sexp = sexp.as_ref().tail_ref();
                 for sexp in args_sexp.as_ref().iter() {
-                    let ptr = with_cap!(sexp, sexp.clone(), ctx, {
-                        eval(&sexp, ctx)
-                    });
-                    with_cap!(v, ptr, ctx, {
+                    with_cap!(v, eval(sexp, ctx), ctx, {
                         builder.append(&v, ctx);
                     });
                 }
@@ -40,26 +39,23 @@ pub fn eval(sexp: &Capture<Value>, ctx: &mut Object) -> NPtr<Value> {
                     panic!("Invalid arguments: {:?} {:?}", func.as_ref(), args.as_ref())
                 }
 
-            } else if let Some(syntax) = head.try_cast::<syntax::Syntax>() {
+            } else if let Some(syntax) = head.as_reachable().try_cast::<syntax::Syntax>() {
                 //シンタックス適用
-                let_cap!(args, sexp.as_ref().tail_ref(), ctx);
-                if syntax.as_ref().check_arguments(&args) {
-                    syntax.as_ref().apply(&args, ctx)
+                let args = sexp.as_ref().tail_ref();
+                if syntax.as_ref().check_arguments(args) {
+                    syntax.as_ref().apply(args, ctx)
 
                 } else {
                     panic!("Invalid arguments: {:?} {:?}", syntax.as_ref(), args.as_ref())
                 }
-            } else if let Some(closure) = head.try_cast::<closure::Closure>() {
+            } else if let Some(closure) = head.as_reachable().try_cast::<closure::Closure>() {
                 //クロージャ適用
 
                 //引数を順に評価してリスト内に保存
                 let_listbuilder!(builder, ctx);
                 let args_sexp = sexp.as_ref().tail_ref();
                 for sexp in args_sexp.as_ref().iter() {
-                    let ptr = with_cap!(sexp, sexp.clone(), ctx, {
-                        eval(&sexp, ctx)
-                    });
-                    with_cap!(v, ptr, ctx, {
+                    with_cap!(v, eval(sexp, ctx), ctx, {
                         builder.append(&v, ctx);
                     });
                 }
@@ -81,13 +77,13 @@ pub fn eval(sexp: &Capture<Value>, ctx: &mut Object) -> NPtr<Value> {
 
     } else if let Some(symbol) = sexp.try_cast::<symbol::Symbol>() {
         if let Some(v) = ctx.find_value(symbol) {
-            v
+            v.clone().into_fptr()
         } else {
             panic!("{:?} is not found", symbol.as_ref())
         }
 
     } else {
-        sexp.nptr().clone()
+        FPtr::new(sexp.as_ptr())
     }
 }
 
@@ -97,8 +93,9 @@ mod tests {
     use crate::read::*;
     use crate::value::*;
     use crate::object::*;
+    use crate::ptr::*;
 
-    fn read(program: &str, ctx: &mut Object) -> NPtr<Value> {
+    fn read(program: &str, ctx: &mut Object) -> FPtr<Value> {
         let mut ctx = ReadContext::new(program.chars().peekable(), ctx);
 
         let result = crate::read::read(&mut ctx);
@@ -106,8 +103,11 @@ mod tests {
         result.unwrap()
     }
 
-    fn eval(sexp: &Capture<Value>, ctx: &mut Object) -> NPtr<Value> {
-        crate::eval::eval(&sexp, ctx)
+    fn eval<T>(sexp: &T, ctx: &mut Object) -> FPtr<Value>
+    where
+        T: AsReachable<Value>
+    {
+        crate::eval::eval(sexp.as_reachable(), ctx)
     }
 
     #[test]
@@ -124,19 +124,19 @@ mod tests {
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Integer::alloc(1, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(abs -1)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx).into_value(), ctx);
             let ans = number::Integer::alloc(1, ans_ctx).into_value();
-            assert_eq!((*result).as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(abs -3.14)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Real::alloc(3.14, ans_ctx).into_value();
-            assert_eq!((*result).as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
@@ -144,25 +144,25 @@ mod tests {
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Integer::alloc(1, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 3.14)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Real::alloc(3.14, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 1 2 3 -4)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Integer::alloc(2, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 1.5 2 3 -4.5)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Real::alloc(2.0, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         //TODO Optional引数のテスト
@@ -184,24 +184,24 @@ mod tests {
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Integer::alloc(10, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(if (= 1 2) 10 100)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Integer::alloc(100, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(if (= 1 1 1) 10)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Integer::alloc(10, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(if (= 1 1 2) 10)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
-            assert!(result.is::<unit::Unit>())
+            assert!(result.as_reachable().is::<unit::Unit>())
         }
     }
 
@@ -220,13 +220,13 @@ mod tests {
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Integer::alloc(11, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "((fun (a b) (+ a b) (+ ((fun (a) (+ a 10)) b) a)) 100 200)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             let ans = number::Integer::alloc(310, ans_ctx).into_value();
-            assert_eq!(result.nptr().as_ref(), ans.as_ref());
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 

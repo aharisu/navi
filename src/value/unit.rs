@@ -1,4 +1,5 @@
 use crate::value::*;
+use crate::ptr::*;
 use std::fmt::{self, Debug};
 
 pub struct Unit {
@@ -26,8 +27,8 @@ impl Unit {
     }
 
     #[inline(always)]
-    pub fn unit() -> NPtr<Unit> {
-        NPtr::<Unit>::new_immidiate(IMMIDATE_UNIT)
+    pub fn unit() -> RPtr<Unit> {
+        RPtr::<Unit>::new_immidiate(IMMIDATE_UNIT)
     }
 
     #[inline(always)]

@@ -4,6 +4,7 @@ use std::str::Chars;
 use crate::{let_listbuilder, new_cap, with_cap, let_cap};
 use crate::value::*;
 use crate::object::{Object};
+use crate::ptr::*;
 
 #[derive(Debug)]
 pub struct ReadError {
@@ -14,7 +15,7 @@ fn readerror(msg: String) -> ReadError {
     ReadError { msg: msg}
 }
 
-pub type ReadResult = Result<NPtr<Value>, ReadError>;
+pub type ReadResult = Result<FPtr<Value>, ReadError>;
 
 pub struct ReadContext<'i, 'o> {
     input: Peekable<Chars<'i>>,
@@ -136,8 +137,8 @@ fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
 fn read_symbol(ctx: &mut ReadContext) -> ReadResult {
     match read_word(ctx) {
         Ok(str) => match &*str {
-            "true" =>Ok(bool::Bool::true_().into_value()),
-            "false" =>Ok(bool::Bool::false_().into_value()),
+            "true" =>Ok(bool::Bool::true_().into_fptr().into_value()),
+            "false" =>Ok(bool::Bool::false_().into_fptr().into_value()),
             _ => Ok(symbol::Symbol::alloc(&str, &mut ctx.obj).into_value()),
         }
         Err(err) => Err(err),
@@ -220,6 +221,7 @@ const fn is_delimiter(ch: char) -> bool {
 mod tests {
     use crate::read::*;
     use crate::object::Object;
+    use crate::ptr::*;
 
     fn make_read_context<'a, 'b>(s: &'a str, ctx: &'b mut Object) -> ReadContext<'a, 'b> {
         ReadContext::new( s.chars().peekable(), ctx)
@@ -238,20 +240,21 @@ mod tests {
         assert!(result.is_err());
     }
 
-    fn read<T: NaviType>(program: &str, ctx: &mut Object) -> NPtr<T> {
+    fn read<T: NaviType>(program: &str, ctx: &mut Object) -> FPtr<T> {
         //let mut heap = navi::mm::Heap::new(1024, name.to_string());
         let mut ctx = make_read_context(program, ctx);
 
         read_with_ctx(&mut ctx)
     }
 
-    fn read_with_ctx<T: NaviType>(ctx: &mut ReadContext) -> NPtr<T> {
+    fn read_with_ctx<T: NaviType>(ctx: &mut ReadContext) -> FPtr<T> {
         let result = crate::read::read(ctx);
         assert!(result.is_ok());
 
-        let result = result.unwrap().try_into::<T>();
+        let result = result.unwrap();
+        let result = result.as_ref().try_cast::<T>();
         assert!(result.is_some());
-        result.unwrap()
+        FPtr::new(result.unwrap() as *const T as *mut T)
     }
 
     #[test]
@@ -464,12 +467,12 @@ mod tests {
             let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
             let_cap!(_2, number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
             let_cap!(_3, number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
-            let_cap!(ans, list::List::nil(), ans_ctx);
+            let ans = list::List::nil();
             let_cap!(ans, list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
             let_cap!(ans, list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
             let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
 
-            assert_eq!(result.as_ref(), (*ans).nptr().cast_value().as_ref());
+            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
 
         {
@@ -482,13 +485,13 @@ mod tests {
             let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_ctx).into_value(), ans_ctx);
             let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
 
-            let_cap!(ans, list::List::nil(), ans_ctx);
+            let ans = list::List::nil();
             let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
             let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_ctx), ans_ctx);
             let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_ctx), ans_ctx);
             let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
 
-            assert_eq!(result.as_ref(), (*ans).nptr().cast_value().as_ref());
+            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
     }
 
