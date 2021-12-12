@@ -96,9 +96,9 @@ mod tests {
     use crate::ptr::*;
 
     fn read(program: &str, ctx: &mut Object) -> FPtr<Value> {
-        let mut ctx = ReadContext::new(program.chars().peekable(), ctx);
+        let mut reader = Reader::new(program.chars().peekable());
 
-        let result = crate::read::read(&mut ctx);
+        let result = crate::read::read(&mut reader, ctx);
         assert!(result.is_ok());
         result.unwrap()
     }

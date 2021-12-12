@@ -17,64 +17,62 @@ fn readerror(msg: String) -> ReadError {
 
 pub type ReadResult = Result<FPtr<Value>, ReadError>;
 
-pub struct ReadContext<'i, 'o> {
+pub struct Reader<'i> {
     input: Peekable<Chars<'i>>,
-    obj: &'o mut Object
 }
 
-impl <'i, 'o> ReadContext<'i, 'o> {
-    pub fn new(input: Peekable<Chars<'i>>, ctx: &'o mut Object) -> Self {
-        ReadContext {
+impl <'i> Reader<'i> {
+    pub fn new(input: Peekable<Chars<'i>>) -> Self {
+        Reader {
             input: input,
-            obj: ctx,
         }
     }
 }
 
-pub fn read(ctx: &mut ReadContext) -> ReadResult {
-    read_internal(ctx)
+pub fn read(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+    read_internal(reader, ctx)
 }
 
-fn read_internal(ctx: &mut ReadContext) -> ReadResult {
-    skip_whitespace(ctx);
+fn read_internal(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+    skip_whitespace(reader);
 
-    match ctx.input.peek() {
+    match reader.input.peek() {
         None => Err(readerror("読み込む内容がない".to_string())),
         Some(ch) => match ch {
-            '(' => read_list(ctx),
-            '"' => read_string(ctx),
-            '\'' => read_quote(ctx),
-            '+' | '-' | '0' ..= '9' => read_number_or_symbol(ctx),
-            _ => read_symbol(ctx),
+            '(' => read_list(reader, ctx),
+            '"' => read_string(reader, ctx),
+            '\'' => read_quote(reader, ctx),
+            '+' | '-' | '0' ..= '9' => read_number_or_symbol(reader, ctx),
+            _ => read_symbol(reader, ctx),
         }
     }
 }
 
 
-fn read_list(ctx: &mut ReadContext) -> ReadResult {
+fn read_list(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
     //skip first char
-    ctx.input.next();
+    reader.input.next();
 
-    let_listbuilder!(builder, ctx.obj);
+    let_listbuilder!(builder, ctx);
 
     loop {
-        skip_whitespace(ctx);
-        match ctx.input.peek() {
+        skip_whitespace(reader);
+        match reader.input.peek() {
             None => return Err(readerror("リストが完結する前にEOFになった".to_string())),
             Some(')') => {
-                ctx.input.next();
+                reader.input.next();
                 // complete!
                 let list = builder.get();
                 return Ok(list.into_value());
             }
             Some(_) => {
                 //再帰的にreadを呼び出す
-                match read_internal(ctx) {
+                match read_internal(reader, ctx) {
                     //内部でエラーが発生した場合は途中停止
                     Err(msg) => return Err(msg),
                     Ok(v) => {
-                        with_cap!(v, v, ctx.obj, {
-                            builder.append(&v, &mut ctx.obj)
+                        with_cap!(v, v, ctx, {
+                            builder.append(&v, ctx)
                         })
                     }
                 }
@@ -83,18 +81,18 @@ fn read_list(ctx: &mut ReadContext) -> ReadResult {
     }
 }
 
-fn read_string(ctx: &mut ReadContext) -> ReadResult {
+fn read_string(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
     //skip first char
-    ctx.input.next();
+    reader.input.next();
 
     //終了文字'"'までのすべての文字を読み込み文字列をぶじぇくとを作成する
     let mut acc: Vec<char> = Vec::new();
     loop {
-        match ctx.input.next() {
+        match reader.input.next() {
             None => return Err(readerror("文字列が完結する前にEOFになった".to_string())),
             Some('\"') => {
                 let str: String = acc.into_iter().collect();
-                let str = string::NString::alloc(&str, &mut ctx.obj);
+                let str = string::NString::alloc(&str, ctx);
                 return Ok(str.into_value());
             }
             Some(ch) => {
@@ -105,46 +103,46 @@ fn read_string(ctx: &mut ReadContext) -> ReadResult {
 }
 
 #[allow(dead_code)]
-fn read_char(_ctx: &mut ReadContext) -> ReadResult {
+fn read_char(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
     //TODO
     unimplemented!()
 }
 
-fn read_quote(ctx: &mut ReadContext) -> ReadResult {
+fn read_quote(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
     //skip first char
-    ctx.input.next();
+    reader.input.next();
 
     //再帰的に式を一つ読み込んでquoteで囲む
-    let sexp = match read_internal(ctx) {
+    let sexp = match read_internal(reader, ctx) {
         //内部でエラーが発生した場合は途中停止
         Err(msg) => return Err(msg),
         Ok(v) => v,
     };
-    let_cap!(sexp, sexp, ctx.obj);
+    let_cap!(sexp, sexp, ctx);
 
-    let_listbuilder!(builder, ctx.obj);
-    builder.append(syntax::Syntax::quote().cast_value(), ctx.obj);
-    builder.append(&sexp, ctx.obj);
+    let_listbuilder!(builder, ctx);
+    builder.append(syntax::Syntax::quote().cast_value(), ctx);
+    builder.append(&sexp, ctx);
     Ok(builder.get().into_value())
 }
 
-fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
-    match read_word(ctx) {
+fn read_number_or_symbol(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+    match read_word(reader, ctx) {
         Ok(str) => match str.parse::<i64>() {
                 Ok(num) => {
                     //integer
-                    let num = number::Integer::alloc(num, &mut ctx.obj);
+                    let num = number::Integer::alloc(num, ctx);
                     return Ok(num.into_value());
                 },
                 Err(_) => match str.parse::<f64>() {
                     Ok(num) => {
                         //floating number
-                        let num = number::Real::alloc(num, &mut ctx.obj);
+                        let num = number::Real::alloc(num, ctx);
                         return Ok(num.into_value());
                     }
                     Err(_) => {
                         //symbol
-                        let symbol = symbol::Symbol::alloc(&str, &mut ctx.obj);
+                        let symbol = symbol::Symbol::alloc(&str, ctx);
                         return Ok(symbol.into_value());
                     }
                 }
@@ -153,21 +151,21 @@ fn read_number_or_symbol(ctx: &mut ReadContext) -> ReadResult {
     }
 }
 
-fn read_symbol(ctx: &mut ReadContext) -> ReadResult {
-    match read_word(ctx) {
+fn read_symbol(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+    match read_word(reader, ctx) {
         Ok(str) => match &*str {
             "true" =>Ok(bool::Bool::true_().into_fptr().into_value()),
             "false" =>Ok(bool::Bool::false_().into_fptr().into_value()),
-            _ => Ok(symbol::Symbol::alloc(&str, &mut ctx.obj).into_value()),
+            _ => Ok(symbol::Symbol::alloc(&str, ctx).into_value()),
         }
         Err(err) => Err(err),
     }
 }
 
-fn read_word(ctx: &mut ReadContext) -> Result<String, ReadError> {
+fn read_word(reader: &mut Reader, ctx: &mut Object) -> Result<String, ReadError> {
     let mut acc: Vec<char> = Vec::new();
     loop {
-        match ctx.input.peek() {
+        match reader.input.peek() {
             None => {
                 if acc.is_empty() {
                     return Err(readerror("ワードが存在しない".to_string()));
@@ -182,7 +180,7 @@ fn read_word(ctx: &mut ReadContext) -> Result<String, ReadError> {
             }
             Some(ch) => {
                 acc.push(*ch);
-                ctx.input.next();
+                reader.input.next();
             }
         }
     }
@@ -207,13 +205,13 @@ const fn is_whitespace(ch: char) -> bool {
     }
 }
 
-fn skip_whitespace(ctx: &mut ReadContext) {
-    let mut next = ctx.input.peek();
+fn skip_whitespace(reader: &mut Reader) {
+    let mut next = reader.input.peek();
     while let Some(ch) = next {
         if is_whitespace(*ch) {
             //Skip!!
-            ctx.input.next();
-            next = ctx.input.peek();
+            reader.input.next();
+            next = reader.input.peek();
         } else {
             next = None;
         }
@@ -242,32 +240,34 @@ mod tests {
     use crate::object::Object;
     use crate::ptr::*;
 
-    fn make_read_context<'a, 'b>(s: &'a str, ctx: &'b mut Object) -> ReadContext<'a, 'b> {
-        ReadContext::new( s.chars().peekable(), ctx)
+    fn make_reader<'a>(s: &'a str) -> Reader<'a> {
+        Reader::new( s.chars().peekable())
     }
 
     #[test]
     fn read_empty() {
         let mut ctx = Object::new("test");
+        let ctx = &mut ctx;
 
         let program = r#"
                 
         "#;
 
-        let mut ctx = make_read_context( program, &mut ctx);
-        let result  = crate::read::read(&mut ctx);
+        let mut reader = make_reader(program);
+        let reader = &mut reader;
+        let result  = crate::read::read(reader, ctx);
         assert!(result.is_err());
     }
 
     fn read<T: NaviType>(program: &str, ctx: &mut Object) -> FPtr<T> {
         //let mut heap = navi::mm::Heap::new(1024, name.to_string());
-        let mut ctx = make_read_context(program, ctx);
+        let mut reader = make_reader(program);
 
-        read_with_ctx(&mut ctx)
+        read_with_ctx(&mut reader, ctx)
     }
 
-    fn read_with_ctx<T: NaviType>(ctx: &mut ReadContext) -> FPtr<T> {
-        let result = crate::read::read(ctx);
+    fn read_with_ctx<T: NaviType>(reader: &mut Reader, ctx: &mut Object) -> FPtr<T> {
+        let result = crate::read::read(reader, ctx);
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -299,13 +299,14 @@ mod tests {
             "3 * (4 / 2) - 12 = -6   "
             "#;
 
-            let mut ctx = make_read_context(program, ctx);
+            let mut reader = make_reader(program);
+            let reader = &mut reader;
 
-            let result = read_with_ctx::<string::NString>(&mut ctx);
+            let result = read_with_ctx::<string::NString>(reader, ctx);
             let ans = string::NString::alloc(&"1 + (1 - 3) = -1".to_string(), ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<string::NString>(&mut ctx);
+            let result = read_with_ctx::<string::NString>(reader, ctx);
             let ans = string::NString::alloc(&"3 * (4 / 2) - 12 = -6   ".to_string(), ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -409,18 +410,19 @@ mod tests {
         {
             let program = "s1 s2   s3";
 
-            let mut ctx = make_read_context(program, ctx);
+            let mut reader = make_reader(program);
+            let reader = &mut reader;
 
-            let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
+            let result = read_with_ctx::<symbol::Symbol>(reader, ctx);
             let ans = symbol::Symbol::alloc(&"s1".to_string(), ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
+            let result = read_with_ctx::<symbol::Symbol>(reader, ctx);
             let ans = symbol::Symbol::alloc(&"s2".to_string(), ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
 
-            let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
+            let result = read_with_ctx::<symbol::Symbol>(reader, ctx);
             let ans = symbol::Symbol::alloc(&"s3".to_string(), ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -428,21 +430,22 @@ mod tests {
         {
             let program = "+ - +1-2 -2*3/4";
 
-            let mut ctx = make_read_context(program, ctx);
+            let mut reader = make_reader(program);
+            let reader = &mut reader;
 
-            let result = read_with_ctx::<symbol::Symbol>(&mut ctx);
+            let result = read_with_ctx::<symbol::Symbol>(reader, ctx);
             let ans = symbol::Symbol::alloc(&"+".to_string(), ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(&mut ctx);
+            let result = read_with_ctx::<Value>(reader, ctx);
             let ans = symbol::Symbol::alloc(&"-".to_string(), ans_ctx).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(&mut ctx).into_value();
+            let result = read_with_ctx::<Value>(reader, ctx).into_value();
             let ans = symbol::Symbol::alloc(&"+1-2".to_string(), ans_ctx).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(&mut ctx).into_value();
+            let result = read_with_ctx::<Value>(reader, ctx).into_value();
             let ans = symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_ctx).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -451,13 +454,14 @@ mod tests {
         {
             let program = "true false";
 
-            let mut ctx = make_read_context(program, ctx);
+            let mut reader = make_reader(program);
+            let reader = &mut reader;
 
-            let result = read_with_ctx::<Value>(&mut ctx);
+            let result = read_with_ctx::<Value>(reader, ctx);
             let ans = bool::Bool::true_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(&mut ctx);
+            let result = read_with_ctx::<Value>(reader, ctx);
             let ans = bool::Bool::false_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
