@@ -122,10 +122,17 @@ impl PartialEq for List {
 
 impl Debug for List {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.v.as_ref().fmt(f) {
-            Ok(_) => self.next.as_ref().fmt(f),
-            x => x,
+        let mut first = true;
+        write!(f, "(")?;
+        for v in self.iter() {
+            if !first {
+                write!(f, " ")?
+            }
+
+            v.as_ref().fmt(f)?;
+            first = false;
         }
+        write!(f, ")")
     }
 }
 
