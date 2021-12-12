@@ -127,7 +127,7 @@ impl PartialEq for Value {
 
 impl std::fmt::Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let self_typeinfo = crate::mm::get_typeinfo(self as *const Self);
+        let self_typeinfo = self.get_typeinfo();
 
         (unsafe { self_typeinfo.as_ref() }.print_func)(self, f)
     }
