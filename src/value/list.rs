@@ -108,9 +108,15 @@ impl Eq for List { }
 
 impl PartialEq for List {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self as *const List, other as *const List)
-        ||(self.v.as_ref().eq(&other.v.as_ref())
-            && self.next.as_ref().eq(&other.next.as_ref()))
+        if std::ptr::eq(self as *const List, other as *const List) {
+            true
+        } else if self.is_nil() {
+            other.is_nil()
+        } else if other.is_nil() {
+            false
+        } else {
+            self.v.as_ref().eq(&other.v.as_ref()) && self.next.as_ref().eq(&other.next.as_ref())
+        }
     }
 }
 
