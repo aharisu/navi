@@ -16,6 +16,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure::eq,
     Closure::fmt,
     Closure::is_type,
+    None,
     Some(Closure::child_traversal),
 );
 

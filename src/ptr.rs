@@ -188,6 +188,21 @@ impl <T: NaviType> FPtr<T> {
     }
 }
 
+impl FPtr<Value> {
+    pub fn try_cast<U: NaviType>(&self) -> Option<&FPtr<U>> {
+        if self.as_ref().is::<U>() {
+            Some(unsafe { &*(self as *const FPtr<Value> as *const FPtr<U>) })
+
+        } else {
+            None
+        }
+    }
+
+    pub unsafe fn cast_unchecked<U: NaviType>(&self) -> &FPtr<U> {
+        unsafe { &*(self as *const FPtr<Value> as *const FPtr<U>) }
+    }
+}
+
 impl <T: NaviType> AsPtr<T> for FPtr<T> {
     fn as_ptr(&self) -> *mut T {
         self.pointer

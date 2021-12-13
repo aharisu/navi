@@ -41,6 +41,7 @@ static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func::fmt,
     Func::is_type,
     None,
+    None,
 );
 
 impl NaviType for Func {

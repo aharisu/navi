@@ -16,6 +16,7 @@ static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
     List::eq,
     List::fmt,
     List::is_type,
+    None,
     Some(List::child_traversal),
 );
 

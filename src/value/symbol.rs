@@ -16,6 +16,7 @@ static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Symbol::fmt,
     Symbol::is_type,
     None,
+    None,
 );
 
 impl NaviType for Symbol {

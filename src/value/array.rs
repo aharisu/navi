@@ -13,6 +13,7 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     Array::eq,
     Array::fmt,
     Array::is_type,
+    None,
     Some(Array::child_traversal),
 );
 

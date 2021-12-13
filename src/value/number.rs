@@ -1,3 +1,4 @@
+use crate::mm::get_typeinfo;
 use crate::ptr::*;
 use crate::value::*;
 use crate::value::func::*;
@@ -7,7 +8,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use once_cell::sync::Lazy;
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+//TODO OrdとPartialOrdもRealとの比較のために独自実装が必要
+#[derive(Debug, Ord, PartialOrd, Hash)]
 pub struct Integer {
     num : i64,
 }
@@ -18,6 +20,7 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     Integer::eq,
     Integer::fmt,
     Integer::is_type,
+    Some(Integer::is_comparable),
     None,
 );
 
@@ -35,6 +38,11 @@ impl Integer {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
+    fn is_comparable(other_typeinfo: &TypeInfo) -> bool {
+        std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
+        || std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
+    }
+
     pub fn alloc(num: i64, ctx : &mut Context) -> FPtr<Integer> {
         let mut ptr = ctx.alloc::<Integer>();
         let obj = unsafe { ptr.as_mut() };
@@ -44,10 +52,31 @@ impl Integer {
     }
 }
 
+impl Eq for Integer { }
+
+impl PartialEq for Integer {
+    //IntegerはReal型とも比較可能なため、other変数にはRealの参照が来る可能性がある
+    fn eq(&self, other: &Self) -> bool {
+        //otherはReal型か？
+        let other_typeinfo = get_typeinfo(other);
+        if std::ptr::eq(Real::typeinfo().as_ptr(), other_typeinfo.as_ptr()) {
+            let other = unsafe {
+                &*(other as *const Integer as *const Real)
+            };
+            self.num as f64 == other.num
+
+        } else {
+            //Integer 同士なら通常通りnumの比較を行う
+            self.num == other.num
+        }
+    }
+}
+
 //
 // Real Number
 //
-#[derive(Debug, PartialEq, PartialOrd)]
+//TODO OrdとPartialOrdもRealとの比較のために独自実装が必要
+#[derive(Debug, PartialOrd)]
 pub struct Real {
     pub num : f64,
 }
@@ -58,6 +87,7 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     Real::eq,
     Real::fmt,
     Real::is_type,
+    Some(Real::is_comparable),
     None,
 );
 
@@ -73,6 +103,11 @@ impl Real {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
+    fn is_comparable(other_typeinfo: &TypeInfo) -> bool {
+        std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
+        || std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
+    }
+
     pub fn alloc(num: f64, ctx : &mut Context) -> FPtr<Real> {
         let mut ptr = ctx.alloc::<Real>();
         let obj = unsafe { ptr.as_mut() };
@@ -81,6 +116,26 @@ impl Real {
         ptr.into_fptr()
     }
 
+}
+
+impl PartialEq for Real {
+
+    //RealはInteger型とも比較可能なため、other変数にはIntegerの参照が来る可能性がある
+    fn eq(&self, other: &Self) -> bool {
+        //otherはReal型か？
+        let other_typeinfo = get_typeinfo(other);
+        if std::ptr::eq(Real::typeinfo().as_ptr(), other_typeinfo.as_ptr()) {
+            self.num == other.num
+
+        } else {
+            //OtherがIntegerなら、Integer型参照に無理やり戻してから比較
+            let other = unsafe {
+                &*(other as *const Real as *const Integer)
+            };
+
+            self.num == other.num as f64
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -95,6 +150,7 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number::eq,
     Number::fmt,
     Number::is_type,
+    None,
     None,
 );
 
@@ -162,55 +218,6 @@ fn func_add(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
     }
 }
 
-fn func_eqv(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
-
-    let (int,real) = match number_to(&v.as_ref()) {
-        Num::Int(num) => (Some(num), None),
-        Num::Real(num) => (None, Some(num)),
-    };
-
-    fn check(int: Option<i64>, real: Option<f64>, v: &Value) -> (Option<i64>, Option<f64>, bool) {
-        match (number_to(v), int, real) {
-            (Num::Int(num), Some(pred), None) => {
-                (Some(num), None, num == pred)
-            }
-            (Num::Real(num), Some(pred), None) => {
-                (None, Some(num), num == pred as f64)
-            }
-            (Num::Int(num), None, Some(pred)) => {
-                (None, Some(num as f64), num as f64 == pred)
-            }
-            (Num::Real(num), None, Some(pred)) => {
-                (None, Some(num), num == pred)
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    let v = args.as_ref().get(1);
-    let (mut int, mut real, mut result) = check(int, real, v.as_ref());
-
-    if result {
-        let rest = args.as_ref().get(2);
-        let rest = rest.try_cast::<list::List>().unwrap();
-
-        let mut iter = rest.as_ref().iter();
-        result = iter.all(|v| {
-            let (i, r, result) = check(int, real, v.as_ref());
-            int = i;
-            real = r;
-            result
-        });
-    }
-
-    if result {
-        bool::Bool::true_().into_fptr().into_value()
-    } else {
-        bool::Bool::false_().into_fptr().into_value()
-    }
-}
-
 fn func_abs(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
@@ -230,17 +237,6 @@ static FUNC_ADD: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
-static FUNC_EQV: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new(&[
-            Param::new("num1", ParamKind::Require, number::Number::typeinfo()),
-            Param::new("num2", ParamKind::Require, number::Number::typeinfo()),
-            Param::new("rest", ParamKind::Rest, number::Number::typeinfo()),
-            ],
-            func_eqv)
-    )
-});
-
 static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new(&[
@@ -250,9 +246,7 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
-
 pub fn register_global(ctx: &mut Context) {
     ctx.define_value("+", &RPtr::new(&FUNC_ADD.value as *const Func as *mut Func).into_value());
-    ctx.define_value("=", &RPtr::new(&FUNC_EQV.value as *const Func as *mut Func).into_value());
     ctx.define_value("abs", &RPtr::new(&FUNC_ABS.value as *const Func as *mut Func).into_value());
 }

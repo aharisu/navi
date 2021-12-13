@@ -13,6 +13,7 @@ static TUPLE_TYPEINFO : TypeInfo = new_typeinfo!(
     Tuple::eq,
     Tuple::fmt,
     Tuple::is_type,
+    None,
     Some(Tuple::child_traversal),
 );
 

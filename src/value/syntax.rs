@@ -22,6 +22,7 @@ static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
     Syntax::fmt,
     Syntax::is_type,
     None,
+    None,
 );
 
 impl NaviType for Syntax {

@@ -89,7 +89,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{let_cap, new_cap};
+    use crate::{let_cap, new_cap, value};
     use crate::read::*;
     use crate::value::*;
     use crate::context::*;
@@ -176,6 +176,7 @@ mod tests {
         let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
+        value::register_global(ctx);
         number::register_global(ctx);
         syntax::register_global(ctx);
 
@@ -192,13 +193,7 @@ mod tests {
             let ans = number::Integer::alloc(100, ans_ctx).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let program = "(if (= 1 1 1) 10)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Integer::alloc(10, ans_ctx).into_value();
-            assert_eq!(result.as_ref(), ans.as_ref());
-
-            let program = "(if (= 1 1 2) 10)";
+            let program = "(if (= 1 2) 10)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
             assert!(result.as_reachable().is::<tuple::Tuple>())
