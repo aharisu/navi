@@ -135,7 +135,17 @@ impl Eq for Array { }
 
 impl PartialEq for Array {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self as *const Array, other as *const Array)
+        if self.len == other.len {
+            for index in 0..self.len {
+                if self.get(index).as_ref() != other.get(index).as_ref() {
+                    return false;
+                }
+            }
+
+            true
+        } else {
+            false
+        }
     }
 }
 
