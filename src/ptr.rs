@@ -4,7 +4,7 @@ use std::ptr::NonNull;
 
 use crate::util::non_null_const::NonNullConst;
 use crate::value::{NaviType, Value, TypeInfo};
-use crate::object::Object;
+use crate::context::Context;
 
 pub trait AsReachable<T: NaviType> {
     fn as_reachable(&self) -> &RPtr<T>;
@@ -218,7 +218,7 @@ macro_rules! new_cap {
     ($ptr:expr, $ctx:expr) => {
         crate::ptr::Capture {
             v: $ptr,
-            ctx: unsafe { std::ptr::NonNull::new_unchecked( $ctx as *const Object as *mut Object) },
+            ctx: unsafe { std::ptr::NonNull::new_unchecked( $ctx as *const Context as *mut Context) },
             next: None,
             prev: None,
             _pinned: std::marker::PhantomPinned,
@@ -252,7 +252,7 @@ macro_rules! with_cap {
 
 pub struct Capture<T: NaviType> {
     pub v: FPtr<T>,
-    pub ctx: NonNull<Object>,
+    pub ctx: NonNull<Context>,
     pub next: Option<NonNull<Capture<Value>>>,
     pub prev: Option<NonNull<Capture<Value>>>,
     pub _pinned: std::marker::PhantomPinned,

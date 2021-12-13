@@ -1,5 +1,5 @@
 use crate::value::*;
-use crate::object::{Object};
+use crate::context::{Context};
 use crate::ptr::*;
 use std::fmt::Debug;
 
@@ -29,7 +29,7 @@ impl Symbol {
         std::ptr::eq(&SYMBOL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(str: &String, ctx : &mut Object) -> FPtr<Symbol> {
+    pub fn alloc(str: &String, ctx : &mut Context) -> FPtr<Symbol> {
         string::NString::alloc_inner::<Symbol>(str, ctx)
     }
 

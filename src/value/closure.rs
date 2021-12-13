@@ -1,7 +1,7 @@
 use crate::{eval, new_cap};
 use crate::value::*;
 use crate::ptr::*;
-use crate::object::{Object};
+use crate::context::{Context};
 use std::fmt::Debug;
 
 
@@ -35,7 +35,7 @@ impl Closure {
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc<T, U>(params: &T, body: &U, ctx: &mut Object) -> FPtr<Self>
+    pub fn alloc<T, U>(params: &T, body: &U, ctx: &mut Context) -> FPtr<Self>
     where
         T: AsReachable<array::Array>,
         U: AsReachable<list::List>,
@@ -48,7 +48,7 @@ impl Closure {
         ptr.into_fptr()
     }
 
-    pub fn process_arguments_descriptor<T>(&self, args: &T, _ctx: &mut Object) -> bool
+    pub fn process_arguments_descriptor<T>(&self, args: &T, _ctx: &mut Context) -> bool
     where
         T: AsReachable<list::List>
     {
@@ -60,7 +60,7 @@ impl Closure {
         }
     }
 
-    pub fn apply<T>(&self, args: &T, ctx: &mut Object) -> FPtr<Value>
+    pub fn apply<T>(&self, args: &T, ctx: &mut Context) -> FPtr<Value>
     where
         T: AsReachable<array::Array>,
     {

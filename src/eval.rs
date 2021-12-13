@@ -1,8 +1,8 @@
 use crate::{value::*, let_cap, new_cap, with_cap, let_listbuilder};
-use crate::object::Object;
+use crate::context::Context;
 use crate::ptr::*;
 
-pub fn eval<T>(sexp: &T, ctx: &mut Object) -> FPtr<Value>
+pub fn eval<T>(sexp: &T, ctx: &mut Context) -> FPtr<Value>
 where
     T: AsReachable<Value>
 {
@@ -92,10 +92,10 @@ mod tests {
     use crate::{let_cap, new_cap};
     use crate::read::*;
     use crate::value::*;
-    use crate::object::*;
+    use crate::context::*;
     use crate::ptr::*;
 
-    fn read(program: &str, ctx: &mut Object) -> FPtr<Value> {
+    fn read(program: &str, ctx: &mut Context) -> FPtr<Value> {
         let mut reader = Reader::new(program.chars().peekable());
 
         let result = crate::read::read(&mut reader, ctx);
@@ -103,7 +103,7 @@ mod tests {
         result.unwrap()
     }
 
-    fn eval<T>(sexp: &T, ctx: &mut Object) -> FPtr<Value>
+    fn eval<T>(sexp: &T, ctx: &mut Context) -> FPtr<Value>
     where
         T: AsReachable<Value>
     {
@@ -112,9 +112,9 @@ mod tests {
 
     #[test]
     fn func_test() {
-        let mut ctx = Object::new("eval");
+        let mut ctx = Context::new("eval");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         number::register_global(ctx);
@@ -171,9 +171,9 @@ mod tests {
 
     #[test]
     fn syntax_if_test() {
-        let mut ctx = Object::new("eval");
+        let mut ctx = Context::new("eval");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         number::register_global(ctx);
@@ -207,9 +207,9 @@ mod tests {
 
     #[test]
     fn syntax_fun_test() {
-        let mut ctx = Object::new("eval");
+        let mut ctx = Context::new("eval");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         number::register_global(ctx);

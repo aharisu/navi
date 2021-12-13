@@ -2,7 +2,7 @@ use std::alloc;
 use std::mem;
 use crate::ptr::*;
 use crate::value::{self, TypeInfo, NaviType, Value};
-use crate::object::Object;
+use crate::context::Context;
 use crate::util::non_null_const::*;
 
 //const POOL_SIZE : usize = 1024;
@@ -95,11 +95,11 @@ impl Heap {
         heap
     }
 
-    pub fn alloc<T: NaviType>(&mut self, ctx: &Object) -> UIPtr<T> {
+    pub fn alloc<T: NaviType>(&mut self, ctx: &Context) -> UIPtr<T> {
         self.alloc_with_additional_size::<T>(0, ctx)
     }
 
-    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, ctx: &Object) -> UIPtr<T> {
+    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, ctx: &Context) -> UIPtr<T> {
         debug_assert!(!self.freed);
 
         //GCのバグを発見しやすいように、allocのたびにGCを実行する
@@ -149,7 +149,7 @@ impl Heap {
         self.used
     }
 
-    fn debug_gc(&mut self, ctx: &Object) {
+    fn debug_gc(&mut self, ctx: &Context) {
         self.gc(ctx);
 
         //ダングリングポインタを発見しやすくするために未使用の領域を全て0埋め
@@ -160,7 +160,7 @@ impl Heap {
     }
 
     #[allow(dead_code)]
-    fn dump_heap(&self, _ctx: &Object) {
+    fn dump_heap(&self, _ctx: &Context) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let end = self.pool_ptr.add(self.used);
@@ -183,7 +183,7 @@ impl Heap {
 
     }
 
-    pub(crate) fn gc(&mut self, ctx: &Object) {
+    pub(crate) fn gc(&mut self, ctx: &Context) {
         self.mark_phase(ctx);
         self.setup_forwad_ptr(ctx);
         self.update_reference(ctx);
@@ -226,7 +226,7 @@ impl Heap {
         }
     }
 
-    fn mark_phase(&mut self, ctx: &Object) {
+    fn mark_phase(&mut self, ctx: &Context) {
         ctx.for_each_all_alived_value(0, |v, _| {
             let v = v.as_ref();
             if Self::is_need_mark(v) {
@@ -235,7 +235,7 @@ impl Heap {
         });
     }
 
-    fn setup_forwad_ptr(&mut self, _ctx: &Object) {
+    fn setup_forwad_ptr(&mut self, _ctx: &Context) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let end = self.pool_ptr.add(self.used);
@@ -267,7 +267,7 @@ impl Heap {
         }
     }
 
-    fn update_reference(&mut self, ctx: &Object) {
+    fn update_reference(&mut self, ctx: &Context) {
         //生きているオブジェクトの内部で保持したままのアドレスを、
         //再配置後のアドレスで上書きする
 
@@ -315,7 +315,7 @@ impl Heap {
         }
     }
 
-    fn move_object(&mut self, _ctx: &Object) {
+    fn move_object(&mut self, _ctx: &Context) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let start = ptr;
@@ -403,11 +403,11 @@ pub fn ptr_to_usize<T>(ptr: *const T) -> usize {
 mod tests {
     use crate::{let_cap, new_cap};
     use crate::value::*;
-    use crate::object::*;
+    use crate::context::*;
 
     #[test]
     fn gc_test() {
-        let mut ctx = Object::new("gc");
+        let mut ctx = Context::new("gc");
         let ctx = &mut ctx;
 
         {

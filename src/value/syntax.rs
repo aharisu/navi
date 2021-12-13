@@ -3,7 +3,7 @@ use crate::eval::{eval};
 use crate::{value::*, let_listbuilder, with_cap, let_cap, new_cap};
 use crate::value::list;
 use crate::ptr::*;
-use crate::object::Object;
+use crate::context::Context;
 use std::fmt::Debug;
 use std::panic;
 use once_cell::sync::Lazy;
@@ -12,7 +12,7 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&RPtr<list::List>, &mut Object) -> FPtr<Value>,
+    body: fn(&RPtr<list::List>, &mut Context) -> FPtr<Value>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -32,7 +32,7 @@ impl NaviType for Syntax {
 }
 
 impl Syntax {
-    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&RPtr<list::List>, &mut Object) -> FPtr<Value>) -> Self {
+    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&RPtr<list::List>, &mut Context) -> FPtr<Value>) -> Self {
         Syntax {
             require: require,
             optional: optional,
@@ -60,7 +60,7 @@ impl Syntax {
         }
     }
 
-    pub fn apply<T>(&self, args: &T, ctx: &mut Object) -> FPtr<Value>
+    pub fn apply<T>(&self, args: &T, ctx: &mut Context) -> FPtr<Value>
     where
         T: AsReachable<list::List>
     {
@@ -86,7 +86,7 @@ impl Debug for Syntax {
     }
 }
 
-fn syntax_if(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
+fn syntax_if(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     let_cap!(pred, eval(args.as_ref().head_ref(), ctx), ctx);
 
     let pred = if let Some(pred) = pred.as_reachable().try_cast::<bool::Bool>() {
@@ -109,7 +109,7 @@ fn syntax_if(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
     }
 }
 
-fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
+fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     let_listbuilder!(builder, ctx);
 
     //引数指定の内容を解析
@@ -140,7 +140,7 @@ fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
     closure::Closure::alloc(&params, body, ctx).into_value()
 }
 
-fn syntax_quote(args: &RPtr<list::List>, ctx: &mut Object) -> FPtr<Value> {
+fn syntax_quote(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     let sexp = args.as_ref().head_ref();
     sexp.clone().into_fptr()
 }
@@ -157,7 +157,7 @@ static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(1, 0, false, syntax_quote))
 });
 
-pub fn register_global(ctx: &mut Object) {
+pub fn register_global(ctx: &mut Context) {
     ctx.define_value("if", &RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("quote", &RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax).into_value());

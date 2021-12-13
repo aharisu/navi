@@ -2,7 +2,7 @@
 
 use crate::{value::*, new_cap};
 use crate::ptr::*;
-use crate::object::{Object};
+use crate::context::{Context};
 use std::fmt::{self, Debug};
 
 pub struct List {
@@ -44,7 +44,7 @@ impl List {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc<V, N>(v: &V, next: &N, ctx: &mut Object) -> FPtr<List>
+    pub fn alloc<V, N>(v: &V, next: &N, ctx: &mut Context) -> FPtr<List>
     where
         V: AsReachable<Value>,
         N: AsReachable<List>,
@@ -60,7 +60,7 @@ impl List {
         ptr.into_fptr()
     }
 
-    fn alloc_tail<V>(v: &V, ctx: &mut Object) -> FPtr<List>
+    fn alloc_tail<V>(v: &V, ctx: &mut Context) -> FPtr<List>
     where
         V: AsReachable<Value>,
     {
@@ -201,7 +201,7 @@ macro_rules! let_listbuilder {
 
 
 impl ListBuilder {
-    pub fn append<T>(self: &mut Pin<&mut Self>, v: &T, ctx: &mut Object)
+    pub fn append<T>(self: &mut Pin<&mut Self>, v: &T, ctx: &mut Context)
     where
         T: AsReachable<Value>
     {
@@ -246,14 +246,14 @@ impl ListBuilder {
 #[cfg(test)]
 mod tests {
     use crate::{value::*, let_cap, new_cap};
-    use crate::object::{Object};
+    use crate::context::{Context};
 
     #[test]
     fn test() {
-        let mut ctx = Object::new("list");
+        let mut ctx = Context::new("list");
         let ctx = &mut ctx;
 
-        let mut ans_ctx = Object::new("ans");
+        let mut ans_ctx = Context::new("ans");
         let ans_ctx = &mut ans_ctx;
 
         {

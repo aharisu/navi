@@ -199,11 +199,11 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use crate::{value::*, let_cap, new_cap};
-    use crate::object::Object;
+    use crate::context::Context;
 
     #[test]
     fn is_type() {
-        let mut ctx = Object::new("test");
+        let mut ctx = Context::new("test");
         let ctx = &mut ctx;
 
         //int

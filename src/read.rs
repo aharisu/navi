@@ -3,7 +3,7 @@ use std::str::Chars;
 
 use crate::{let_listbuilder, new_cap, with_cap, let_cap};
 use crate::value::*;
-use crate::object::{Object};
+use crate::context::{Context};
 use crate::ptr::*;
 
 #[derive(Debug)]
@@ -29,11 +29,11 @@ impl <'i> Reader<'i> {
     }
 }
 
-pub fn read(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+pub fn read(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     read_internal(reader, ctx)
 }
 
-fn read_internal(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+fn read_internal(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     skip_whitespace(reader);
 
     match reader.input.peek() {
@@ -49,7 +49,7 @@ fn read_internal(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
 }
 
 
-fn read_list(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+fn read_list(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     //skip first char
     reader.input.next();
 
@@ -81,7 +81,7 @@ fn read_list(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
     }
 }
 
-fn read_string(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+fn read_string(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     //skip first char
     reader.input.next();
 
@@ -103,12 +103,12 @@ fn read_string(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
 }
 
 #[allow(dead_code)]
-fn read_char(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+fn read_char(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     //TODO
     unimplemented!()
 }
 
-fn read_quote(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+fn read_quote(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     //skip first char
     reader.input.next();
 
@@ -126,7 +126,7 @@ fn read_quote(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
     Ok(builder.get().into_value())
 }
 
-fn read_number_or_symbol(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+fn read_number_or_symbol(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     match read_word(reader, ctx) {
         Ok(str) => match str.parse::<i64>() {
                 Ok(num) => {
@@ -151,7 +151,7 @@ fn read_number_or_symbol(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
     }
 }
 
-fn read_symbol(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
+fn read_symbol(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     match read_word(reader, ctx) {
         Ok(str) => match &*str {
             "true" =>Ok(bool::Bool::true_().into_fptr().into_value()),
@@ -162,7 +162,7 @@ fn read_symbol(reader: &mut Reader, ctx: &mut Object) -> ReadResult {
     }
 }
 
-fn read_word(reader: &mut Reader, ctx: &mut Object) -> Result<String, ReadError> {
+fn read_word(reader: &mut Reader, ctx: &mut Context) -> Result<String, ReadError> {
     let mut acc: Vec<char> = Vec::new();
     loop {
         match reader.input.peek() {
@@ -237,7 +237,7 @@ const fn is_delimiter(ch: char) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::read::*;
-    use crate::object::Object;
+    use crate::context::Context;
     use crate::ptr::*;
 
     fn make_reader<'a>(s: &'a str) -> Reader<'a> {
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn read_empty() {
-        let mut ctx = Object::new("test");
+        let mut ctx = Context::new("test");
         let ctx = &mut ctx;
 
         let program = r#"
@@ -259,14 +259,14 @@ mod tests {
         assert!(result.is_err());
     }
 
-    fn read<T: NaviType>(program: &str, ctx: &mut Object) -> FPtr<T> {
+    fn read<T: NaviType>(program: &str, ctx: &mut Context) -> FPtr<T> {
         //let mut heap = navi::mm::Heap::new(1024, name.to_string());
         let mut reader = make_reader(program);
 
         read_with_ctx(&mut reader, ctx)
     }
 
-    fn read_with_ctx<T: NaviType>(reader: &mut Reader, ctx: &mut Object) -> FPtr<T> {
+    fn read_with_ctx<T: NaviType>(reader: &mut Reader, ctx: &mut Context) -> FPtr<T> {
         let result = crate::read::read(reader, ctx);
         assert!(result.is_ok());
 
@@ -278,9 +278,9 @@ mod tests {
 
     #[test]
     fn read_string() {
-        let mut ctx = Object::new("string");
+        let mut ctx = Context::new("string");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -314,9 +314,9 @@ mod tests {
 
     #[test]
     fn read_int() {
-        let mut ctx = Object::new("int");
+        let mut ctx = Context::new("int");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -346,9 +346,9 @@ mod tests {
 
     #[test]
     fn read_float() {
-        let mut ctx = Object::new("float");
+        let mut ctx = Context::new("float");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -394,9 +394,9 @@ mod tests {
 
     #[test]
     fn read_symbol() {
-        let mut ctx = Object::new("symbol");
+        let mut ctx = Context::new("symbol");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -469,9 +469,9 @@ mod tests {
 
     #[test]
     fn read_list() {
-        let mut ctx = Object::new("list");
+        let mut ctx = Context::new("list");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -520,9 +520,9 @@ mod tests {
 
     #[test]
     fn read_quote() {
-        let mut ctx = Object::new("list");
+        let mut ctx = Context::new("list");
         let ctx = &mut ctx;
-        let mut ans_ctx = Object::new(" ans");
+        let mut ans_ctx = Context::new(" ans");
         let ans_ctx = &mut ans_ctx;
 
         {

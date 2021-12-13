@@ -1,6 +1,6 @@
 use crate::value::*;
 use crate::ptr::*;
-use crate::object::Object;
+use crate::context::Context;
 use std::fmt::{self, Debug};
 
 pub struct Array {
@@ -34,7 +34,7 @@ impl Array {
         }
     }
 
-    fn alloc(size: usize, ctx: &mut Object) -> FPtr<Array> {
+    fn alloc(size: usize, ctx: &mut Context) -> FPtr<Array> {
         let mut ptr = ctx.alloc_with_additional_size::<Array>(size * std::mem::size_of::<RPtr<Value>>());
         let ary = unsafe { ptr.as_mut() };
         ary.len = size;
@@ -93,7 +93,7 @@ impl Array {
         }
     }
 
-    pub fn from_list<T>(list: &T, size: Option<usize>, ctx: &mut Object) -> FPtr<Array>
+    pub fn from_list<T>(list: &T, size: Option<usize>, ctx: &mut Context) -> FPtr<Array>
     where
         T: AsReachable<list::List>,
     {
@@ -149,14 +149,14 @@ impl Debug for Array {
 #[cfg(test)]
 mod tests {
     use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
-    use crate::object::{Object};
+    use crate::context::{Context};
 
     #[test]
     fn test() {
-        let mut ctx = Object::new("array");
+        let mut ctx = Context::new("array");
         let ctx = &mut ctx;
 
-        let mut ans_ctx = Object::new("ans");
+        let mut ans_ctx = Context::new("ans");
         let ans_ctx = &mut ans_ctx;
 
         {

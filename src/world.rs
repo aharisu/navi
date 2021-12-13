@@ -44,10 +44,10 @@ impl World {
 #[cfg(test)]
 mod tests {
     use crate::{value::*, let_cap, new_cap};
-    use crate::object::{Object};
+    use crate::context::{Context};
     use crate::ptr::*;
 
-    fn world_get<T>(symbol: &T, ctx: &Object) -> FPtr<Value>
+    fn world_get<T>(symbol: &T, ctx: &Context) -> FPtr<Value>
     where
         T: AsReachable<symbol::Symbol>
     {
@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn set_get() {
-        let mut ctx = Object::new("world");
+        let mut ctx = Context::new("world");
         let ctx = &mut ctx;
 
         {

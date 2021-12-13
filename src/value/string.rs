@@ -1,5 +1,5 @@
 use crate::value::*;
-use crate::object::{Object};
+use crate::context::{Context};
 use crate::ptr::*;
 use std::fmt::{self, Debug};
 
@@ -31,12 +31,12 @@ impl NString {
         std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(str: &String, ctx : &mut Object) -> FPtr<NString> {
+    pub fn alloc(str: &String, ctx : &mut Context) -> FPtr<NString> {
         Self::alloc_inner(str, ctx)
     }
 
     //NStringとSymbolクラス共有のアロケーション用関数。TはNSTringもしくはSymbolのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType>(str: &String, ctx : &mut Object) -> FPtr<T> {
+    pub(crate) fn alloc_inner<T: NaviType>(str: &String, ctx : &mut Context) -> FPtr<T> {
         let len_inbytes = str.len();
         let ptr = ctx.alloc_with_additional_size::<T>(len_inbytes);
 

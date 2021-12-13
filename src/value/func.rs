@@ -1,12 +1,12 @@
 use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
-use crate::object::Object;
+use crate::context::Context;
 use crate::ptr::*;
 use std::fmt::Debug;
 
 
 pub struct Func {
     params: Vec<Param>,
-    body:  fn(&RPtr<array::Array>, &mut Object) -> FPtr<Value>,
+    body:  fn(&RPtr<array::Array>, &mut Context) -> FPtr<Value>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -51,7 +51,7 @@ impl NaviType for Func {
 }
 
 impl Func {
-    pub fn new(params: &[Param], body: fn(&RPtr<array::Array>, &mut Object) -> FPtr<Value>) -> Func {
+    pub fn new(params: &[Param], body: fn(&RPtr<array::Array>, &mut Context) -> FPtr<Value>) -> Func {
         Func {
             params: params.to_vec(),
             body: body,
@@ -63,7 +63,7 @@ impl Func {
     }
 
     //TODO 戻り値をboolからResultに変更。Errorには適切なエラー内容を含んだenum
-    pub fn process_arguments_descriptor<T>(&self, args: &T, ctx: &mut Object) -> Option<FPtr<list::List>>
+    pub fn process_arguments_descriptor<T>(&self, args: &T, ctx: &mut Context) -> Option<FPtr<list::List>>
     where
         T: AsReachable<list::List>
     {
@@ -142,7 +142,7 @@ impl Func {
         Some(builder.get())
     }
 
-    pub fn apply<T>(&self, args: &T, ctx: &mut Object) -> FPtr<Value>
+    pub fn apply<T>(&self, args: &T, ctx: &mut Context) -> FPtr<Value>
     where
         T: AsReachable<array::Array>,
     {

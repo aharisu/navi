@@ -8,16 +8,16 @@ use crate::world::World;
 use std::cell::{Cell, RefCell};
 use std::ptr::NonNull;
 
-pub struct Object {
+pub struct Context {
     heap: RefCell<Heap>,
     world: World,
     frames: Vec<Vec<(RPtr<symbol::Symbol>, RPtr<Value>)>>,
     nbox_root: Cell<Option<NonNull<Capture<Value>>>>,
 }
 
-impl Object {
+impl Context {
     pub fn new<T: Into<String>>(name: T) -> Self {
-        Object {
+        Context {
             heap: RefCell::new(Heap::new(1024 * 8, name)),
             world: World::new(),
             frames: Vec::new(),
@@ -170,7 +170,7 @@ impl Object {
 
 }
 
-impl Drop for Object {
+impl Drop for Context {
     fn drop(&mut self) {
         self.heap.borrow_mut().free();
     }

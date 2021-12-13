@@ -1,7 +1,7 @@
 use crate::ptr::*;
 use crate::value::*;
 use crate::value::func::*;
-use crate::object::Object;
+use crate::context::Context;
 use crate::mm::{GCAllocationStruct};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -35,7 +35,7 @@ impl Integer {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(num: i64, ctx : &mut Object) -> FPtr<Integer> {
+    pub fn alloc(num: i64, ctx : &mut Context) -> FPtr<Integer> {
         let mut ptr = ctx.alloc::<Integer>();
         let obj = unsafe { ptr.as_mut() };
         obj.num = num;
@@ -73,7 +73,7 @@ impl Real {
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(num: f64, ctx : &mut Object) -> FPtr<Real> {
+    pub fn alloc(num: f64, ctx : &mut Context) -> FPtr<Real> {
         let mut ptr = ctx.alloc::<Real>();
         let obj = unsafe { ptr.as_mut() };
         obj.num = num;
@@ -124,7 +124,7 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(args: &RPtr<array::Array>, ctx: &mut Object) -> FPtr<Value> {
+fn func_add(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -162,7 +162,7 @@ fn func_add(args: &RPtr<array::Array>, ctx: &mut Object) -> FPtr<Value> {
     }
 }
 
-fn func_eqv(args: &RPtr<array::Array>, _ctx: &mut Object) -> FPtr<Value> {
+fn func_eqv(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     let (int,real) = match number_to(&v.as_ref()) {
@@ -211,7 +211,7 @@ fn func_eqv(args: &RPtr<array::Array>, _ctx: &mut Object) -> FPtr<Value> {
     }
 }
 
-fn func_abs(args: &RPtr<array::Array>, ctx: &mut Object) -> FPtr<Value> {
+fn func_abs(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     match number_to(v.as_ref()) {
@@ -251,7 +251,7 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 
-pub fn register_global(ctx: &mut Object) {
+pub fn register_global(ctx: &mut Context) {
     ctx.define_value("+", &RPtr::new(&FUNC_ADD.value as *const Func as *mut Func).into_value());
     ctx.define_value("=", &RPtr::new(&FUNC_EQV.value as *const Func as *mut Func).into_value());
     ctx.define_value("abs", &RPtr::new(&FUNC_ABS.value as *const Func as *mut Func).into_value());
