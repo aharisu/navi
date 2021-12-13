@@ -25,6 +25,7 @@ pub mod keyword;
 pub mod func;
 pub mod syntax;
 pub mod unit;
+pub mod tuple;
 
 
 use std::ptr::{self};
