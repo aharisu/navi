@@ -21,6 +21,7 @@ pub mod list;
 pub mod number;
 pub mod string;
 pub mod symbol;
+pub mod keyword;
 pub mod func;
 pub mod syntax;
 pub mod unit;

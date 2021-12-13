@@ -43,6 +43,7 @@ fn read_internal(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
             '"' => read_string(reader, ctx),
             '\'' => read_quote(reader, ctx),
             '+' | '-' | '0' ..= '9' => read_number_or_symbol(reader, ctx),
+            ':' => read_keyword(reader, ctx),
             _ => read_symbol(reader, ctx),
         }
     }
@@ -147,6 +148,15 @@ fn read_number_or_symbol(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
                     }
                 }
             }
+        Err(err) => Err(err),
+    }
+}
+fn read_keyword(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+    //skip first char
+    reader.input.next();
+
+    match read_word(reader, ctx) {
+        Ok(str) => Ok(keyword::Keyword::alloc(&str, ctx).into_value()),
         Err(err) => Err(err),
     }
 }
@@ -463,6 +473,23 @@ mod tests {
 
             let result = read_with_ctx::<Value>(reader, ctx);
             let ans = bool::Bool::false_().into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+    }
+
+
+    #[test]
+    fn read_keyword() {
+        let mut ctx = Context::new("symbol");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Context::new(" ans");
+        let ans_ctx = &mut ans_ctx;
+
+        {
+            let program = ":symbol";
+
+            let result = read::<keyword::Keyword>(program, ctx);
+            let ans = keyword::Keyword::alloc(&"symbol".to_string(), ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
