@@ -144,7 +144,16 @@ impl PartialEq for Tuple {
 
 impl Debug for Tuple {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        //TODO
-        write!(f, "Tuple")
+        write!(f, "{{")?;
+        let mut first = true;
+        for index in 0..self.len() {
+            if !first {
+                write!(f, " ")?
+            }
+
+            self.get(index).as_ref().fmt(f)?;
+            first = false;
+        }
+        write!(f, "}}")
     }
 }
