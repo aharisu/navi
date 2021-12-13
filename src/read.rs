@@ -629,7 +629,7 @@ mod tests {
             let program = "{}";
 
             let result = read::<tuple::Tuple>(program, ctx);
-            let ans = tuple::Tuple::from_list(&list::List::nil(), Some(0), ans_ctx);
+            let ans = tuple::Tuple::unit();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 

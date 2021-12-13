@@ -24,7 +24,6 @@ pub mod symbol;
 pub mod keyword;
 pub mod func;
 pub mod syntax;
-pub mod unit;
 pub mod tuple;
 
 
@@ -146,7 +145,7 @@ impl Value {
                 crate::value::bool::Bool::typeinfo()
             }
             PtrKind::Unit => {
-                crate::value::unit::Unit::typeinfo()
+                crate::value::tuple::Tuple::typeinfo()
             }
             PtrKind::Ptr => {
                 crate::mm::get_typeinfo(ptr)

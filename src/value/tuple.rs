@@ -34,10 +34,20 @@ impl Tuple {
         }
     }
 
+    #[inline(always)]
+    pub fn unit() -> RPtr<Tuple> {
+        RPtr::<Tuple>::new_immidiate(IMMIDATE_UNIT)
+    }
+
+    #[inline(always)]
+    pub fn is_unit(&self) -> bool {
+        std::ptr::eq(self as *const Self, IMMIDATE_UNIT as *const Self)
+    }
+
     fn alloc(size: usize, ctx: &mut Context) -> FPtr<Tuple> {
         let mut ptr = ctx.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<RPtr<Value>>());
-        let ary = unsafe { ptr.as_mut() };
-        ary.len = size;
+        let tuple = unsafe { ptr.as_mut() };
+        tuple.len = size;
 
         ptr.into_fptr()
     }
@@ -46,7 +56,7 @@ impl Tuple {
     where
         T: AsReachable<Value>
     {
-        if self.len <= index {
+        if self.len() <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
 
@@ -65,7 +75,7 @@ impl Tuple {
     }
 
     pub fn get<'a>(&'a self, index: usize) -> &'a RPtr<Value> {
-        if self.len <= index {
+        if self.len() <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
 
@@ -83,7 +93,11 @@ impl Tuple {
     }
 
     pub fn len(&self) -> usize {
-        self.len
+        if self.is_unit() {
+            0
+        } else {
+            self.len
+        }
     }
 
     pub fn from_list<T>(list: &T, size: Option<usize>, ctx: &mut Context) -> FPtr<Tuple>
@@ -96,12 +110,17 @@ impl Tuple {
             None => list.as_ref().count(),
         };
 
-        let mut obj = Self::alloc(size, ctx);
-        for (index, v) in list.as_ref().iter().enumerate() {
-            obj.as_mut().set(v, index);
-        }
+        if size == 0 {
+            Self::unit().into_fptr()
 
-        obj
+        } else {
+            let mut obj = Self::alloc(size, ctx);
+            for (index, v) in list.as_ref().iter().enumerate() {
+                obj.as_mut().set(v, index);
+            }
+
+            obj
+        }
     }
 }
 
@@ -109,8 +128,8 @@ impl Eq for Tuple { }
 
 impl PartialEq for Tuple {
     fn eq(&self, other: &Self) -> bool {
-        if self.len == other.len {
-            for index in 0..self.len {
+        if self.len() == other.len() {
+            for index in 0..self.len() {
                 if self.get(index).as_ref() != other.get(index).as_ref() {
                     return false;
                 }

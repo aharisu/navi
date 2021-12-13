@@ -102,7 +102,7 @@ fn syntax_if(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     } else {
         let args = args.as_ref().tail_ref();
         if args.as_ref().is_nil() {
-            unit::Unit::unit().into_value().into_fptr()
+            tuple::Tuple::unit().into_value().into_fptr()
         } else {
             eval(args.as_ref().head_ref(), ctx)
         }

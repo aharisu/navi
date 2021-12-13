@@ -80,7 +80,7 @@ impl Closure {
         ctx.push_local_frame(&frame);
 
         //Closure本体を実行
-        let mut result = new_cap!(unit::Unit::unit().into_value().into_fptr(), ctx);
+        let mut result = new_cap!(tuple::Tuple::unit().into_value().into_fptr(), ctx);
         for sexp in self.body.as_ref().iter() {
             let e = eval::eval(sexp, ctx);
 

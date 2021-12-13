@@ -105,7 +105,7 @@ impl Func {
                     } else {
                         //Optionalなパラメータに対応する引数がなければ
                         //Unit値をデフォルト値として設定
-                        builder.append(unit::Unit::unit().cast_value(), ctx);
+                        builder.append(tuple::Tuple::unit().cast_value(), ctx);
                     }
                 }
                 ParamKind::Rest => {

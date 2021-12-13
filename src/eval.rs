@@ -201,7 +201,7 @@ mod tests {
             let program = "(if (= 1 1 2) 10)";
             let_cap!(result, read(program, ctx), ctx);
             let_cap!(result, eval(&result, ctx), ctx);
-            assert!(result.as_reachable().is::<unit::Unit>())
+            assert!(result.as_reachable().is::<tuple::Tuple>())
         }
     }
 
