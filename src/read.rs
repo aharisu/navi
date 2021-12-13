@@ -40,6 +40,7 @@ fn read_internal(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
         None => Err(readerror("読み込む内容がない".to_string())),
         Some(ch) => match ch {
             '(' => read_list(reader, ctx),
+            '[' => read_array(reader, ctx),
             '"' => read_string(reader, ctx),
             '\'' => read_quote(reader, ctx),
             '+' | '-' | '0' ..= '9' => read_number_or_symbol(reader, ctx),
@@ -51,6 +52,17 @@ fn read_internal(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
 
 
 fn read_list(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+    let list = read_sequence(')', reader, ctx)?;
+    Ok(list.into_value())
+}
+
+fn read_array(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+    let list = read_sequence(']', reader, ctx)?;
+    let_cap!(list, list, ctx);
+    Ok(array::Array::from_list(&list, None, ctx).into_value())
+}
+
+fn read_sequence(end_char:char, reader: &mut Reader, ctx: &mut Context) -> Result<FPtr<list::List>, ReadError> {
     //skip first char
     reader.input.next();
 
@@ -59,12 +71,11 @@ fn read_list(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     loop {
         skip_whitespace(reader);
         match reader.input.peek() {
-            None => return Err(readerror("リストが完結する前にEOFになった".to_string())),
-            Some(')') => {
+            None => return Err(readerror("シーケンスが完結する前にEOFになった".to_string())),
+            Some(ch) if *ch == end_char => {
                 reader.input.next();
                 // complete!
-                let list = builder.get();
-                return Ok(list.into_value());
+                return Ok(builder.get());
             }
             Some(_) => {
                 //再帰的にreadを呼び出す
@@ -491,6 +502,59 @@ mod tests {
             let result = read::<keyword::Keyword>(program, ctx);
             let ans = keyword::Keyword::alloc(&"symbol".to_string(), ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
+        }
+    }
+
+    #[test]
+    fn read_array() {
+        let mut ctx = Context::new("array");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Context::new(" ans");
+        let ans_ctx = &mut ans_ctx;
+
+        {
+            let program = "[]";
+
+            let result = read::<array::Array>(program, ctx);
+            let ans = array::Array::from_list(&list::List::nil(), Some(0), ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
+        {
+            let program = "[1 2 3]";
+
+            let result = read::<Value>(program, ctx);
+
+            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_2, number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_3, number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
+            let ans = list::List::nil();
+            let_cap!(ans, list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, array::Array::from_list(&ans, None, ans_ctx), ans_ctx);
+
+            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+        }
+
+        {
+            let program = "[1 3.14 \"hohoho\" symbol]";
+
+            let result = read::<Value>(program, ctx);
+
+            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_3_14, number::Real::alloc(3.14, ans_ctx).into_value(), ans_ctx);
+            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_ctx).into_value(), ans_ctx);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
+
+            let ans = list::List::nil();
+            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, array::Array::from_list(&ans, None, ans_ctx), ans_ctx);
+
+            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
     }
 
