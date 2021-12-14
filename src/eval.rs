@@ -95,20 +95,20 @@ mod tests {
     use crate::context::*;
     use crate::ptr::*;
 
-    fn read(program: &str, ctx: &mut Context) -> FPtr<Value> {
+    fn eval<T: NaviType>(program: &str, ctx: &mut Context) -> FPtr<T> {
         let mut reader = Reader::new(program.chars().peekable());
-
         let result = crate::read::read(&mut reader, ctx);
         assert!(result.is_ok());
-        result.unwrap()
+        let sexp = result.unwrap();
+
+        let_cap!(sexp, sexp, ctx);
+        let result = crate::eval::eval(&sexp, ctx);
+        let result = result.try_cast::<T>();
+        assert!(result.is_some());
+
+        result.unwrap().clone()
     }
 
-    fn eval<T>(sexp: &T, ctx: &mut Context) -> FPtr<Value>
-    where
-        T: AsReachable<Value>
-    {
-        crate::eval::eval(sexp.as_reachable(), ctx)
-    }
 
     #[test]
     fn func_test() {
@@ -121,47 +121,40 @@ mod tests {
 
         {
             let program = "(abs 1)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(abs -1)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx).into_value(), ctx);
-            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(abs -3.14)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Real::alloc(3.14, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Real>(program, ctx), ctx);
+            let ans = number::Real::alloc(3.14, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(+ 1)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 3.14)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Real::alloc(3.14, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Real>(program, ctx), ctx);
+            let ans = number::Real::alloc(3.14, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 1 2 3 -4)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Integer::alloc(2, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(2, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 1.5 2 3 -4.5)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Real::alloc(2.0, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Real>(program, ctx), ctx);
+            let ans = number::Real::alloc(2.0, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
@@ -182,20 +175,17 @@ mod tests {
 
         {
             let program = "(if (= 1 1) 10 100)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Integer::alloc(10, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(10, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(if (= 1 2) 10 100)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Integer::alloc(100, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(100, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(if (= 1 2) 10)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
             assert!(result.as_reachable().is::<tuple::Tuple>())
         }
     }
@@ -212,16 +202,47 @@ mod tests {
 
         {
             let program = "((fun (a) (+ 10 a)) 1)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Integer::alloc(11, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(11, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "((fun (a b) (+ a b) (+ ((fun (a) (+ a 10)) b) a)) 100 200)";
-            let_cap!(result, read(program, ctx), ctx);
-            let_cap!(result, eval(&result, ctx), ctx);
-            let ans = number::Integer::alloc(310, ans_ctx).into_value();
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(310, ans_ctx);
             assert_eq!(result.as_ref(), ans.as_ref());
+        }
+    }
+
+
+    #[test]
+    fn syntax_and_or() {
+        let mut ctx = Context::new("eval");
+        let ctx = &mut ctx;
+
+        number::register_global(ctx);
+        syntax::register_global(ctx);
+        value::register_global(ctx);
+
+        {
+            let program = "(and)";
+            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            assert!(result.as_ref().is_true());
+
+            let program = "(and true true)";
+            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            assert!(result.as_ref().is_true());
+
+            let program = "(and true true false)";
+            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            assert!(result.as_ref().is_false());
+
+            let program = "(or)";
+            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            assert!(result.as_ref().is_false());
+
+            let program = "(or false (= 1 1))";
+            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            assert!(result.as_ref().is_true());
         }
     }
 

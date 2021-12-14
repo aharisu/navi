@@ -1,5 +1,5 @@
 use crate::mm::{GCAllocationStruct};
-use crate::eval::{eval};
+use crate::eval::{eval, self};
 use crate::{value::*, let_listbuilder, with_cap, let_cap, new_cap};
 use crate::value::list;
 use crate::ptr::*;
@@ -146,6 +146,38 @@ fn syntax_quote(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     sexp.clone().into_fptr()
 }
 
+fn syntax_and(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+    for sexp in args.as_ref().iter() {
+        let result = eval::eval(sexp, ctx);
+        if let Some(result) = result.try_cast::<bool::Bool>() {
+            if result.as_ref().is_false() {
+                return bool::Bool::false_().into_fptr().into_value();
+            }
+
+        } else {
+            panic!("boolean required. but got {:?}", result.as_ref());
+        }
+    }
+
+    bool::Bool::true_().into_fptr().into_value()
+}
+
+fn syntax_or(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+    for sexp in args.as_ref().iter() {
+        let result = eval::eval(sexp, ctx);
+        if let Some(result) = result.try_cast::<bool::Bool>() {
+            if result.as_ref().is_true() {
+                return bool::Bool::true_().into_fptr().into_value();
+            }
+
+        } else {
+            panic!("boolean required. but got {:?}", result.as_ref());
+        }
+    }
+
+    bool::Bool::false_().into_fptr().into_value()
+}
+
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(2, 1, false, syntax_if))
 });
@@ -158,8 +190,18 @@ static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(1, 0, false, syntax_quote))
 });
 
+static SYNTAX_AND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new(0, 0, true, syntax_and))
+});
+
+static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new(0, 0, true, syntax_or))
+});
+
 pub fn register_global(ctx: &mut Context) {
     ctx.define_value("if", &RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("quote", &RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("and", &RPtr::new(&SYNTAX_AND.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("or", &RPtr::new(&SYNTAX_OR.value as *const Syntax as *mut Syntax).into_value());
 }
