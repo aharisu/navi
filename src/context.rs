@@ -88,6 +88,8 @@ impl Context {
             return
         }
 
+        //println!("capture, {:?}", capture.as_ref());
+
         unsafe {
             let nbox_ptr= NonNull::new_unchecked(capture as *mut Capture<Value>);
 
@@ -110,6 +112,8 @@ impl Context {
         if value::value_is_pointer(capture.v.as_ref()) == false {
             return
         }
+
+        //println!("drop, {:?}", capture.as_ref());
 
         match capture.prev {
             Some(prev) => {
