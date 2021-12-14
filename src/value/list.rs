@@ -103,6 +103,10 @@ impl List {
         ListIterator::new(self)
     }
 
+    pub fn iter_with_info(&self) -> ListIteratorWithInfo {
+        ListIteratorWithInfo::new(self)
+    }
+
 }
 
 impl Eq for List { }
@@ -174,6 +178,47 @@ impl <'a> std::iter::Iterator for ListIterator<'a> {
 
                 Some(v)
             }
+        }
+    }
+}
+
+pub struct ListIteratorInfo {
+    pub is_tail: bool
+}
+
+pub struct ListIteratorWithInfo<'a> {
+    list: &'a List,
+    cur: Option<&'a RPtr<List>>,
+}
+
+impl <'a> ListIteratorWithInfo<'a> {
+    pub fn new(list: &'a List) -> Self {
+        ListIteratorWithInfo {
+            list: list,
+            cur: None,
+        }
+    }
+}
+
+impl <'a> std::iter::Iterator for ListIteratorWithInfo<'a> {
+    type Item = (&'a RPtr<Value>, ListIteratorInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cur = match self.cur {
+            Some(cur) => cur.as_ref(),
+            None => self.list
+        };
+
+        if cur.is_nil() {
+            None
+        } else {
+            let v = cur.head_ref();
+
+            let next = cur.tail_ref();
+            let is_tail = next.as_ref().is_nil();
+            self.cur = Some(next);
+
+            Some((v, ListIteratorInfo { is_tail: is_tail }))
         }
     }
 }

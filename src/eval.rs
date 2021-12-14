@@ -190,6 +190,44 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn syntax_cond_test() {
+        let mut ctx = Context::new("eval");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Context::new(" ans");
+        let ans_ctx = &mut ans_ctx;
+
+        value::register_global(ctx);
+        number::register_global(ctx);
+        syntax::register_global(ctx);
+
+        {
+            let program = "(cond ((= 1 1) 1) ((= 1 1) 2) (else 3))";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(cond ((= 1 2) 1) ((= 1 1) 2) (else 3))";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(2, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(cond ((= 1 2) 1) ((= 1 3) 2) (else 3))";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(3, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(cond ((= 1 2) 1) ((= 1 3) 2))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            assert!(result.as_reachable().is::<tuple::Tuple>());
+
+            let program = "(cond)";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            assert!(result.as_reachable().is::<tuple::Tuple>());
+        }
+    }
+
     #[test]
     fn syntax_fun_test() {
         let mut ctx = Context::new("eval");

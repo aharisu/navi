@@ -110,6 +110,54 @@ fn syntax_if(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     }
 }
 
+pub(crate) fn do_begin<T>(body: &T, ctx: &mut Context) -> FPtr<Value>
+where
+    T: AsReachable<list::List>,
+{
+    let body = body.as_reachable();
+
+    let mut result = new_cap!(tuple::Tuple::unit().into_value().into_fptr(), ctx);
+    for sexp in body.as_ref().iter() {
+        let e = eval::eval(sexp, ctx);
+
+        result = new_cap!(e, ctx);
+        ctx.add_capture(result.cast_value_mut());
+    }
+
+    result.as_reachable().clone().into_fptr()
+}
+
+fn syntax_cond(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+    for (sexp, info) in args.as_ref().iter_with_info() {
+        if let Some(clause) = sexp.try_cast::<list::List>() {
+            let test = clause.as_ref().head_ref();
+
+            //最後の節のTESTがシンボルのelseの場合、無条件でbody部分を評価します
+            if let Some(else_) = test.try_cast::<symbol::Symbol>() {
+                if else_.as_ref().as_ref() == "else" && info.is_tail {
+                    return do_begin(clause.as_ref().tail_ref(), ctx);
+                }
+            }
+
+            //TEST式を評価
+            let result = eval::eval(test, ctx);
+            if let Some(result) = result.try_cast::<bool::Bool>() {
+                //TESTの結果がtrueなら続く式を実行して結果を返す
+                if result.as_ref().is_true() {
+                    return do_begin(clause.as_ref().tail_ref(), ctx);
+                }
+            } else {
+                panic!("boolean required. but got {:?}", result.as_ref());
+            }
+
+        } else {
+            panic!("cond clause require list. but got {:?}", sexp.as_ref());
+        }
+    }
+
+    tuple::Tuple::unit().into_value().into_fptr()
+}
+
 fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     let_listbuilder!(builder, ctx);
 
@@ -141,7 +189,7 @@ fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     closure::Closure::alloc(&params, body, ctx).into_value()
 }
 
-fn syntax_quote(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+fn syntax_quote(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
     let sexp = args.as_ref().head_ref();
     sexp.clone().into_fptr()
 }
@@ -182,6 +230,10 @@ static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(2, 1, false, syntax_if))
 });
 
+static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new(0, 0, true, syntax_cond))
+});
+
 static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(1, 0, true, syntax_fun))
 });
@@ -200,6 +252,7 @@ static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
 
 pub fn register_global(ctx: &mut Context) {
     ctx.define_value("if", &RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("cond", &RPtr::new(&SYNTAX_COND.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("quote", &RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("and", &RPtr::new(&SYNTAX_AND.value as *const Syntax as *mut Syntax).into_value());
