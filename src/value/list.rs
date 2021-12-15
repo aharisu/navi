@@ -227,7 +227,9 @@ use std::pin::Pin;
 
 pub struct ListBuilder {
     pub start: Capture<List>,
-    pub end: Capture<List>,
+    //同一リストの先頭cellがstartとしてキャプチャされているため
+    //endはCaptureしなくてもGCの対象にならないことが保証されるためFPtrのまま保持する。
+    pub end: FPtr<List>,
     pub len: usize,
     pub _pinned: std::marker::PhantomPinned,
 }
@@ -237,7 +239,7 @@ macro_rules! let_listbuilder {
     ($name:ident, $ctx:expr) => {
         let $name = crate::value::list::ListBuilder {
             start: new_cap!(crate::value::list::List::nil().into_fptr(), $ctx), //nilはimmidiate valueのためadd_captureしなくてもOK
-            end: new_cap!(crate::value::list::List::nil().into_fptr(), $ctx),
+            end: crate::value::list::List::nil().into_fptr(),
             len: 0,
             _pinned: std::marker::PhantomPinned,
         };
@@ -260,8 +262,7 @@ impl ListBuilder {
                 this.start = new_cap!(FPtr::new(cell.as_ptr()), ctx);
                 ctx.add_capture(this.start.cast_value_mut());
 
-                this.end = new_cap!(cell, ctx);
-                ctx.add_capture(this.end.cast_value_mut());
+                this.end = cell;
 
                 this.len += 1;
             }
@@ -272,8 +273,7 @@ impl ListBuilder {
                 let cell = List::alloc_tail(v, ctx);
                 this.end.as_mut().next = RPtr::new(cell.as_ptr());
 
-                this.end = new_cap!(cell, ctx);
-                ctx.add_capture(this.end.cast_value_mut());
+                this.end = cell;
 
                 this.len += 1;
             }
