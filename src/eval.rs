@@ -251,6 +251,29 @@ mod tests {
         }
     }
 
+    #[test]
+    fn syntax_let_test() {
+        let mut ctx = Context::new("eval");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Context::new(" ans");
+        let ans_ctx = &mut ans_ctx;
+
+        number::register_global(ctx);
+        syntax::register_global(ctx);
+
+        {
+            let program = "(let ((a 1)) (+ 10 a))";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(11, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(let ((a 100) (b 200)) (+ a b) (+ (let ((a b)) (+ a 10)) a))";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(310, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+    }
+
 
     #[test]
     fn syntax_and_or() {

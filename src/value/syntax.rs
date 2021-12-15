@@ -1,5 +1,7 @@
 use crate::mm::{GCAllocationStruct};
 use crate::eval::{eval, self};
+use crate::value::symbol::Symbol;
+use crate::value::list::List;
 use crate::{value::*, let_listbuilder, with_cap, let_cap, new_cap};
 use crate::value::list;
 use crate::ptr::*;
@@ -189,6 +191,60 @@ fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     closure::Closure::alloc(&params, body, ctx).into_value()
 }
 
+fn syntax_let(args: &RPtr<List>, ctx: &mut Context) -> FPtr<Value> {
+
+    let mut symbol_list = Vec::<&RPtr<Symbol>>::new();
+    let_listbuilder!(val_list, ctx);
+    //局所変数指定の内容を解析
+    let binders = args.as_ref().head_ref();
+    if let Some(binders) = binders.try_cast::<List>() {
+        for bind in binders.as_ref().iter() {
+            if let Some(bind) = bind.try_cast::<List>() {
+                if bind.as_ref().count() != 2 {
+                    panic!("The let bind part require 2 length list. But got {:?}", bind.as_ref())
+                }
+                let symbol = bind.as_ref().head_ref();
+                if let Some(symbol) = symbol.try_cast::<symbol::Symbol>() {
+                    symbol_list.push(symbol);
+
+                    let val = bind.as_ref().tail_ref().as_ref().head_ref();
+                    let val = eval::eval(val, ctx);
+                    with_cap!(val, val, ctx, {
+                        val_list.append(&val, ctx);
+                    });
+
+                } else {
+                    panic!("The let bind paramter require symbol. But got {:?}", symbol.as_ref())
+                }
+
+            } else {
+                panic!("The let bind part require list. But got {:?}", bind.as_ref())
+            }
+        }
+    } else {
+        panic!("The let bind part require list. But got {:?}", binders.as_ref())
+    }
+
+    with_cap!(val_list, val_list.get(), ctx, {
+        //ローカルフレームを構築
+        let a = val_list.as_reachable().as_ref();
+        let frame: Vec::<(&RPtr<Symbol>, &RPtr<Value>)> = symbol_list.iter().zip(a.iter())
+            .map(|(s, v)| (*s, v))
+            .collect();
+
+        ////ローカルフレームを環境にプッシュ
+        ctx.push_local_frame(&frame);
+    });
+
+    //Closure本体を実行
+    let result = syntax::do_begin(args.as_ref().tail_ref(), ctx);
+
+    //ローカルフレームを環境からポップ
+    ctx.pop_local_frame();
+
+    result
+}
+
 fn syntax_quote(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
     let sexp = args.as_ref().head_ref();
     sexp.clone().into_fptr()
@@ -238,6 +294,10 @@ static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(1, 0, true, syntax_fun))
 });
 
+static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new(1, 0, true, syntax_let))
+});
+
 static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new(1, 0, false, syntax_quote))
 });
@@ -254,6 +314,7 @@ pub fn register_global(ctx: &mut Context) {
     ctx.define_value("if", &RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("cond", &RPtr::new(&SYNTAX_COND.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("let", &RPtr::new(&SYNTAX_LET.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("quote", &RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("and", &RPtr::new(&SYNTAX_AND.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("or", &RPtr::new(&SYNTAX_OR.value as *const Syntax as *mut Syntax).into_value());
