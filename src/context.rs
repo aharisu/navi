@@ -18,7 +18,7 @@ pub struct Context {
 impl Context {
     pub fn new<T: Into<String>>(name: T) -> Self {
         Context {
-            heap: RefCell::new(Heap::new(1024 * 8, name)),
+            heap: RefCell::new(Heap::new(1024 * 32, name)),
             world: World::new(),
             frames: Vec::new(),
             nbox_root: Cell::new(None),
@@ -170,6 +170,11 @@ impl Context {
     #[allow(dead_code)]
     pub(crate) fn do_gc(&self) {
         self.heap.borrow_mut().gc(self);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn dump_gc(&self) {
+        self.heap.borrow().dump_heap(self);
     }
 
 }

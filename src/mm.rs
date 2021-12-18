@@ -48,14 +48,12 @@ const fn gc_flags_pack(alloc_size: u16, forwarding_index: u16, need_move: bool, 
     //容量圧縮のためにそれぞれ8で割った数をフラグ内に持つようにする。
     //8で割ることと同じ結果になる右に3シフトと本来シフトしたいbit幅の差分だけシフトして、フラグを構築する。
 
-    // フラグ内のビット構造
-    // ssss ssss sssp pppp pppp ppma
+    // p:13bit GC時のCopy先アドレスインデックス
     // s:11bit アロケーションしたサイズ / (8 or 4)
-    // p:11bit GC時のCopy先アドレスインデックス
     // m 1bit GC時に使用する移動が必要かどうかのフラグ
     // a 1bit GCで使用する到達可能フラグ
-    ((alloc_size as usize) << (13 - SIZE_BIT_SHIFT)) |
-    ((forwarding_index as usize) >> (SIZE_BIT_SHIFT - 2)) |
+    ((forwarding_index as usize) << (16 - SIZE_BIT_SHIFT)) |
+    ((alloc_size as usize) >> (SIZE_BIT_SHIFT - 2)) |
     (need_move as usize) << 1|
     (alive as usize)
 }
@@ -63,8 +61,8 @@ const fn gc_flags_pack(alloc_size: u16, forwarding_index: u16, need_move: bool, 
 #[inline]
 const fn gc_flags_unpack(flags: usize) -> (u16, u16, bool, bool) {
     (
-        ((flags & 0xFF_E000) >> (13 - SIZE_BIT_SHIFT)) as u16, //allocation size 11bit
-        ((flags & 0x1FFC) << (SIZE_BIT_SHIFT - 2)) as u16, //forwarding index
+        ((flags & 0x1FFC) << (SIZE_BIT_SHIFT - 2)) as u16, //allocation size 11bit
+        ((flags & 0x1FFF_0000) >> (16 - SIZE_BIT_SHIFT)) as u16, //forwarding index
         (flags & 2) == 2, //GC時に使用する移動が必要かどうかのフラグ
         (flags & 1) == 1 //GC到達可能フラグ 1bit
         )
@@ -143,6 +141,8 @@ impl Heap {
                 try_count += 1;
 
             } else {
+                self.dump_heap(ctx);
+
                 panic!("oom");
             }
         }
@@ -164,8 +164,7 @@ impl Heap {
         //self.dump_heap(ctx);
     }
 
-    #[allow(dead_code)]
-    fn dump_heap(&self, _ctx: &Context) {
+    pub fn dump_heap(&self, _ctx: &Context) {
         println!("[dump {}]------------------------------------", self.name);
 
         unsafe {
