@@ -144,17 +144,17 @@ impl PartialEq for Tuple {
 }
 
 fn display(this: &Tuple, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{")?;
-        let mut first = true;
+    write!(f, "{{")?;
+    let mut first = true;
     for index in 0..this.len() {
-            if !first {
-                write!(f, " ")?
-            }
+        if !first {
+            write!(f, " ")?
+        }
 
         this.get(index).as_ref().fmt(f)?;
-            first = false;
-        }
-        write!(f, "}}")
+        first = false;
+    }
+    write!(f, "}}")
 }
 
 impl std::fmt::Display for Tuple {
@@ -168,5 +168,86 @@ impl Debug for Tuple {
         display(self, f)
     }
 }
+
+fn func_is_tuple(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
+    let v = args.as_ref().get(0);
+    if v.is_type(tuple::Tuple::typeinfo()) {
+        v.clone().into_fptr()
+    } else {
+        bool::Bool::false_().into_value().into_fptr()
     }
+}
+
+fn func_tuple_len(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+    let v = args.as_ref().get(0);
+    let v = unsafe { v.cast_unchecked::<tuple::Tuple>() };
+
+    number::Integer::alloc(v.as_ref().len as i64, ctx).into_value()
+}
+
+fn func_tuple_ref(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+    let tuple = args.as_ref().get(0);
+    let tuple = unsafe { tuple.cast_unchecked::<tuple::Tuple>() };
+
+    let index = args.as_ref().get(1);
+    let index = unsafe { index.cast_unchecked::<number::Integer>() };
+
+    tuple.as_ref().get(index.as_ref().get() as usize)
+        .clone()
+        .into_fptr()
+}
+
+static FUNC_IS_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("tuple?",
+            &[
+            Param::new("x", ParamKind::Require, Value::typeinfo()),
+            ],
+            func_is_tuple)
+    )
+});
+
+static FUNC_TUPLE_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("tuple-len",
+            &[
+            Param::new("tuple", ParamKind::Require, Tuple::typeinfo()),
+            ],
+            func_tuple_len)
+    )
+});
+
+static FUNC_TUPLE_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("tuple-ref",
+            &[
+            Param::new("tuple", ParamKind::Require, Tuple::typeinfo()),
+            Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
+            ],
+            func_tuple_ref)
+    )
+});
+
+pub fn register_global(ctx: &mut Context) {
+    ctx.define_value("tuple?", &RPtr::new(&FUNC_IS_TUPLE.value as *const Func as *mut Func).into_value());
+    ctx.define_value("tuple-len", &RPtr::new(&FUNC_TUPLE_LEN.value as *const Func as *mut Func).into_value());
+    ctx.define_value("tuple-ref", &RPtr::new(&FUNC_TUPLE_REF.value as *const Func as *mut Func).into_value());
+}
+
+pub mod literal {
+    use crate::{ptr::RPtr, value::func::Func};
+    use super::*;
+
+    pub fn is_tuple() -> RPtr<Func> {
+        RPtr::new(&FUNC_IS_TUPLE.value as *const Func as *mut Func)
+    }
+
+    pub fn tuple_len() -> RPtr<Func> {
+        RPtr::new(&FUNC_TUPLE_LEN.value as *const Func as *mut Func)
+    }
+
+    pub fn tuple_ref() -> RPtr<Func> {
+        RPtr::new(&FUNC_TUPLE_REF.value as *const Func as *mut Func)
+    }
+
 }

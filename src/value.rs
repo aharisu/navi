@@ -53,6 +53,7 @@ pub(crate) const IMMIDATE_NIL: usize = tagged_value(0);
 pub(crate) const IMMIDATE_TRUE: usize = tagged_value(1);
 pub(crate) const IMMIDATE_FALSE: usize = tagged_value(2);
 pub(crate) const IMMIDATE_UNIT: usize = tagged_value(3);
+pub(crate) const IMMIDATE_MATCHFAIL: usize = tagged_value(4);
 
 #[derive(PartialEq)]
 enum PtrKind {
@@ -61,6 +62,7 @@ enum PtrKind {
     True,
     False,
     Unit,
+    MatchFail
 }
 
 fn pointer_kind<T>(ptr: *const T) -> PtrKind {
@@ -78,6 +80,7 @@ fn pointer_kind<T>(ptr: *const T) -> PtrKind {
                     IMMIDATE_TRUE => PtrKind::True,
                     IMMIDATE_FALSE => PtrKind::False,
                     IMMIDATE_UNIT => PtrKind::Unit,
+                    IMMIDATE_MATCHFAIL => PtrKind::MatchFail,
                     _ => panic!("invalid tagged value"),
                 }
             }
@@ -173,6 +176,9 @@ impl Value {
             PtrKind::Unit => {
                 crate::value::tuple::Tuple::typeinfo()
             }
+            PtrKind::MatchFail => {
+                crate::value::syntax::r#match::MatchFail::typeinfo()
+            }
             PtrKind::Ptr => {
                 crate::mm::get_typeinfo(ptr)
             }
@@ -249,6 +255,14 @@ static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 
 pub fn register_global(ctx: &mut Context) {
     ctx.define_value("=", &RPtr::new(&FUNC_EQUAL.value as *const Func as *mut Func).into_value());
+}
+
+pub mod literal {
+    use super::*;
+
+    pub fn equal() -> RPtr<Func> {
+        RPtr::new(&FUNC_EQUAL.value as *const Func as *mut Func)
+    }
 }
 
 #[cfg(test)]

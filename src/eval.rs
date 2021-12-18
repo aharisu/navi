@@ -331,4 +331,55 @@ mod tests {
         }
     }
 
+    #[test]
+    fn syntax_match() {
+        let mut ctx = Context::new("eval");
+        let ctx = &mut ctx;
+        let mut ans_ctx = Context::new(" ans");
+        let ans_ctx = &mut ans_ctx;
+
+        number::register_global(ctx);
+        syntax::register_global(ctx);
+        value::register_global(ctx);
+        tuple::register_global(ctx);
+        array::register_global(ctx);
+        list::register_global(ctx);
+
+        {
+            let program = "(match 1 (2 2) (3 3) (4 4) (1 1))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(match 1 (2 2))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = bool::Bool::false_().into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
+        {
+            let program = "(match '((1 2) 3) (((4 5) 6) 1) (((7 8) 9) 2) ((10 (11 12)) 3) (((1 2) 3) 4))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(4, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(match {{1 2} 3} ({{4 5} 6} 1) ({{1 2} 3} 2) ({10 {11 12}} 3))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(2, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(match [[1 2] 3] ([4 [5 6]] 1) ([[7 8] 9] 2) ([1 [2 3]] 3))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = bool::Bool::false_().into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
+        {
+            let program = "(match {{1 2} [3 '(4 5)]} ({{4 5} 6} 1) ((10 (11 12)) 2) ({{1 2} 3 (4 5)} 3) ({{1 2} [3 (4 5)]} 4))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(4, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+    }
+
 }

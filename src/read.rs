@@ -140,7 +140,7 @@ fn read_quote(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     let_cap!(sexp, sexp, ctx);
 
     let_listbuilder!(builder, ctx);
-    builder.append(syntax::Syntax::quote().cast_value(), ctx);
+    builder.append(syntax::literal::quote().cast_value(), ctx);
     builder.append(&sexp, ctx);
     Ok(builder.get().into_value())
 }
@@ -687,7 +687,7 @@ mod tests {
             let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
             let ans = list::List::nil();
             let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&syntax::Syntax::quote().into_value(), &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&syntax::literal::quote().into_value(), &ans, ans_ctx), ans_ctx);
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }

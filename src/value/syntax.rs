@@ -10,6 +10,8 @@ use std::fmt::{Debug, Display};
 use std::panic;
 use once_cell::sync::Lazy;
 
+pub mod r#match;
+
 pub struct Syntax {
     name: String,
     require: usize,
@@ -71,10 +73,6 @@ impl Syntax {
     {
         (self.body)(args.as_reachable(), ctx)
     }
-
-    pub fn quote() -> RPtr<Syntax> {
-        RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax)
-    }
 }
 
 impl Eq for Syntax { }
@@ -124,21 +122,27 @@ fn syntax_if(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     }
 }
 
+fn syntax_begin(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+    do_begin(args, ctx)
+}
+
 pub(crate) fn do_begin<T>(body: &T, ctx: &mut Context) -> FPtr<Value>
 where
     T: AsReachable<list::List>,
 {
     let body = body.as_reachable();
 
-    let mut result = new_cap!(tuple::Tuple::unit().into_value().into_fptr(), ctx);
+    let mut last: Option<FPtr<Value>> = None;
     for sexp in body.as_ref().iter() {
         let e = eval::eval(sexp, ctx);
-
-        result = new_cap!(e, ctx);
-        ctx.add_capture(result.cast_value_mut());
+        last = Some(e);
     }
 
-    result.as_reachable().clone().into_fptr()
+    if let Some(last) = last {
+        last
+    } else {
+        tuple::Tuple::unit().into_value().into_fptr()
+    }
 }
 
 fn syntax_cond(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
@@ -155,10 +159,10 @@ fn syntax_cond(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
 
             //TEST式を評価
             let result = eval::eval(test, ctx);
-                //TESTの結果がtrueなら続く式を実行して結果を返す
+            //TESTの結果がtrueなら続く式を実行して結果を返す
             if is_true(result.as_ref()) {
-                    return do_begin(clause.as_ref().tail_ref(), ctx);
-                }
+                return do_begin(clause.as_ref().tail_ref(), ctx);
+            }
 
         } else {
             panic!("cond clause require list. but got {:?}", sexp.as_ref());
@@ -258,13 +262,21 @@ fn syntax_quote(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
     sexp.clone().into_fptr()
 }
 
+fn syntax_unquote(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
+    unimplemented!()
+}
+
+fn syntax_bind(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
+    unimplemented!()
+}
+
 fn syntax_and(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     let mut last: Option<FPtr<Value>> = None;
     for sexp in args.as_ref().iter() {
         let result = eval::eval(sexp, ctx);
         if is_true(result.as_ref()) == false {
-                return bool::Bool::false_().into_fptr().into_value();
-            }
+            return bool::Bool::false_().into_fptr().into_value();
+        }
 
         last = Some(result);
     }
@@ -272,8 +284,8 @@ fn syntax_and(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     if let Some(last) = last {
         last
     } else {
-    bool::Bool::true_().into_fptr().into_value()
-}
+        bool::Bool::true_().into_fptr().into_value()
+    }
 }
 
 fn syntax_or(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
@@ -282,12 +294,16 @@ fn syntax_or(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
         if is_true(result.as_ref()) {
             return result;
         }
-            }
-
-    bool::Bool::false_().into_fptr().into_value()
     }
 
     bool::Bool::false_().into_fptr().into_value()
+}
+
+fn syntax_match(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+    let match_expr = r#match::translate(args, ctx);
+    with_cap!(expr, match_expr, ctx, {
+        eval::eval(&expr, ctx)
+    })
 }
 
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
@@ -318,6 +334,12 @@ static SYNTAX_UNQUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("unquote", 1, 0, false, syntax_unquote))
 });
 
+static SYNTAX_BIND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("bind", 1, 0, false, syntax_bind))
+});
+
+static SYNTAX_MATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("match", 1, 0, true, syntax_match))
 });
 
 static SYNTAX_AND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
@@ -330,10 +352,47 @@ static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
 
 pub fn register_global(ctx: &mut Context) {
     ctx.define_value("if", &RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("begin", &RPtr::new(&SYNTAX_BEGIN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("cond", &RPtr::new(&SYNTAX_COND.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("let", &RPtr::new(&SYNTAX_LET.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("quote", &RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("unquote", &RPtr::new(&SYNTAX_UNQUOTE.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("bind", &RPtr::new(&SYNTAX_BIND.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("match", &RPtr::new(&SYNTAX_MATCH.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("and", &RPtr::new(&SYNTAX_AND.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("or", &RPtr::new(&SYNTAX_OR.value as *const Syntax as *mut Syntax).into_value());
+}
+
+pub mod literal {
+    use crate::ptr::RPtr;
+    use super::*;
+
+    pub fn quote() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax)
+    }
+
+    pub fn unquote() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_UNQUOTE.value as *const Syntax as *mut Syntax)
+    }
+
+    pub fn bind() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_BIND.value as *const Syntax as *mut Syntax)
+    }
+
+    pub fn let_() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_LET.value as *const Syntax as *mut Syntax)
+    }
+
+    pub fn if_() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax)
+    }
+
+    pub fn begin() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_BEGIN.value as *const Syntax as *mut Syntax)
+    }
+
+    pub fn cond() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_COND.value as *const Syntax as *mut Syntax)
+    }
 }

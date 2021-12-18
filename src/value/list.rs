@@ -61,7 +61,7 @@ impl List {
         ptr.into_fptr()
     }
 
-    fn alloc_tail<V>(v: &V, ctx: &mut Context) -> FPtr<List>
+    pub fn alloc_tail<V>(v: &V, ctx: &mut Context) -> FPtr<List>
     where
         V: AsReachable<Value>,
     {
@@ -99,6 +99,54 @@ impl List {
         count
     }
 
+    pub fn len_more_than(&self, count: usize) -> bool {
+        let mut count = count;
+        let mut l = self;
+        loop {
+            if l.is_nil() {
+                break
+            } else {
+                count -= 1;
+                if count == 0 {
+                    break
+                }
+                l = l.next.as_ref();
+            }
+        }
+
+        count == 0
+    }
+
+    pub fn len_exactly(&self, count: usize) -> bool {
+        let mut count = count;
+        let mut l = self;
+        loop {
+            if l.is_nil() {
+                break
+            } else {
+                count -= 1;
+                if count == 0 {
+                    break
+                }
+                l = l.next.as_ref();
+            }
+        }
+
+        count == 0 && l.is_nil()
+    }
+
+    pub fn get(&self, mut index: usize) -> &RPtr<Value> {
+        for v in self.iter() {
+            if index == 0 {
+                return v;
+            } else {
+                index = index - 1;
+            }
+        }
+
+        panic!("out of bounds {}: {}", index, self)
+    }
+
     pub fn iter(&self) -> ListIterator {
         ListIterator::new(self)
     }
@@ -126,12 +174,12 @@ impl PartialEq for List {
 }
 
 fn display(this: &List, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Result {
-        let mut first = true;
-        write!(f, "(")?;
+    let mut first = true;
+    write!(f, "(")?;
     for v in this.iter() {
-            if !first {
-                write!(f, " ")?
-            }
+        if !first {
+            write!(f, " ")?
+        }
 
         if is_debug {
             Debug::fmt(v.as_ref(), f)?;
@@ -139,9 +187,9 @@ fn display(this: &List, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Resu
             Display::fmt(v.as_ref(), f)?;
         }
 
-            first = false;
-        }
-        write!(f, ")")
+        first = false;
+    }
+    write!(f, ")")
 }
 
 impl Display for List {
@@ -302,6 +350,93 @@ impl ListBuilder {
     pub fn get_with_size(self: Pin<&mut Self>) -> (FPtr<List>, usize) {
         (self.start.as_reachable().clone().into_fptr(), self.len)
     }
+
+    pub fn debug_print(self: &Pin<&mut Self>) {
+        println!("{:?}", self.start.as_reachable().as_ref());
+    }
+
+}
+
+fn func_is_list(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+    let v = args.as_ref().get(0);
+    if v.is_type(list::List::typeinfo()) {
+        v.clone().into_fptr()
+    } else {
+        bool::Bool::false_().into_value().into_fptr()
+    }
+}
+
+fn func_list_len(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+    let v = args.as_ref().get(0);
+    let v = unsafe { v.cast_unchecked::<List>() };
+
+    number::Integer::alloc(v.as_ref().count() as i64, ctx).into_value()
+}
+
+fn func_list_ref(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+    let v = args.as_ref().get(0);
+    let v = unsafe { v.cast_unchecked::<List>() };
+
+    let index = args.as_ref().get(1);
+    let index = unsafe { index.cast_unchecked::<number::Integer>() };
+
+    let index = index.as_ref().get() as usize;
+
+    v.as_ref().get(index).clone().into_fptr()
+}
+
+static FUNC_IS_LIST: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("list?",
+            &[
+            Param::new("x", ParamKind::Require, Value::typeinfo()),
+            ],
+            func_is_list)
+    )
+});
+
+static FUNC_LIST_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("list-len",
+            &[
+            Param::new("list", ParamKind::Require, List::typeinfo()),
+            ],
+            func_list_len)
+    )
+});
+
+static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("list-ref",
+            &[
+            Param::new("list", ParamKind::Require, List::typeinfo()),
+            Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
+            ],
+            func_list_ref)
+    )
+});
+
+pub fn register_global(ctx: &mut Context) {
+    ctx.define_value("list?", &RPtr::new(&FUNC_IS_LIST.value as *const Func as *mut Func).into_value());
+    ctx.define_value("list-len", &RPtr::new(&FUNC_LIST_LEN.value as *const Func as *mut Func).into_value());
+    ctx.define_value("list-ref", &RPtr::new(&FUNC_LIST_REF.value as *const Func as *mut Func).into_value());
+}
+
+pub mod literal {
+    use super::*;
+
+    pub fn is_list() -> RPtr<Func> {
+        RPtr::new(&FUNC_IS_LIST.value as *const Func as *mut Func)
+    }
+
+    pub fn list_len() -> RPtr<Func> {
+        RPtr::new(&FUNC_LIST_LEN.value as *const Func as *mut Func)
+    }
+
+    pub fn list_ref() -> RPtr<Func> {
+        RPtr::new(&FUNC_LIST_REF.value as *const Func as *mut Func)
+    }
+
 }
 
 #[cfg(test)]

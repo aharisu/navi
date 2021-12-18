@@ -112,6 +112,10 @@ impl Array {
 
         obj
     }
+
+    pub fn is_array_func() -> RPtr<Func> {
+        RPtr::new(&FUNC_IS_ARRAY.value as *const Func as *mut Func)
+    }
 }
 
 pub struct ArrayIterator<'a> {
@@ -152,22 +156,22 @@ impl PartialEq for Array {
 }
 
 fn display(this: &Array, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Result {
-        write!(f, "[")?;
-        let mut first = true;
+    write!(f, "[")?;
+    let mut first = true;
     for index in 0..this.len() {
-            if !first {
-                write!(f, " ")?
-            }
+        if !first {
+            write!(f, " ")?
+        }
 
         if is_debug {
             Debug::fmt(this.get(index).as_ref(), f)?;
         } else {
             Display::fmt(this.get(index).as_ref(), f)?;
         }
-            first = false;
-        }
-        write!(f, "]")
+        first = false;
     }
+    write!(f, "]")
+}
 
 impl Display for Array {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -180,6 +184,87 @@ impl Debug for Array {
         display(self, f, true)
     }
 }
+
+fn func_is_array(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
+    let v = args.as_ref().get(0);
+    if v.is_type(array::Array::typeinfo()) {
+        v.clone().into_fptr()
+    } else {
+        bool::Bool::false_().into_value().into_fptr()
+    }
+}
+
+fn func_array_len(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+    let v = args.as_ref().get(0);
+    let v = unsafe { v.cast_unchecked::<Array>() };
+
+    number::Integer::alloc(v.as_ref().len() as i64, ctx).into_value()
+}
+
+fn func_array_ref(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
+    let v = args.as_ref().get(0);
+    let v = unsafe { v.cast_unchecked::<Array>() };
+
+    let index = args.as_ref().get(1);
+    let index = unsafe { index.cast_unchecked::<number::Integer>() };
+
+    let index = index.as_ref().get() as usize;
+
+    v.as_ref().get(index).clone().into_fptr()
+}
+
+static FUNC_IS_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("array?",
+            &[
+            Param::new("x", ParamKind::Require, Value::typeinfo()),
+            ],
+            func_is_array)
+    )
+});
+
+static FUNC_ARRAY_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("array-len",
+            &[
+            Param::new("array", ParamKind::Require, Array::typeinfo()),
+            ],
+            func_array_len)
+    )
+});
+
+static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("array-ref",
+            &[
+            Param::new("array", ParamKind::Require, Array::typeinfo()),
+            Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
+            ],
+            func_array_ref)
+    )
+});
+
+pub fn register_global(ctx: &mut Context) {
+    ctx.define_value("array?", &RPtr::new(&FUNC_IS_ARRAY.value as *const Func as *mut Func).into_value());
+    ctx.define_value("array-len", &RPtr::new(&FUNC_ARRAY_LEN.value as *const Func as *mut Func).into_value());
+    ctx.define_value("array-ref", &RPtr::new(&FUNC_ARRAY_REF.value as *const Func as *mut Func).into_value());
+}
+
+pub mod literal {
+    use super::*;
+
+    pub fn is_array() -> RPtr<Func> {
+        RPtr::new(&FUNC_IS_ARRAY.value as *const Func as *mut Func)
+    }
+
+    pub fn array_len() -> RPtr<Func> {
+        RPtr::new(&FUNC_ARRAY_LEN.value as *const Func as *mut Func)
+    }
+
+    pub fn array_ref() -> RPtr<Func> {
+        RPtr::new(&FUNC_ARRAY_REF.value as *const Func as *mut Func)
+    }
+
 }
 
 #[cfg(test)]
