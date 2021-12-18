@@ -42,6 +42,11 @@ fn read_internal(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
             '(' => read_list(reader, ctx),
             '[' => read_array(reader, ctx),
             '{' => read_tuple(reader, ctx),
+
+            ')' => panic!("read error )"),
+            ']' => panic!("read error ]"),
+            '}' => panic!("{}", "read error }"),
+
             '"' => read_string(reader, ctx),
             '\'' => read_quote(reader, ctx),
             '+' | '-' | '0' ..= '9' => read_number_or_symbol(reader, ctx),
