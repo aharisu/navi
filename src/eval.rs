@@ -209,8 +209,8 @@ mod tests {
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(if (= 1 2) 10)";
-            let_cap!(result, eval::<Value>(program, ctx), ctx);
-            assert!(result.as_reachable().is::<tuple::Tuple>())
+            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            assert!(result.as_ref().is_false());
         }
     }
 
@@ -243,12 +243,12 @@ mod tests {
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(cond ((= 1 2) 1) ((= 1 3) 2))";
-            let_cap!(result, eval::<Value>(program, ctx), ctx);
-            assert!(result.as_reachable().is::<tuple::Tuple>());
+            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            assert!(result.as_ref().is_false());
 
             let program = "(cond)";
-            let_cap!(result, eval::<Value>(program, ctx), ctx);
-            assert!(result.as_reachable().is::<tuple::Tuple>());
+            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            assert!(result.as_ref().is_false());
         }
     }
 

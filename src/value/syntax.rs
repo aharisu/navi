@@ -97,14 +97,18 @@ impl Debug for Syntax {
     }
 }
 
-fn syntax_if(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
-    let_cap!(pred, eval(args.as_ref().head_ref(), ctx), ctx);
-
-    let pred = if let Some(pred) = pred.as_reachable().try_cast::<bool::Bool>() {
-        pred.as_ref().is_true()
+fn is_true(v: &Value) -> bool {
+    //predの結果がfalse値の場合だけ、falseとして扱う。それ以外の値はすべてtrue
+    if let Some(v) = v.try_cast::<bool::Bool>() {
+        v.is_true()
     } else {
-        panic!("boolean required. but got {:?}", pred.as_ref())
-    };
+        true
+    }
+}
+
+fn syntax_if(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+    let pred = eval(args.as_ref().head_ref(), ctx);
+    let pred = is_true(pred.as_ref());
 
     let args = args.as_ref().tail_ref();
     if pred {
@@ -113,7 +117,7 @@ fn syntax_if(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     } else {
         let args = args.as_ref().tail_ref();
         if args.as_ref().is_nil() {
-            tuple::Tuple::unit().into_value().into_fptr()
+            bool::Bool::false_().into_value().into_fptr()
         } else {
             eval(args.as_ref().head_ref(), ctx)
         }
@@ -151,21 +155,17 @@ fn syntax_cond(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
 
             //TEST式を評価
             let result = eval::eval(test, ctx);
-            if let Some(result) = result.try_cast::<bool::Bool>() {
                 //TESTの結果がtrueなら続く式を実行して結果を返す
-                if result.as_ref().is_true() {
+            if is_true(result.as_ref()) {
                     return do_begin(clause.as_ref().tail_ref(), ctx);
                 }
-            } else {
-                panic!("boolean required. but got {:?}", result.as_ref());
-            }
 
         } else {
             panic!("cond clause require list. but got {:?}", sexp.as_ref());
         }
     }
 
-    tuple::Tuple::unit().into_value().into_fptr()
+    bool::Bool::false_().into_value().into_fptr()
 }
 
 fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
@@ -259,32 +259,32 @@ fn syntax_quote(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
 }
 
 fn syntax_and(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+    let mut last: Option<FPtr<Value>> = None;
     for sexp in args.as_ref().iter() {
         let result = eval::eval(sexp, ctx);
-        if let Some(result) = result.try_cast::<bool::Bool>() {
-            if result.as_ref().is_false() {
+        if is_true(result.as_ref()) == false {
                 return bool::Bool::false_().into_fptr().into_value();
             }
 
-        } else {
-            panic!("boolean required. but got {:?}", result.as_ref());
-        }
+        last = Some(result);
     }
 
+    if let Some(last) = last {
+        last
+    } else {
     bool::Bool::true_().into_fptr().into_value()
+}
 }
 
 fn syntax_or(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     for sexp in args.as_ref().iter() {
         let result = eval::eval(sexp, ctx);
-        if let Some(result) = result.try_cast::<bool::Bool>() {
-            if result.as_ref().is_true() {
-                return bool::Bool::true_().into_fptr().into_value();
+        if is_true(result.as_ref()) {
+            return result;
+        }
             }
 
-        } else {
-            panic!("boolean required. but got {:?}", result.as_ref());
-        }
+    bool::Bool::false_().into_fptr().into_value()
     }
 
     bool::Bool::false_().into_fptr().into_value()
