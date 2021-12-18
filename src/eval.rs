@@ -82,6 +82,30 @@ where
             panic!("{:?} is not found", symbol.as_ref())
         }
 
+    } else if let Some(ary) = sexp.try_cast::<array::Array>() {
+        let_listbuilder!(builder, ctx);
+        for sexp in ary.as_ref().iter() {
+            with_cap!(v, eval(sexp, ctx), ctx, {
+                builder.append(&v, ctx);
+            });
+        }
+
+        with_cap!(list, builder.get(), ctx, {
+            array::Array::from_list(&list, Some(ary.as_ref().len()), ctx).into_value()
+        })
+    } else if let Some(tuple) = sexp.try_cast::<tuple::Tuple>() {
+        let len = tuple.as_ref().len();
+
+        let_listbuilder!(builder, ctx);
+        for index in 0..len {
+            with_cap!(v, eval(tuple.as_ref().get(index), ctx), ctx, {
+                builder.append(&v, ctx);
+            });
+        }
+
+        with_cap!(list, builder.get(), ctx, {
+            tuple::Tuple::from_list(&list, Some(len), ctx).into_value()
+        })
     } else {
         FPtr::new(sexp.as_ptr())
     }
