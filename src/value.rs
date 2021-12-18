@@ -90,7 +90,7 @@ pub fn value_is_pointer(v: &Value) -> bool {
     pointer_kind(v as *const Value) == PtrKind::Ptr
 }
 
-pub trait NaviType: PartialEq + std::fmt::Debug {
+pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> NonNullConst<TypeInfo>;
 }
 
@@ -141,6 +141,14 @@ impl PartialEq for Value {
         } else {
             false
         }
+    }
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let self_typeinfo = self.get_typeinfo();
+
+        (unsafe { self_typeinfo.as_ref() }.print_func)(self, f)
     }
 }
 
@@ -230,7 +238,8 @@ fn func_equal(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
 
 static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new(&[
+        Func::new("=",
+            &[
             Param::new("left", ParamKind::Require, Value::typeinfo()),
             Param::new("right", ParamKind::Require, Value::typeinfo()),
             ],

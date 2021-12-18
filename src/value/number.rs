@@ -5,11 +5,12 @@ use crate::value::func::*;
 use crate::context::Context;
 use crate::mm::{GCAllocationStruct};
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::hash::Hash;
 use once_cell::sync::Lazy;
 
 //TODO OrdとPartialOrdもRealとの比較のために独自実装が必要
-#[derive(Debug, Ord, PartialOrd, Hash)]
+#[derive(Ord, PartialOrd, Hash)]
 pub struct Integer {
     num : i64,
 }
@@ -18,7 +19,7 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     Integer,
     "Integer",
     Integer::eq,
-    Integer::fmt,
+    Display::fmt,
     Integer::is_type,
     Some(Integer::is_comparable),
     None,
@@ -50,6 +51,10 @@ impl Integer {
 
         ptr.into_fptr()
     }
+
+    pub fn get(&self) -> i64 {
+        self.num
+    }
 }
 
 impl Eq for Integer { }
@@ -72,11 +77,27 @@ impl PartialEq for Integer {
     }
 }
 
+fn display(this: &Integer, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", this.num)
+}
+
+impl Display for Integer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display(self, f)
+    }
+}
+
+impl Debug for Integer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display(self, f)
+    }
+}
+
 //
 // Real Number
 //
 //TODO OrdとPartialOrdもRealとの比較のために独自実装が必要
-#[derive(Debug, PartialOrd)]
+#[derive(PartialOrd)]
 pub struct Real {
     pub num : f64,
 }
@@ -85,7 +106,7 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     Real,
     "Real",
     Real::eq,
-    Real::fmt,
+    Display::fmt,
     Real::is_type,
     Some(Real::is_comparable),
     None,
@@ -138,6 +159,22 @@ impl PartialEq for Real {
     }
 }
 
+fn display_real(this: &Real, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", this.num)
+}
+
+impl Display for Real {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display_real(self, f)
+    }
+}
+
+impl Debug for Real {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display_real(self, f)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Number {
 }
@@ -148,7 +185,7 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number,
     "Number",
     Number::eq,
-    Number::fmt,
+    Display::fmt,
     Number::is_type,
     None,
     None,
@@ -163,6 +200,12 @@ impl NaviType for Number {
 impl Number {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
+    }
+}
+
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        unreachable!()
     }
 }
 
@@ -229,7 +272,8 @@ fn func_abs(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
 
 static FUNC_ADD: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new(&[
+        Func::new("+",
+            &[
             Param::new("num", ParamKind::Require, number::Number::typeinfo()),
             Param::new("rest", ParamKind::Rest, number::Number::typeinfo()),
             ],
@@ -239,7 +283,8 @@ static FUNC_ADD: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 
 static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new(&[
+        Func::new("abs",
+            &[
             Param::new("num", ParamKind::Require, number::Number::typeinfo()),
             ],
             func_abs)

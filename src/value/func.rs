@@ -1,10 +1,11 @@
 use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
 use crate::context::Context;
 use crate::ptr::*;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 
 pub struct Func {
+    name: String,
     params: Vec<Param>,
     body:  fn(&RPtr<array::Array>, &mut Context) -> FPtr<Value>,
 }
@@ -38,7 +39,7 @@ static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func,
     "Func",
     Func::eq,
-    Func::fmt,
+    Display::fmt,
     Func::is_type,
     None,
     None,
@@ -52,8 +53,9 @@ impl NaviType for Func {
 }
 
 impl Func {
-    pub fn new(params: &[Param], body: fn(&RPtr<array::Array>, &mut Context) -> FPtr<Value>) -> Func {
+    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&RPtr<array::Array>, &mut Context) -> FPtr<Value>) -> Func {
         Func {
+            name: name.into(),
             params: params.to_vec(),
             body: body,
         }
@@ -159,8 +161,14 @@ impl PartialEq for Func{
     }
 }
 
+impl Display for Func {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
 impl Debug for Func {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "func")
+        write!(f, "{}", self.name)
     }
 }

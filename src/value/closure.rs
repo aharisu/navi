@@ -2,7 +2,7 @@ use crate::{eval, new_cap};
 use crate::value::*;
 use crate::ptr::*;
 use crate::context::{Context};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 
 pub struct Closure {
@@ -14,7 +14,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure,
     "Closure",
     Closure::eq,
-    Closure::fmt,
+    Display::fmt,
     Closure::is_type,
     None,
     Some(Closure::child_traversal),
@@ -100,8 +100,18 @@ impl PartialEq for Closure {
     }
 }
 
+fn display(this: &Closure, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#closure")
+}
+
+impl Display for Closure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display(self, f)
+    }
+}
+
 impl Debug for Closure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "closure")
+        display(self, f)
     }
 }

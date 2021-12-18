@@ -68,7 +68,6 @@ impl <T: NaviType> Clone for UIPtr<T> {
 //
 //Reachable Pointer
 //
-#[derive(Debug)]
 #[repr(transparent)]
 pub struct RPtr<T: NaviType> {
     pointer: *mut T,
@@ -156,6 +155,12 @@ impl <T: NaviType> AsMut<T> for RPtr<T> {
 
     fn as_mut(&mut self) -> &mut T {
         unsafe { &mut *(self.pointer) }
+    }
+}
+
+impl <T: NaviType> std::fmt::Debug for RPtr<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_ref(), f)
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::value::*;
 use crate::context::{Context};
 use crate::ptr::*;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 
 type StringRef = std::mem::ManuallyDrop<String>;
 
@@ -14,7 +14,7 @@ static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
     NString,
     "String",
     NString::eq,
-    NString::fmt,
+    Display::fmt,
     NString::is_type,
     None,
     None,
@@ -53,7 +53,7 @@ impl NString {
     }
 
     #[inline]
-    fn as_string(&self) -> StringRef {
+    pub(crate) fn as_string(&self) -> StringRef {
         let ptr = self as *const NString;
         let str = unsafe {
             let ptr = ptr.offset(1) as *mut u8;
@@ -89,9 +89,22 @@ impl Ord for NString {
     }
 }
 
+fn display(this: &NString, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    //write!(f, "\"{}\"", &**(this.as_string()))
+
+    Display::fmt( &(*this.as_string()), f)
+
+}
+
+impl Display for NString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        display(self, f)
+    }
+}
+
 impl Debug for NString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (*self.as_string()).fmt(f)
+        display(self, f)
     }
 }
 

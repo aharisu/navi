@@ -3,7 +3,7 @@
 use crate::{value::*, new_cap};
 use crate::ptr::*;
 use crate::context::{Context};
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 
 pub struct List {
     v: RPtr<Value>,
@@ -14,7 +14,7 @@ static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
     List,
     "List",
     List::eq,
-    List::fmt,
+    Display::fmt,
     List::is_type,
     None,
     Some(List::child_traversal),
@@ -125,19 +125,34 @@ impl PartialEq for List {
     }
 }
 
-impl Debug for List {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn display(this: &List, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Result {
         let mut first = true;
         write!(f, "(")?;
-        for v in self.iter() {
+    for v in this.iter() {
             if !first {
                 write!(f, " ")?
             }
 
-            v.as_ref().fmt(f)?;
+        if is_debug {
+            Debug::fmt(v.as_ref(), f)?;
+        } else {
+            Display::fmt(v.as_ref(), f)?;
+        }
+
             first = false;
         }
         write!(f, ")")
+}
+
+impl Display for List {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        display(self, f, false)
+    }
+}
+
+impl Debug for List {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        display(self, f, true)
     }
 }
 

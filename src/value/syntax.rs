@@ -6,11 +6,12 @@ use crate::{value::*, let_listbuilder, with_cap, let_cap, new_cap};
 use crate::value::list;
 use crate::ptr::*;
 use crate::context::Context;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::panic;
 use once_cell::sync::Lazy;
 
 pub struct Syntax {
+    name: String,
     require: usize,
     optional: usize,
     has_rest: bool,
@@ -21,7 +22,7 @@ static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
     Syntax,
     "Syntax",
     Syntax::eq,
-    Syntax::fmt,
+    Display::fmt,
     Syntax::is_type,
     None,
     None,
@@ -35,8 +36,9 @@ impl NaviType for Syntax {
 }
 
 impl Syntax {
-    pub fn new(require: usize, optional: usize, has_rest: bool, body:  fn(&RPtr<list::List>, &mut Context) -> FPtr<Value>) -> Self {
+    pub fn new<T: Into<String>>(name: T, require: usize, optional: usize, has_rest: bool, body:  fn(&RPtr<list::List>, &mut Context) -> FPtr<Value>) -> Self {
         Syntax {
+            name: name.into(),
             require: require,
             optional: optional,
             has_rest: has_rest,
@@ -83,9 +85,15 @@ impl PartialEq for Syntax {
     }
 }
 
+impl Display for Syntax {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
 impl Debug for Syntax {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "syntax")
+        write!(f, "{}", self.name)
     }
 }
 
@@ -283,31 +291,41 @@ fn syntax_or(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
 }
 
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new(2, 1, false, syntax_if))
+    GCAllocationStruct::new(Syntax::new("if", 2, 1, false, syntax_if))
+});
+
+static SYNTAX_BEGIN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("begin", 0, 0, true, syntax_begin))
 });
 
 static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new(0, 0, true, syntax_cond))
+    GCAllocationStruct::new(Syntax::new("cond", 0, 0, true, syntax_cond))
 });
 
 static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new(1, 0, true, syntax_fun))
+    GCAllocationStruct::new(Syntax::new("fun", 1, 0, true, syntax_fun))
 });
 
 static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new(1, 0, true, syntax_let))
+    GCAllocationStruct::new(Syntax::new("let", 1, 0, true, syntax_let))
 });
 
 static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new(1, 0, false, syntax_quote))
+    GCAllocationStruct::new(Syntax::new("quote", 1, 0, false, syntax_quote))
+});
+
+static SYNTAX_UNQUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("unquote", 1, 0, false, syntax_unquote))
+});
+
 });
 
 static SYNTAX_AND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new(0, 0, true, syntax_and))
+    GCAllocationStruct::new(Syntax::new("and", 0, 0, true, syntax_and))
 });
 
 static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new(0, 0, true, syntax_or))
+    GCAllocationStruct::new(Syntax::new("or", 0, 0, true, syntax_or))
 });
 
 pub fn register_global(ctx: &mut Context) {

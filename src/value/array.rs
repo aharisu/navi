@@ -1,6 +1,7 @@
 use crate::value::*;
 use crate::ptr::*;
 use crate::context::Context;
+use std::fmt::Display;
 use std::fmt::{self, Debug};
 
 pub struct Array {
@@ -11,7 +12,7 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     Array,
     "Array",
     Array::eq,
-    Array::fmt,
+    Display::fmt,
     Array::is_type,
     None,
     Some(Array::child_traversal),
@@ -150,20 +151,35 @@ impl PartialEq for Array {
     }
 }
 
-impl Debug for Array {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn display(this: &Array, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Result {
         write!(f, "[")?;
         let mut first = true;
-        for index in 0..self.len() {
+    for index in 0..this.len() {
             if !first {
                 write!(f, " ")?
             }
 
-            self.get(index).as_ref().fmt(f)?;
+        if is_debug {
+            Debug::fmt(this.get(index).as_ref(), f)?;
+        } else {
+            Display::fmt(this.get(index).as_ref(), f)?;
+        }
             first = false;
         }
         write!(f, "]")
     }
+
+impl Display for Array {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        display(self, f, false)
+    }
+}
+
+impl Debug for Array {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        display(self, f, true)
+    }
+}
 }
 
 #[cfg(test)]

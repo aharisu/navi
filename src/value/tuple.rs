@@ -143,18 +143,30 @@ impl PartialEq for Tuple {
     }
 }
 
-impl Debug for Tuple {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn display(this: &Tuple, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
         let mut first = true;
-        for index in 0..self.len() {
+    for index in 0..this.len() {
             if !first {
                 write!(f, " ")?
             }
 
-            self.get(index).as_ref().fmt(f)?;
+        this.get(index).as_ref().fmt(f)?;
             first = false;
         }
         write!(f, "}}")
+}
+
+impl std::fmt::Display for Tuple {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display(self, f)
+    }
+}
+
+impl Debug for Tuple {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        display(self, f)
+    }
+}
     }
 }

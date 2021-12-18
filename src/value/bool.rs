@@ -1,6 +1,6 @@
 use crate::value::*;
 use crate::ptr::RPtr;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 
 pub struct Bool {
 }
@@ -9,7 +9,7 @@ static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Bool,
     "Bool",
     Bool::eq,
-    Bool::fmt,
+    Display::fmt,
     Bool::is_type,
     None,
     None,
@@ -57,13 +57,23 @@ impl PartialEq for Bool {
     }
 }
 
+fn display(this: &Bool, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", if this.is_true() {
+            "true"
+        } else {
+            "false"
+        })
+}
+
+impl Display for Bool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        display(self, f)
+    }
+}
+
 impl Debug for Bool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", if self.is_true() {
-                "true"
-            } else {
-                "false"
-            })
+        display(self, f)
     }
 }
 
