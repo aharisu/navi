@@ -426,44 +426,54 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<&RPtr<Value>>, patterns: &
 }
 
 fn translate_literal(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &mut Context) -> FPtr<Value> {
+    let mut group = Vec::<(&RPtr<Value>, Vec<MatchClause>)>::new();
+
+    //同じリテラルごとにグルーピングを行う
+    for (mut pat, body) in patterns.clone().into_iter() {
+        let literal_pat = pat.pop().unwrap();
+
+        if let Some((_, clauses)) = group.iter_mut().find(|(v, _)| v.as_ref() == literal_pat.as_ref()) {
+            clauses.push((pat, body));
+        } else {
+            let mut clauses = Vec::<MatchClause>::new();
+            clauses.push((pat, body));
+            group.push((literal_pat, clauses));
+        }
+    }
+
     let mut exprs = exprs.clone();
     let target = exprs.pop().unwrap();
 
     let_listbuilder!(builder_cond, ctx);
     builder_cond.append(&syntax::literal::cond().into_value(), ctx);
 
-    //TODO 最適化のために同じリテラルごとにグルーピングを行いたい
-    for (mut pattern, body) in patterns.clone().into_iter() {
-        let compare_pat = pattern.pop().unwrap();
-
+    for (literal, patterns) in group.into_iter() {
         let_listbuilder!(builder_cond_clause, ctx);
 
-        //(equal? target pattern)
+        //(equal? target literal)
         let equal = cons_list3(&value::literal::equal().into_value()
             , target
-            , compare_pat
+            , literal
             , ctx);
-
-        //((equal? target pattern))
+        //((equal? target literal))
         with_cap!(equal, equal, ctx, {
             builder_cond_clause.append(&equal, ctx);
         });
 
-
-        //((equal? target pattern) next-match)
-        let mut patterns: Vec<MatchClause> = Vec::new();
-        patterns.push((pattern, body));
+        //((equal? target literal) next-match)
         let matcher= translate_inner(exprs.clone(), patterns, ctx);
         with_cap!(matcher, matcher, ctx, {
             builder_cond_clause.append(&matcher, ctx);
         });
 
+        //(cond ((equal? target literal) next-match))
         let cond_clause = builder_cond_clause.get().into_value();
         with_cap!(cond_clause, cond_clause, ctx, {
             builder_cond.append(&cond_clause, ctx);
         });
     }
 
+    //最後にマッチ失敗の節を追加
     with_cap!(else_, cons_cond_fail(ctx), ctx, {
         builder_cond.append(&else_, ctx);
     });

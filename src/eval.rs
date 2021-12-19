@@ -382,6 +382,13 @@ mod tests {
         }
 
         {
+            let program = "(match {1 2 3} ({1 3 2} 1) ({1 2 3} 2))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(2, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
+        {
             let program = "(match 1 (@x x))";
             let_cap!(result, eval::<Value>(program, ctx), ctx);
             let ans = number::Integer::alloc(1, ans_ctx).into_value();
