@@ -49,6 +49,7 @@ fn read_internal(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
 
             '"' => read_string(reader, ctx),
             '\'' => read_quote(reader, ctx),
+            '@' => read_bind(reader, ctx),
             '+' | '-' | '0' ..= '9' => read_number_or_symbol(reader, ctx),
             ':' => read_keyword(reader, ctx),
             _ => read_symbol(reader, ctx),
@@ -133,6 +134,14 @@ fn read_char(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
 }
 
 fn read_quote(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+    read_with_modifier(syntax::literal::quote().cast_value(), reader, ctx)
+}
+
+fn read_bind(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+    read_with_modifier(syntax::literal::bind().cast_value(), reader, ctx)
+}
+
+fn read_with_modifier(modifier: &RPtr<Value>, reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     //skip first char
     reader.input.next();
 
@@ -145,7 +154,7 @@ fn read_quote(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     let_cap!(sexp, sexp, ctx);
 
     let_listbuilder!(builder, ctx);
-    builder.append(syntax::literal::quote().cast_value(), ctx);
+    builder.append(modifier, ctx);
     builder.append(&sexp, ctx);
     Ok(builder.get().into_value())
 }

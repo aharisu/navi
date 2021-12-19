@@ -1,5 +1,6 @@
 use crate::value::list::List;
 use crate::value::syntax::Syntax;
+use crate::value::symbol::Symbol;
 use crate::ptr::*;
 use crate::value::{self, *};
 use crate::{let_listbuilder, with_cap, let_cap, new_cap};
@@ -168,7 +169,7 @@ fn translate_inner(exprs: Vec<&RPtr<Value>>, patterns: Vec<MatchClause>, ctx: &m
                 unimplemented!()
             }
             PatKind::Bind => {
-                unimplemented!()
+                translate_bind(exprs, patterns, ctx)
             }
             PatKind::Empty => {
                 translate_empty(exprs, patterns, ctx)
@@ -209,7 +210,7 @@ fn pattern_grouping(patterns: Vec<MatchClause>) -> Vec<(PatKind, Vec<MatchClause
         } else {
             let tf = pat.last().unwrap().as_ref().get_typeinfo().as_ptr();
             if std::ptr::eq(tf, list::List::typeinfo().as_ptr()) {
-                let list =  unsafe { pat.get_unchecked(0).cast_unchecked::<list::List>() };
+                let list =  unsafe { pat.last().unwrap().cast_unchecked::<List>() };
                 //長さがちょうど２のリストで
                 if list.as_ref().len_exactly(2) {
                     let head = list.as_ref().head_ref();
@@ -431,7 +432,7 @@ fn translate_literal(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx
     let_listbuilder!(builder_cond, ctx);
     builder_cond.append(&syntax::literal::cond().into_value(), ctx);
 
-    //TODO 同じリテラルごとにグルーピングを行うか？
+    //TODO 最適化のために同じリテラルごとにグルーピングを行いたい
     for (mut pattern, body) in patterns.clone().into_iter() {
         let compare_pat = pattern.pop().unwrap();
 
@@ -468,6 +469,64 @@ fn translate_literal(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx
     });
 
     builder_cond.get().into_value()
+}
+
+fn translate_bind(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &mut Context) -> FPtr<Value> {
+    let mut exprs = exprs.clone();
+    let target = exprs.pop().unwrap();
+
+    let_listbuilder!(builder_catch, ctx);
+    builder_catch.append(&literal::fail_catch().into_value(), ctx);
+
+    //TODO 最適化のために同じシンボルごとにグルーピングを行いたい
+    for (mut pattern, body) in patterns.clone().into_iter() {
+        let bind = pattern.pop().unwrap();
+        //必ず(bind ???)というような形式になっているのでリストに変換
+        let bind = unsafe { bind.cast_unchecked::<List>() };
+        let val = bind.as_ref().tail_ref().as_ref().head_ref();
+
+        if let Some(symbol) = val.try_cast::<Symbol>() {
+            //束縛対象がアンダースコアなら束縛を行わない
+            if symbol.as_ref().as_ref() == "_" {
+                let mut patterns: Vec<MatchClause> = Vec::new();
+                patterns.push((pattern, body));
+                let matcher= translate_inner(exprs.clone(), patterns, ctx);
+                with_cap!(matcher, matcher, ctx, {
+                    builder_catch.append(&matcher, ctx);
+                });
+
+            } else {
+                let_listbuilder!(builder_let, ctx);
+                builder_let.append(&syntax::literal::let_().into_value(), ctx);
+
+                //(x target) for let bind part
+                let binder = cons_list2(val, target, ctx);
+                //((x target)) for let binders part
+                let binders = with_cap!(binder, binder, ctx, {
+                    list::List::alloc_tail(&binder, ctx).into_value()
+                });
+                //(let ((x target)))
+                with_cap!(binders, binders, ctx, {
+                    builder_let.append(&binders, ctx);
+                });
+
+                let mut patterns: Vec<MatchClause> = Vec::new();
+                patterns.push((pattern, body));
+                let matcher= translate_inner(exprs.clone(), patterns, ctx);
+                with_cap!(matcher, matcher, ctx, {
+                    builder_let.append(&matcher, ctx);
+                });
+
+                with_cap!(let_, builder_let.get().into_value(), ctx, {
+                    builder_catch.append(&let_, ctx);
+                });
+            }
+        } else {
+            panic!("bind variable required symbol. but got {}", val.as_ref())
+        }
+    }
+
+    builder_catch.get().into_value()
 }
 
 fn translate_empty(_exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &mut Context) -> FPtr<Value> {

@@ -380,6 +380,28 @@ mod tests {
             let ans = number::Integer::alloc(4, ans_ctx).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
+
+        {
+            let program = "(match 1 (@x x))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(match 1 (@x x) (@a (+ a a)))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(match {1 2} ({@a @b} (+ a b)))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(3, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(match {1 '(2 3) [4 '(5)]} ({@a @_ [@b @_]} (+ a b)))";
+            let_cap!(result, eval::<Value>(program, ctx), ctx);
+            let ans = number::Integer::alloc(5, ans_ctx).into_value();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
     }
 
 }

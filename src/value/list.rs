@@ -125,10 +125,10 @@ impl List {
                 break
             } else {
                 count -= 1;
+                l = l.next.as_ref();
                 if count == 0 {
                     break
                 }
-                l = l.next.as_ref();
             }
         }
 
