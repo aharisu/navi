@@ -26,12 +26,10 @@ pub struct UIPtr<T: NaviType> {
 }
 
 impl <T: NaviType> UIPtr<T> {
-    pub unsafe fn as_ref(&self) -> &T {
-        & *(self.pointer)
-    }
-
-    pub unsafe fn as_mut(&mut self) -> &mut T {
-        &mut *(self.pointer)
+    pub fn new(ptr: *mut T) -> Self {
+        UIPtr::<T> {
+            pointer: ptr
+        }
     }
 
     pub fn into_fptr(self) -> FPtr<T> {
@@ -40,14 +38,6 @@ impl <T: NaviType> UIPtr<T> {
 
     pub fn into_rptr(self) -> RPtr<T> {
         RPtr::new(self.pointer)
-    }
-}
-
-impl <T: NaviType> UIPtr<T> {
-    pub fn new(ptr: *mut T) -> Self {
-        UIPtr::<T> {
-            pointer: ptr
-        }
     }
 }
 

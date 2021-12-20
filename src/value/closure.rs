@@ -41,10 +41,14 @@ impl Closure {
         T: AsReachable<array::Array>,
         U: AsReachable<list::List>,
     {
-        let mut ptr = ctx.alloc::<Closure>();
-        let closure = unsafe { ptr.as_mut() };
-        closure.params = params.as_reachable().clone();
-        closure.body = body.as_reachable().clone();
+        let ptr = ctx.alloc::<Closure>();
+        unsafe {
+            std::ptr::write(ptr.as_ptr(), Closure {
+                params: params.as_reachable().clone(),
+                body: body.as_reachable().clone(),
+            })
+        }
+
 
         ptr.into_fptr()
     }

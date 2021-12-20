@@ -52,11 +52,15 @@ impl List {
     {
         let v = v.as_reachable();
         let next = next.as_reachable();
-        let mut ptr = ctx.alloc::<List>();
-        let list = unsafe { ptr.as_mut() };
+
+        let ptr = ctx.alloc::<List>();
+        unsafe {
         //確保したメモリ内に値を書き込む
-        list.v = v.clone();
-        list.next = next.clone();
+            std::ptr::write(ptr.as_ptr(), List {
+                v: v.clone(),
+                next: next.clone(),
+                })
+        }
 
         ptr.into_fptr()
     }
@@ -66,11 +70,16 @@ impl List {
         V: AsReachable<Value>,
     {
         let v = v.as_reachable();
-        let mut ptr = ctx.alloc::<List>();
-        let list = unsafe { ptr.as_mut() };
+
+        let ptr = ctx.alloc::<List>();
+
+        unsafe {
         //確保したメモリ内に値を書き込む
-        list.v = v.clone();
-        list.next = Self::nil();
+            std::ptr::write(ptr.as_ptr(), List {
+                v: v.clone(),
+                next: Self::nil(),
+                })
+        }
 
         ptr.into_fptr()
     }

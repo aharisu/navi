@@ -45,9 +45,11 @@ impl Integer {
     }
 
     pub fn alloc(num: i64, ctx : &mut Context) -> FPtr<Integer> {
-        let mut ptr = ctx.alloc::<Integer>();
-        let obj = unsafe { ptr.as_mut() };
-        obj.num = num;
+        let ptr = ctx.alloc::<Integer>();
+
+        unsafe {
+            std::ptr::write(ptr.as_ptr(), Integer { num: num });
+        }
 
         ptr.into_fptr()
     }
@@ -130,9 +132,11 @@ impl Real {
     }
 
     pub fn alloc(num: f64, ctx : &mut Context) -> FPtr<Real> {
-        let mut ptr = ctx.alloc::<Real>();
-        let obj = unsafe { ptr.as_mut() };
-        obj.num = num;
+        let ptr = ctx.alloc::<Real>();
+
+        unsafe {
+            std::ptr::write(ptr.as_ptr(), Real { num: num });
+        }
 
         ptr.into_fptr()
     }

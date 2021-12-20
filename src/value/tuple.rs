@@ -46,9 +46,11 @@ impl Tuple {
     }
 
     fn alloc(size: usize, ctx: &mut Context) -> FPtr<Tuple> {
-        let mut ptr = ctx.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<RPtr<Value>>());
-        let tuple = unsafe { ptr.as_mut() };
-        tuple.len = size;
+        let ptr = ctx.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<RPtr<Value>>());
+
+        unsafe {
+            std::ptr::write(ptr.as_ptr(), Tuple {len: size});
+        }
 
         ptr.into_fptr()
     }

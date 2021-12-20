@@ -37,9 +37,10 @@ impl Array {
     }
 
     fn alloc(size: usize, ctx: &mut Context) -> FPtr<Array> {
-        let mut ptr = ctx.alloc_with_additional_size::<Array>(size * std::mem::size_of::<RPtr<Value>>());
-        let ary = unsafe { ptr.as_mut() };
-        ary.len = size;
+        let ptr = ctx.alloc_with_additional_size::<Array>(size * std::mem::size_of::<RPtr<Value>>());
+        unsafe {
+            std::ptr::write(ptr.as_ptr(), Array { len: size})
+        }
 
         ptr.into_fptr()
     }
