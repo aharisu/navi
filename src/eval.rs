@@ -253,6 +253,50 @@ mod tests {
     }
 
     #[test]
+    fn syntax_def_test() {
+        let mut ctx = Context::new();
+        let ctx = &mut ctx;
+        let mut ans_ctx = Context::new();
+        let ans_ctx = &mut ans_ctx;
+
+        ctx.register_core_global();
+
+        {
+            let program = "(def a 1)";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "a";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(1, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(def a 2)";
+            eval::<number::Integer>(program, ctx);
+            let program = "a";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(2, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(let ((a 3)) a)";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(3, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(let ((a 3)) (def a 4) a)";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(4, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "a";
+            let_cap!(result, eval::<number::Integer>(program, ctx), ctx);
+            let ans = number::Integer::alloc(2, ans_ctx);
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+    }
+
+    #[test]
     fn syntax_fun_test() {
         let mut ctx = Context::new();
         let ctx = &mut ctx;

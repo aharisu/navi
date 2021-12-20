@@ -25,6 +25,19 @@ impl Context {
         }
     }
 
+    pub fn add_to_current_frame<Key, V>(&mut self, symbol: &Key, value: &V)
+    where
+        Key: AsReachable<symbol::Symbol>,
+        V: AsReachable<Value>,
+    {
+        if let Some(frame) = self.frames.last_mut() {
+            frame.push((symbol.as_reachable().clone(), value.as_reachable().clone()));
+        } else {
+            //ローカルフレームがなければグローバル変数として追加
+            self.world.set(symbol.as_reachable().as_ref(), value);
+        }
+    }
+
     pub fn push_local_frame<Key, V>(&mut self, frame: &[(&Key, &V)])
     where
         Key: AsReachable<symbol::Symbol>,
@@ -49,7 +62,8 @@ impl Context {
         let symbol = symbol.as_reachable();
         //ローカルフレームから対応する値を探す
         for frame in self.frames.iter().rev() {
-            let result = frame.iter().find(|(sym, _v)| {
+            //後で定義されたものを優先して使用するために逆順で探す
+            let result = frame.iter().rev().find(|(sym, _v)| {
                 symbol.as_ref().eq(sym.as_ref())
             });
 

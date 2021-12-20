@@ -173,6 +173,18 @@ fn syntax_cond(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     bool::Bool::false_().into_value().into_fptr()
 }
 
+fn syntax_def(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+    let symbol = args.as_ref().head_ref();
+    if let Some(symbol) = symbol.try_cast::<Symbol>() {
+        let value = args.as_ref().tail_ref().as_ref().head_ref();
+        ctx.add_to_current_frame(symbol, value);
+
+        value.clone().into_fptr()
+    } else {
+        panic!("def variable require symbol. But got {}", symbol.as_ref());
+    }
+}
+
 fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     let_listbuilder!(builder, ctx);
 
@@ -319,6 +331,10 @@ static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("cond", 0, 0, true, syntax_cond))
 });
 
+static SYNTAX_DEF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("def", 2, 0, true, syntax_def))
+});
+
 static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("fun", 1, 0, true, syntax_fun))
 });
@@ -355,6 +371,7 @@ pub fn register_global(ctx: &mut Context) {
     ctx.define_value("if", &RPtr::new(&SYNTAX_IF.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("begin", &RPtr::new(&SYNTAX_BEGIN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("cond", &RPtr::new(&SYNTAX_COND.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("def", &RPtr::new(&SYNTAX_DEF.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("let", &RPtr::new(&SYNTAX_LET.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("quote", &RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax).into_value());
