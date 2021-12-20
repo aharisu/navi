@@ -72,7 +72,6 @@ pub struct Heap {
     page_layout : alloc::Layout,
     pool_ptr : *mut u8,
     used : usize,
-    freed : bool,
 }
 
 impl Heap {
@@ -87,7 +86,6 @@ impl Heap {
             page_layout: layout,
             pool_ptr: ptr,
             used: 0,
-            freed: false,
         };
         heap
     }
@@ -97,8 +95,6 @@ impl Heap {
     }
 
     pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, ctx: &Context) -> UIPtr<T> {
-        debug_assert!(!self.freed);
-
         //GCのバグを発見しやすいように、allocのたびにGCを実行する
         self.debug_gc(ctx);
 
@@ -354,22 +350,12 @@ impl Heap {
             self.used = used;
         }
     }
-
-    pub fn free(&mut self) {
-        if self.freed == false {
-            self.freed = true;
-
-            unsafe {
-                alloc::dealloc(self.pool_ptr, self.page_layout);
-            }
-        }
-    }
 }
 
 impl Drop for Heap {
     fn drop(&mut self) {
-        if self.freed == false {
-            panic!("heep leaked");
+        unsafe {
+            alloc::dealloc(self.pool_ptr, self.page_layout);
         }
     }
 }

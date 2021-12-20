@@ -179,8 +179,3 @@ impl Context {
 
 }
 
-impl Drop for Context {
-    fn drop(&mut self) {
-        self.heap.borrow_mut().free();
-    }
-}
