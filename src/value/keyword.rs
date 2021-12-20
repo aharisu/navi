@@ -18,6 +18,7 @@ static KEYWORD_TYPEINFO: TypeInfo = new_typeinfo!(
     Keyword::is_type,
     None,
     None,
+    None,
 );
 
 impl NaviType for Keyword {

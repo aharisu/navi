@@ -17,6 +17,7 @@ static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
     Display::fmt,
     List::is_type,
     None,
+    None,
     Some(List::child_traversal),
 );
 
@@ -55,7 +56,7 @@ impl List {
 
         let ptr = ctx.alloc::<List>();
         unsafe {
-        //確保したメモリ内に値を書き込む
+            //確保したメモリ内に値を書き込む
             std::ptr::write(ptr.as_ptr(), List {
                 v: v.clone(),
                 next: next.clone(),
@@ -74,7 +75,7 @@ impl List {
         let ptr = ctx.alloc::<List>();
 
         unsafe {
-        //確保したメモリ内に値を書き込む
+            //確保したメモリ内に値を書き込む
             std::ptr::write(ptr.as_ptr(), List {
                 v: v.clone(),
                 next: Self::nil(),

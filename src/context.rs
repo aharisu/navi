@@ -82,6 +82,16 @@ impl Context {
         (&mut self.world).set(key, v)
     }
 
+    pub fn register_core_global(&mut self) {
+        object::register_global(self);
+        number::register_global(self);
+        syntax::register_global(self);
+        value::register_global(self);
+        tuple::register_global(self);
+        array::register_global(self);
+        list::register_global(self);
+    }
+
     pub fn add_capture(&self, capture: &mut Capture<Value>) {
         //ポインタ以外の値はキャプチャの必要がないので何もしない
         if value::value_is_pointer(capture.v.as_ref()) == false {
@@ -179,3 +189,11 @@ impl Context {
 
 }
 
+impl Eq for Context {}
+
+impl PartialEq for Context {
+    fn eq(&self, other: &Self) -> bool {
+        //同じヒープを持っている場合は同じコンテキストと判断する
+        std::ptr::eq(self.heap.as_ptr(), other.heap.as_ptr())
+    }
+}

@@ -15,6 +15,7 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     Display::fmt,
     Array::is_type,
     None,
+    None,
     Some(Array::child_traversal),
 );
 

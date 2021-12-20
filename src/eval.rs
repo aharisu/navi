@@ -338,12 +338,7 @@ mod tests {
         let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
-        number::register_global(ctx);
-        syntax::register_global(ctx);
-        value::register_global(ctx);
-        tuple::register_global(ctx);
-        array::register_global(ctx);
-        list::register_global(ctx);
+        ctx.register_core_global();
 
         {
             let program = "(match 1 (2 2) (3 3) (4 4) (1 1))";

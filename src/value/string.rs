@@ -18,6 +18,7 @@ static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
     NString::is_type,
     None,
     None,
+    None,
 );
 
 impl NaviType for NString {

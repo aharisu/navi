@@ -1,11 +1,15 @@
 #[macro_export]
 macro_rules! new_typeinfo {
-    ($t:ty, $name:expr, $eq_func:expr, $print_func:expr, $is_type_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, ) => {
+    ($t:ty, $name:expr, $eq_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, ) => {
         TypeInfo {
             name: $name,
             eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Value, &Value) -> bool>($eq_func) },
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
+            finalize: match $finalize_func {
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t), fn(&mut Value)>(func) }),
+                None => None
+            },
             is_comparable_func: match $is_comparable_func {
                 Some(func) => Some(func),
                 None => None
@@ -103,6 +107,7 @@ pub struct TypeInfo {
     pub eq_func: fn(&Value, &Value) -> bool,
     pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: fn(&TypeInfo) -> bool,
+    pub finalize: Option<fn(&mut Value)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
     pub child_traversal_func: Option<fn(&Value, usize, fn(&RPtr<Value>, usize))>,
 }
@@ -115,6 +120,7 @@ static VALUE_TYPEINFO : TypeInfo = new_typeinfo!(
     Value::_eq,
     Value::_fmt,
     Value::_is_type,
+    None,
     None,
     None,
 );

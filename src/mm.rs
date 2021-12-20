@@ -258,7 +258,11 @@ impl Heap {
 
                 } else {
                     //マークがないオブジェクトは開放する
-                    //TODO オブジェクトに対するファイナライザを実装する場合ここで実行する
+                    if let Some(finalize) = header.typeinfo.as_ref().finalize {
+                        let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
+                        let v = &mut *(v_ptr as *mut Value);
+                        finalize(v);
+                    }
 
                     //解放するオブジェクトが一つでも見つかったら、それ以降のオブジェクトは移動される
                     is_moving = true;
@@ -355,6 +359,22 @@ impl Heap {
 impl Drop for Heap {
     fn drop(&mut self) {
         unsafe {
+            let mut ptr = self.pool_ptr;
+            let end = self.pool_ptr.add(self.used);
+
+            while ptr < end {
+                let header = &mut *(ptr as *mut GCHeader);
+                let (size, _, _, _) = gc_flags_unpack(header.flags);
+
+                if let Some(finalize) = header.typeinfo.as_ref().finalize {
+                    let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
+                    let v = &mut *(v_ptr as *mut Value);
+                    finalize(v);
+                }
+
+                ptr = ptr.add(size as usize);
+            }
+
             alloc::dealloc(self.pool_ptr, self.page_layout);
         }
     }

@@ -13,6 +13,7 @@ static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Bool::is_type,
     None,
     None,
+    None,
 );
 
 impl NaviType for Bool {

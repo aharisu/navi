@@ -21,6 +21,7 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     Integer::eq,
     Display::fmt,
     Integer::is_type,
+    None,
     Some(Integer::is_comparable),
     None,
 );
@@ -110,6 +111,7 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     Real::eq,
     Display::fmt,
     Real::is_type,
+    None,
     Some(Real::is_comparable),
     None,
 );
@@ -191,6 +193,7 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number::eq,
     Display::fmt,
     Number::is_type,
+    None,
     None,
     None,
 );
