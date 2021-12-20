@@ -367,7 +367,7 @@ impl ListBuilder {
 
 }
 
-fn func_is_list(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+fn func_is_list(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     if v.is_type(list::List::typeinfo()) {
         v.clone().into_fptr()
@@ -383,7 +383,7 @@ fn func_list_len(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
     number::Integer::alloc(v.as_ref().count() as i64, ctx).into_value()
 }
 
-fn func_list_ref(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+fn func_list_ref(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<List>() };
 

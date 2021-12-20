@@ -128,7 +128,7 @@ fn read_string(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
 }
 
 #[allow(dead_code)]
-fn read_char(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+fn read_char(_reader: &mut Reader, _ctx: &mut Context) -> ReadResult {
     //TODO
     unimplemented!()
 }
@@ -204,7 +204,7 @@ fn read_symbol(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
     }
 }
 
-fn read_word(reader: &mut Reader, ctx: &mut Context) -> Result<String, ReadError> {
+fn read_word(reader: &mut Reader, _ctx: &mut Context) -> Result<String, ReadError> {
     let mut acc: Vec<char> = Vec::new();
     loop {
         match reader.input.peek() {
@@ -282,7 +282,6 @@ const fn is_delimiter(ch: char) -> bool {
 mod tests {
     use crate::read::*;
     use crate::context::Context;
-    use crate::ptr::*;
 
     fn make_reader<'a>(s: &'a str) -> Reader<'a> {
         Reader::new( s.chars().peekable())

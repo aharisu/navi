@@ -79,7 +79,7 @@ impl Debug for Object {
     }
 }
 
-fn func_spawn(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+fn func_spawn(_args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
     Object::alloc(ctx).into_value()
 }
 
@@ -99,10 +99,7 @@ pub fn register_global(ctx: &mut Context) {
 mod tests {
     use super::*;
 
-    use crate::{let_cap, new_cap, value};
-    use crate::value::*;
-    use crate::context::*;
-    use crate::ptr::*;
+    use crate::{let_cap, new_cap};
 
     #[test]
     fn hgoe() {
@@ -113,7 +110,7 @@ mod tests {
 
         {
             let_cap!(obj, Object::alloc(ctx), ctx);
-            let ctx = obj.as_mut().get();
+            let _ctx = obj.as_mut().get();
 
         }
     }

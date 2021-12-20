@@ -188,7 +188,7 @@ fn func_tuple_len(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
     number::Integer::alloc(v.as_ref().len as i64, ctx).into_value()
 }
 
-fn func_tuple_ref(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+fn func_tuple_ref(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
     let tuple = args.as_ref().get(0);
     let tuple = unsafe { tuple.cast_unchecked::<tuple::Tuple>() };
 

@@ -275,11 +275,11 @@ fn syntax_quote(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
     sexp.clone().into_fptr()
 }
 
-fn syntax_unquote(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
+fn syntax_unquote(_args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
     unimplemented!()
 }
 
-fn syntax_bind(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
+fn syntax_bind(_args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
     unimplemented!()
 }
 

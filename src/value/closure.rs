@@ -1,4 +1,3 @@
-use crate::{eval, new_cap};
 use crate::value::*;
 use crate::ptr::*;
 use crate::context::{Context};
@@ -105,7 +104,8 @@ impl PartialEq for Closure {
     }
 }
 
-fn display(this: &Closure, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+fn display(_this: &Closure, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    //TODO
         write!(f, "#closure")
 }
 
