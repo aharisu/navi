@@ -33,6 +33,7 @@ pub mod keyword;
 pub mod func;
 pub mod syntax;
 pub mod tuple;
+pub mod object;
 
 
 use std::ptr::{self};
