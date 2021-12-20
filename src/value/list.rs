@@ -446,10 +446,10 @@ mod tests {
 
     #[test]
     fn test() {
-        let mut ctx = Context::new("list");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
 
-        let mut ans_ctx = Context::new("ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {

@@ -136,9 +136,9 @@ mod tests {
 
     #[test]
     fn func_test() {
-        let mut ctx = Context::new("eval");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         number::register_global(ctx);
@@ -188,9 +188,9 @@ mod tests {
 
     #[test]
     fn syntax_if_test() {
-        let mut ctx = Context::new("eval");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         value::register_global(ctx);
@@ -217,9 +217,9 @@ mod tests {
 
     #[test]
     fn syntax_cond_test() {
-        let mut ctx = Context::new("eval");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         value::register_global(ctx);
@@ -254,9 +254,9 @@ mod tests {
 
     #[test]
     fn syntax_fun_test() {
-        let mut ctx = Context::new("eval");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         number::register_global(ctx);
@@ -277,9 +277,9 @@ mod tests {
 
     #[test]
     fn syntax_let_test() {
-        let mut ctx = Context::new("eval");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         number::register_global(ctx);
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn syntax_and_or() {
-        let mut ctx = Context::new("eval");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
 
         number::register_global(ctx);
@@ -333,9 +333,9 @@ mod tests {
 
     #[test]
     fn syntax_match() {
-        let mut ctx = Context::new("eval");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         number::register_global(ctx);

@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn set_get() {
-        let mut ctx = Context::new("world");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
 
         {

@@ -73,13 +73,10 @@ pub struct Heap {
     pool_ptr : *mut u8,
     used : usize,
     freed : bool,
-
-    //for debugging
-    name: String
 }
 
 impl Heap {
-    pub fn new<T: Into<String>>(page_size : usize, name: T) -> Self {
+    pub fn new(page_size : usize) -> Self {
         let layout = alloc::Layout::from_size_align(page_size, mem::size_of::<usize>()).unwrap();
 
         let ptr = unsafe {
@@ -91,7 +88,6 @@ impl Heap {
             pool_ptr: ptr,
             used: 0,
             freed: false,
-            name: name.into(),
         };
         heap
     }
@@ -165,7 +161,7 @@ impl Heap {
     }
 
     pub fn dump_heap(&self, _ctx: &Context) {
-        println!("[dump {}]------------------------------------", self.name);
+        println!("[dump]------------------------------------");
 
         unsafe {
             let mut ptr = self.pool_ptr;
@@ -191,7 +187,7 @@ impl Heap {
             }
         }
 
-        println!("[dump {}] **** end ****", self.name);
+        println!("[dump] **** end ****");
     }
 
     pub(crate) fn gc(&mut self, ctx: &Context) {
@@ -373,7 +369,7 @@ impl Heap {
 impl Drop for Heap {
     fn drop(&mut self) {
         if self.freed == false {
-            panic!("[{}]heep leaked", self.name);
+            panic!("heep leaked");
         }
     }
 }
@@ -418,7 +414,7 @@ mod tests {
 
     #[test]
     fn gc_test() {
-        let mut ctx = Context::new("gc");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
 
         {

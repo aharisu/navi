@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn read_empty() {
-        let mut ctx = Context::new("test");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
 
         let program = r#"
@@ -322,9 +322,9 @@ mod tests {
 
     #[test]
     fn read_string() {
-        let mut ctx = Context::new("string");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -358,9 +358,9 @@ mod tests {
 
     #[test]
     fn read_int() {
-        let mut ctx = Context::new("int");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -390,9 +390,9 @@ mod tests {
 
     #[test]
     fn read_float() {
-        let mut ctx = Context::new("float");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -438,9 +438,9 @@ mod tests {
 
     #[test]
     fn read_symbol() {
-        let mut ctx = Context::new("symbol");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -514,9 +514,9 @@ mod tests {
 
     #[test]
     fn read_keyword() {
-        let mut ctx = Context::new("symbol");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -530,9 +530,9 @@ mod tests {
 
     #[test]
     fn read_array() {
-        let mut ctx = Context::new("array");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -583,9 +583,9 @@ mod tests {
 
     #[test]
     fn read_list() {
-        let mut ctx = Context::new("list");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -634,9 +634,9 @@ mod tests {
 
     #[test]
     fn read_tuple() {
-        let mut ctx = Context::new("tuple");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {
@@ -688,9 +688,9 @@ mod tests {
 
     #[test]
     fn read_quote() {
-        let mut ctx = Context::new("list");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
-        let mut ans_ctx = Context::new(" ans");
+        let mut ans_ctx = Context::new();
         let ans_ctx = &mut ans_ctx;
 
         {

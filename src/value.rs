@@ -267,15 +267,13 @@ pub mod literal {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
-
     use crate::read::Reader;
     use crate::{value::*, let_cap, new_cap};
     use crate::context::Context;
 
     #[test]
     fn is_type() {
-        let mut ctx = Context::new("test");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
 
         //int
@@ -319,7 +317,7 @@ mod tests {
 
     #[test]
     fn equal() {
-        let mut ctx = Context::new("eval");
+        let mut ctx = Context::new();
         let ctx = &mut ctx;
 
         register_global(ctx);

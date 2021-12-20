@@ -16,9 +16,9 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new<T: Into<String>>(name: T) -> Self {
+    pub fn new() -> Self {
         Context {
-            heap: RefCell::new(Heap::new(1024 * 32, name)),
+            heap: RefCell::new(Heap::new(1024 * 32)),
             world: World::new(),
             frames: Vec::new(),
             nbox_root: Cell::new(None),
