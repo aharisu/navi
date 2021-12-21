@@ -48,7 +48,7 @@ impl <T: Debug> PatriciaTree<T> {
 
                 } else {
                     //キーの文字に対応するノードがまだなかった
-                    if node_used != 0 {
+                    if node_used != 0 && target_node.prefix.len() != node_used {
                         Self::split_node(target_node, node_used);
                     }
                     let new_node = Node {
@@ -398,5 +398,9 @@ mod tests {
         tree.delete("aiuka");
         let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
         assert_eq!(nodes, vec![]);
+
+        tree.add("def", 10);
+        tree.add("def-recv", 20);
+        assert_eq!(tree.get("def"), Some(&10));
     }
 }
