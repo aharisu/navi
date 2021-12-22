@@ -1,15 +1,14 @@
 #![allow(unused_unsafe)]
 
-use crate::ptr::*;
+
 use crate::value::{self, *};
-use crate::mm::{Heap};
+use crate::ptr::*;
 use crate::world::World;
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell};
 use std::ptr::NonNull;
 
 pub struct Context {
-    heap: RefCell<Heap>,
     world: World,
     frames: Vec<Vec<(RPtr<symbol::Symbol>, RPtr<Value>)>>,
     nbox_root: Cell<Option<NonNull<Capture<Value>>>>,
@@ -18,11 +17,14 @@ pub struct Context {
 impl Context {
     pub fn new() -> Self {
         Context {
-            heap: RefCell::new(Heap::new(1024 * 32)),
             world: World::new(),
             frames: Vec::new(),
             nbox_root: Cell::new(None),
         }
+    }
+
+    pub fn is_toplevel(&self) -> bool {
+        self.frames.is_empty()
     }
 
     pub fn add_to_current_frame<Key, V>(&mut self, symbol: &Key, value: &V)
@@ -80,14 +82,6 @@ impl Context {
         }
     }
 
-    pub fn alloc<T: NaviType>(&self) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc::<T>(self)
-    }
-
-    pub fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc_with_additional_size::<T>(additional_size, self)
-    }
-
     pub fn define_value<Key, V>(&mut self, key: Key, v: &V)
     where
         Key: AsRef<str>,
@@ -97,7 +91,7 @@ impl Context {
     }
 
     pub fn register_core_global(&mut self) {
-        object::register_global(self);
+        object_ref::register_global(self);
         number::register_global(self);
         syntax::register_global(self);
         value::register_global(self);
@@ -158,7 +152,7 @@ impl Context {
         };
     }
 
-    pub(crate) fn for_each_all_alived_value(&self, arg: usize, callback: fn(&RPtr<Value>, usize)) {
+    pub(crate) fn for_each_all_alived_value(&self, arg: &usize, callback: fn(&RPtr<Value>, &usize)) {
         //ローカルフレーム内で保持している値
         for frame in self.frames.iter() {
             for (sym, v) in frame.iter() {
@@ -186,28 +180,4 @@ impl Context {
         }
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn heap_used(&self) -> usize {
-        self.heap.borrow().used()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn do_gc(&self) {
-        self.heap.borrow_mut().gc(self);
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn dump_gc(&self) {
-        self.heap.borrow().dump_heap(self);
-    }
-
-}
-
-impl Eq for Context {}
-
-impl PartialEq for Context {
-    fn eq(&self, other: &Self) -> bool {
-        //同じヒープを持っている場合は同じコンテキストと判断する
-        std::ptr::eq(self.heap.as_ptr(), other.heap.as_ptr())
-    }
 }

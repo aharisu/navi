@@ -1,5 +1,4 @@
 use crate::value::*;
-use crate::context::{Context};
 use crate::ptr::*;
 use std::fmt::{Debug, Display};
 
@@ -14,6 +13,7 @@ static KEYWORD_TYPEINFO: TypeInfo = new_typeinfo!(
     Keyword,
     "Keyword",
     Keyword::eq,
+    Keyword::clone_inner,
     Display::fmt,
     Keyword::is_type,
     None,
@@ -25,15 +25,20 @@ impl NaviType for Keyword {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&KEYWORD_TYPEINFO as *const TypeInfo)
     }
+
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(this.as_ref().as_ref(), obj)
+    }
 }
 
 impl Keyword {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&KEYWORD_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(str: &String, ctx : &mut Context) -> FPtr<Keyword> {
-        string::NString::alloc_inner::<Keyword>(str, ctx)
+    pub fn alloc<T: Into<String>>(str: T, obj : &mut Object) -> FPtr<Keyword> {
+        string::NString::alloc_inner::<Keyword>(&str.into(), obj)
     }
 
 }

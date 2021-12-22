@@ -1,5 +1,4 @@
 use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
-use crate::context::Context;
 use crate::ptr::*;
 use std::fmt::{Debug, Display};
 
@@ -7,7 +6,7 @@ use std::fmt::{Debug, Display};
 pub struct Func {
     name: String,
     params: Vec<Param>,
-    body:  fn(&RPtr<array::Array>, &mut Context) -> FPtr<Value>,
+    body:  fn(&RPtr<array::Array>, &mut Object) -> FPtr<Value>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -39,6 +38,7 @@ static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func,
     "Func",
     Func::eq,
+    Func::clone_inner,
     Display::fmt,
     Func::is_type,
     None,
@@ -51,10 +51,15 @@ impl NaviType for Func {
         NonNullConst::new_unchecked(&FUNC_TYPEINFO as *const TypeInfo)
     }
 
+    fn clone_inner(this: &RPtr<Self>, _obj: &mut Object) -> FPtr<Self> {
+        //Funcのインスタンスはヒープ上に作られることがないため、自分自身を返す
+        this.clone().into_fptr()
+    }
 }
 
 impl Func {
-    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&RPtr<array::Array>, &mut Context) -> FPtr<Value>) -> Func {
+
+    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&RPtr<array::Array>, &mut Object) -> FPtr<Value>) -> Func {
         Func {
             name: name.into(),
             params: params.to_vec(),
@@ -67,7 +72,7 @@ impl Func {
     }
 
     //TODO 戻り値をboolからResultに変更。Errorには適切なエラー内容を含んだenum
-    pub fn process_arguments_descriptor<T>(&self, args: &T, ctx: &mut Context) -> Option<FPtr<list::List>>
+    pub fn process_arguments_descriptor<T>(&self, args: &T, obj: &mut Object) -> Option<FPtr<list::List>>
     where
         T: AsReachable<list::List>
     {
@@ -76,7 +81,7 @@ impl Func {
             v.is_type(param.typeinfo)
         }
 
-        let_listbuilder!(builder, ctx);
+        let_listbuilder!(builder, obj);
 
         let mut args_iter = args.as_ref().iter();
         for param in self.params.iter() {
@@ -90,7 +95,7 @@ impl Func {
                             return None;
                         } else {
                             //OK!!
-                            builder.append(arg, ctx);
+                            builder.append(arg, obj);
                         }
                     } else {
                         //必須の引数が足らないエラー
@@ -104,17 +109,17 @@ impl Func {
                             return None;
                         } else {
                             //OK!!
-                            builder.append(arg, ctx);
+                            builder.append(arg, obj);
                         }
                     } else {
                         //Optionalなパラメータに対応する引数がなければ
                         //Unit値をデフォルト値として設定
-                        builder.append(tuple::Tuple::unit().cast_value(), ctx);
+                        builder.append(tuple::Tuple::unit().cast_value(), obj);
                     }
                 }
                 ParamKind::Rest => {
                     if let Some(arg) = arg {
-                        let_listbuilder!(rest, ctx);
+                        let_listbuilder!(rest, obj);
                         let mut arg = arg;
                         loop {
                             if check_type(&arg, param) == false {
@@ -122,7 +127,7 @@ impl Func {
                                 return None;
                             } else {
                                 //OK!!
-                                rest.append(arg, ctx);
+                                rest.append(arg, obj);
                             }
 
                             match args_iter.next() {
@@ -131,13 +136,13 @@ impl Func {
                             }
                         }
 
-                        with_cap!(v, rest.get().into_value(), ctx, {
-                            builder.append(&v, ctx);
+                        with_cap!(v, rest.get().into_value(), obj, {
+                            builder.append(&v, obj);
                         });
                     } else {
                         //restパラメータに対応する引数がなければ
                         //nilをデフォルト値として設定
-                        builder.append(list::List::nil().cast_value(), ctx);
+                        builder.append(list::List::nil().cast_value(), obj);
                     }
                 }
             }
@@ -146,11 +151,11 @@ impl Func {
         Some(builder.get())
     }
 
-    pub fn apply<T>(&self, args: &T, ctx: &mut Context) -> FPtr<Value>
+    pub fn apply<T>(&self, args: &T, obj: &mut Object) -> FPtr<Value>
     where
         T: AsReachable<array::Array>,
     {
-        (self.body)(args.as_reachable(), ctx)
+        (self.body)(args.as_reachable(), obj)
     }
 }
 

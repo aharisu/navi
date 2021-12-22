@@ -1,8 +1,8 @@
 use std::alloc;
 use std::mem;
+use crate::object::Object;
 use crate::ptr::*;
 use crate::value::{self, TypeInfo, NaviType, Value};
-use crate::context::Context;
 use crate::util::non_null_const::*;
 
 //const POOL_SIZE : usize = 1024;
@@ -15,12 +15,12 @@ pub(crate) struct GCHeader {
 unsafe impl Sync for GCHeader {}
 
 #[repr(C)]
-pub(crate) struct GCAllocationStruct<T: NaviType> {
+pub(crate) struct GCAllocationStruct<T> {
     pub(crate) header: GCHeader,
     pub(crate) value: T,
 }
 
-unsafe impl<T: NaviType> Sync for GCAllocationStruct<T> {}
+unsafe impl<T> Sync for GCAllocationStruct<T> {}
 
 impl <T: NaviType> GCAllocationStruct<T> {
     pub fn new(value: T) -> GCAllocationStruct<T> {
@@ -28,6 +28,18 @@ impl <T: NaviType> GCAllocationStruct<T> {
             header: GCHeader {
                 flags: gc_flags_pack(std::mem::size_of::<T>() as u16, 0, false, false),
                 typeinfo: T::typeinfo(),
+            },
+            value: value,
+        }
+    }
+}
+
+impl <T> GCAllocationStruct<T> {
+    pub fn new_with_typeinfo(value: T, typeinfo: NonNullConst<TypeInfo>) -> GCAllocationStruct<T> {
+        GCAllocationStruct {
+            header: GCHeader {
+                flags: gc_flags_pack(std::mem::size_of::<T>() as u16, 0, false, false),
+                typeinfo: typeinfo,
             },
             value: value,
         }
@@ -90,13 +102,13 @@ impl Heap {
         heap
     }
 
-    pub fn alloc<T: NaviType>(&mut self, ctx: &Context) -> UIPtr<T> {
-        self.alloc_with_additional_size::<T>(0, ctx)
+    pub fn alloc<T: NaviType>(&mut self, obj: &Object) -> UIPtr<T> {
+        self.alloc_with_additional_size::<T>(0, obj)
     }
 
-    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, ctx: &Context) -> UIPtr<T> {
+    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, obj: &Object) -> UIPtr<T> {
         //GCのバグを発見しやすいように、allocのたびにGCを実行する
-        self.debug_gc(ctx);
+        self.debug_gc(obj);
 
         let gc_header_size = mem::size_of::<GCHeader>();
         let obj_size = std::mem::size_of::<T>();
@@ -129,11 +141,51 @@ impl Heap {
                     return UIPtr::new(obj_ptr);
                 }
             } else if try_count == 0 {
-                self.gc(ctx);
+                self.gc(obj);
                 try_count += 1;
 
             } else {
-                self.dump_heap(ctx);
+                self.dump_heap(obj);
+
+                panic!("oom");
+            }
+        }
+    }
+
+    pub fn calc_total_size(v: &Value) -> usize {
+        if value::value_is_pointer(v) {
+            let header = Self::get_gc_header(v);
+            let (size, _, _, _) = gc_flags_unpack(header.flags);
+
+            let size = size as usize;
+            if let Some(func) = unsafe { header.typeinfo.as_ref() }.child_traversal_func {
+                func(v, &size, |child, total_size| {
+                    let size = Self::calc_total_size(child.as_ref());
+                    //Typeinfoの実装上の制限でClosureを渡すことができない。
+                    //全てのオブジェクトのサイズを合算するために、参照で渡した変数の領域に無理やり書き込む。
+                    unsafe {
+                        std::ptr::write(total_size as *const usize as *mut usize, size + total_size);
+                    }
+                });
+            }
+
+            size
+        } else {
+            0
+        }
+    }
+
+    pub fn force_allocation_space(&mut self, require_size: usize, obj: &Object) {
+        let mut try_count = 0;
+        loop {
+            if self.used + require_size < self.page_layout.size() {
+                return //OK!!
+            } else if try_count == 0 {
+                self.gc(obj);
+                try_count += 1;
+
+            } else {
+                self.dump_heap(obj);
 
                 panic!("oom");
             }
@@ -144,8 +196,8 @@ impl Heap {
         self.used
     }
 
-    fn debug_gc(&mut self, ctx: &Context) {
-        self.gc(ctx);
+    fn debug_gc(&mut self, obj: &Object) {
+        self.gc(obj);
 
         //ダングリングポインタを発見しやすくするために未使用の領域を全て0埋め
         unsafe {
@@ -153,10 +205,10 @@ impl Heap {
             std::ptr::write_bytes(ptr, 0, self.page_layout.size() - self.used);
         }
 
-        //self.dump_heap(ctx);
+        //self.dump_heap(obj);
     }
 
-    pub fn dump_heap(&self, _ctx: &Context) {
+    pub fn dump_heap(&self, _obj: &Object) {
         println!("[dump]------------------------------------");
 
         unsafe {
@@ -166,8 +218,8 @@ impl Heap {
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
                 let (size, forwarding_index, need_move, marked) = gc_flags_unpack(header.flags);
-                let obj_ptr = ptr.add(std::mem::size_of::<GCHeader>());
-                let obj = &*(obj_ptr as *const Value);
+                let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
+                let v = &*(v_ptr as *const Value);
 
                 println!("[dump] {:<8}, size:{}, mark:{}, forwarding:{:x}, need_move:{}, ptr:{:x}, {:?}",
                     header.typeinfo.as_ref().name,
@@ -176,7 +228,7 @@ impl Heap {
                     forwarding_index,
                     need_move,
                     ptr.offset_from(self.pool_ptr),
-                    obj
+                    v
                 );
 
                 ptr = ptr.add(size as usize);
@@ -186,11 +238,11 @@ impl Heap {
         println!("[dump] **** end ****");
     }
 
-    pub(crate) fn gc(&mut self, ctx: &Context) {
-        self.mark_phase(ctx);
-        self.setup_forwad_ptr(ctx);
-        self.update_reference(ctx);
-        self.move_object(ctx);
+    pub(crate) fn gc(&mut self, obj: &Object) {
+        self.mark_phase(obj);
+        self.setup_forwad_ptr(obj);
+        self.update_reference(obj);
+        self.move_object(obj);
     }
 
     fn get_gc_header(v: &Value) -> &mut GCHeader {
@@ -220,7 +272,8 @@ impl Heap {
 
         //対象オブジェクトが子オブジェクトを持っているなら、再帰的にマーク処理を行う
         if let Some(func) = unsafe { header.typeinfo.as_ref() }.child_traversal_func {
-            func(v, 0, |child, _| {
+            let dummy:usize = 0;
+            func(v, &dummy, |child, _| {
                 let child = child.as_ref();
                 if Self::is_need_mark(child) {
                     Self::mark(child);
@@ -229,8 +282,9 @@ impl Heap {
         }
     }
 
-    fn mark_phase(&mut self, ctx: &Context) {
-        ctx.for_each_all_alived_value(0, |v, _| {
+    fn mark_phase(&mut self, obj: &Object) {
+        let dummy:usize = 0;
+        obj.for_each_all_alived_value(&dummy, |v, _| {
             let v = v.as_ref();
             if Self::is_need_mark(v) {
                 Self::mark(v);
@@ -238,7 +292,7 @@ impl Heap {
         });
     }
 
-    fn setup_forwad_ptr(&mut self, _ctx: &Context) {
+    fn setup_forwad_ptr(&mut self, _obj: &Object) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let end = self.pool_ptr.add(self.used);
@@ -274,11 +328,11 @@ impl Heap {
         }
     }
 
-    fn update_reference(&mut self, ctx: &Context) {
+    fn update_reference(&mut self, obj: &Object) {
         //生きているオブジェクトの内部で保持したままのアドレスを、
         //再配置後のアドレスで上書きする
 
-        fn update_child_pointer(child: &RPtr<Value>, start_addr: usize) {
+        fn update_child_pointer(child: &RPtr<Value>, start_addr: &usize) {
             //子オブジェクトへのポインタを移動先の新しいポインタで置き換える
             if value::value_is_pointer(child.as_ref()) {
                 let header = crate::mm::Heap::get_gc_header(child.as_ref());
@@ -286,8 +340,9 @@ impl Heap {
 
                 //子オブジェクトが移動しているなら移動先のポインタを参照するように更新する
                 if need_move {
+                    let start_addr = (*start_addr) as *mut u8;
                     let offset = forwarding_index as usize + std::mem::size_of::<GCHeader>();
-                    let new_ptr = unsafe { (start_addr as *mut u8).add(offset) } as *mut Value;
+                    let new_ptr = unsafe { start_addr.add(offset) } as *mut Value;
 
 
                     child.update_pointer(new_ptr);
@@ -299,7 +354,7 @@ impl Heap {
             let mut ptr = self.pool_ptr;
             let start = ptr_to_usize(ptr);
 
-            ctx.for_each_all_alived_value(start, update_child_pointer);
+            obj.for_each_all_alived_value(&start, update_child_pointer);
 
             let end = ptr.add(self.used);
             while ptr < end {
@@ -312,7 +367,7 @@ impl Heap {
                         let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
                         let v = &*(v_ptr as *const Value);
 
-                        func(v, start, update_child_pointer);
+                        func(v, &start, update_child_pointer);
                     }
 
                 }
@@ -322,7 +377,7 @@ impl Heap {
         }
     }
 
-    fn move_object(&mut self, _ctx: &Context) {
+    fn move_object(&mut self, _obj: &Object) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let start = ptr;
@@ -414,32 +469,32 @@ pub fn ptr_to_usize<T>(ptr: *const T) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use crate::object::Object;
     use crate::{let_cap, new_cap};
     use crate::value::*;
-    use crate::context::*;
 
     #[test]
     fn gc_test() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
 
         {
-            let_cap!(_1, number::Integer::alloc(1, ctx).into_value(), ctx);
+            let_cap!(_1, number::Integer::alloc(1, obj).into_value(), obj);
             {
-                let_cap!(_2, number::Integer::alloc(2, ctx).into_value(), ctx);
-                let_cap!(_3, number::Integer::alloc(3, ctx).into_value(), ctx);
+                let_cap!(_2, number::Integer::alloc(2, obj).into_value(), obj);
+                let_cap!(_3, number::Integer::alloc(3, obj).into_value(), obj);
 
-                ctx.do_gc();
+                obj.do_gc();
                 let used = (std::mem::size_of::<crate::mm::GCHeader>() + std::mem::size_of::<number::Integer>()) * 3;
-                assert_eq!(ctx.heap_used(), used);
+                assert_eq!(obj.heap_used(), used);
             }
 
-            ctx.do_gc();
+            obj.do_gc();
             let used = (std::mem::size_of::<crate::mm::GCHeader>() + std::mem::size_of::<number::Integer>()) * 1;
-            assert_eq!(ctx.heap_used(), used);
+            assert_eq!(obj.heap_used(), used);
         }
 
-        ctx.do_gc();
-        assert_eq!(ctx.heap_used(), 0);
+        obj.do_gc();
+        assert_eq!(obj.heap_used(), 0);
     }
 }

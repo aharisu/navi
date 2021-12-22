@@ -1,9 +1,9 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+use crate::object::Object;
 use crate::{let_listbuilder, new_cap, with_cap, let_cap};
 use crate::value::*;
-use crate::context::{Context};
 use crate::ptr::*;
 
 #[derive(Debug)]
@@ -29,57 +29,57 @@ impl <'i> Reader<'i> {
     }
 }
 
-pub fn read(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
-    read_internal(reader, ctx)
+pub fn read(reader: &mut Reader, obj: &mut Object) -> ReadResult {
+    read_internal(reader, obj)
 }
 
-fn read_internal(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+fn read_internal(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     skip_whitespace(reader);
 
     match reader.input.peek() {
         None => Err(readerror("読み込む内容がない".to_string())),
         Some(ch) => match ch {
-            '(' => read_list(reader, ctx),
-            '[' => read_array(reader, ctx),
-            '{' => read_tuple(reader, ctx),
+            '(' => read_list(reader, obj),
+            '[' => read_array(reader, obj),
+            '{' => read_tuple(reader, obj),
 
             ')' => panic!("read error )"),
             ']' => panic!("read error ]"),
             '}' => panic!("{}", "read error }"),
 
-            '"' => read_string(reader, ctx),
-            '\'' => read_quote(reader, ctx),
-            '@' => read_bind(reader, ctx),
-            '+' | '-' | '0' ..= '9' => read_number_or_symbol(reader, ctx),
-            ':' => read_keyword(reader, ctx),
-            _ => read_symbol(reader, ctx),
+            '"' => read_string(reader, obj),
+            '\'' => read_quote(reader, obj),
+            '@' => read_bind(reader, obj),
+            '+' | '-' | '0' ..= '9' => read_number_or_symbol(reader, obj),
+            ':' => read_keyword(reader, obj),
+            _ => read_symbol(reader, obj),
         }
     }
 }
 
 
-fn read_list(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
-    let list = read_sequence(')', reader, ctx)?;
+fn read_list(reader: &mut Reader, obj: &mut Object) -> ReadResult {
+    let list = read_sequence(')', reader, obj)?;
     Ok(list.into_value())
 }
 
-fn read_array(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
-    let list = read_sequence(']', reader, ctx)?;
-    let_cap!(list, list, ctx);
-    Ok(array::Array::from_list(&list, None, ctx).into_value())
+fn read_array(reader: &mut Reader, obj: &mut Object) -> ReadResult {
+    let list = read_sequence(']', reader, obj)?;
+    let_cap!(list, list, obj);
+    Ok(array::Array::from_list(&list, None, obj).into_value())
 }
 
-fn read_tuple(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
-    let list = read_sequence('}', reader, ctx)?;
-    let_cap!(list, list, ctx);
-    Ok(tuple::Tuple::from_list(&list, None, ctx).into_value())
+fn read_tuple(reader: &mut Reader, obj: &mut Object) -> ReadResult {
+    let list = read_sequence('}', reader, obj)?;
+    let_cap!(list, list, obj);
+    Ok(tuple::Tuple::from_list(&list, None, obj).into_value())
 }
 
-fn read_sequence(end_char:char, reader: &mut Reader, ctx: &mut Context) -> Result<FPtr<list::List>, ReadError> {
+fn read_sequence(end_char:char, reader: &mut Reader, obj: &mut Object) -> Result<FPtr<list::List>, ReadError> {
     //skip first char
     reader.input.next();
 
-    let_listbuilder!(builder, ctx);
+    let_listbuilder!(builder, obj);
 
     loop {
         skip_whitespace(reader);
@@ -92,12 +92,12 @@ fn read_sequence(end_char:char, reader: &mut Reader, ctx: &mut Context) -> Resul
             }
             Some(_) => {
                 //再帰的にreadを呼び出す
-                match read_internal(reader, ctx) {
+                match read_internal(reader, obj) {
                     //内部でエラーが発生した場合は途中停止
                     Err(msg) => return Err(msg),
                     Ok(v) => {
-                        with_cap!(v, v, ctx, {
-                            builder.append(&v, ctx)
+                        with_cap!(v, v, obj, {
+                            builder.append(&v, obj)
                         })
                     }
                 }
@@ -106,7 +106,7 @@ fn read_sequence(end_char:char, reader: &mut Reader, ctx: &mut Context) -> Resul
     }
 }
 
-fn read_string(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+fn read_string(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     //skip first char
     reader.input.next();
 
@@ -117,7 +117,7 @@ fn read_string(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
             None => return Err(readerror("文字列が完結する前にEOFになった".to_string())),
             Some('\"') => {
                 let str: String = acc.into_iter().collect();
-                let str = string::NString::alloc(&str, ctx);
+                let str = string::NString::alloc(&str, obj);
                 return Ok(str.into_value());
             }
             Some(ch) => {
@@ -128,54 +128,54 @@ fn read_string(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
 }
 
 #[allow(dead_code)]
-fn read_char(_reader: &mut Reader, _ctx: &mut Context) -> ReadResult {
+fn read_char(_reader: &mut Reader, _ctx: &mut Object) -> ReadResult {
     //TODO
     unimplemented!()
 }
 
-fn read_quote(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
-    read_with_modifier(syntax::literal::quote().cast_value(), reader, ctx)
+fn read_quote(reader: &mut Reader, obj: &mut Object) -> ReadResult {
+    read_with_modifier(syntax::literal::quote().cast_value(), reader, obj)
 }
 
-fn read_bind(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
-    read_with_modifier(syntax::literal::bind().cast_value(), reader, ctx)
+fn read_bind(reader: &mut Reader, obj: &mut Object) -> ReadResult {
+    read_with_modifier(syntax::literal::bind().cast_value(), reader, obj)
 }
 
-fn read_with_modifier(modifier: &RPtr<Value>, reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+fn read_with_modifier(modifier: &RPtr<Value>, reader: &mut Reader, obj: &mut Object) -> ReadResult {
     //skip first char
     reader.input.next();
 
     //再帰的に式を一つ読み込んでquoteで囲む
-    let sexp = match read_internal(reader, ctx) {
+    let sexp = match read_internal(reader, obj) {
         //内部でエラーが発生した場合は途中停止
         Err(msg) => return Err(msg),
         Ok(v) => v,
     };
-    let_cap!(sexp, sexp, ctx);
+    let_cap!(sexp, sexp, obj);
 
-    let_listbuilder!(builder, ctx);
-    builder.append(modifier, ctx);
-    builder.append(&sexp, ctx);
+    let_listbuilder!(builder, obj);
+    builder.append(modifier, obj);
+    builder.append(&sexp, obj);
     Ok(builder.get().into_value())
 }
 
-fn read_number_or_symbol(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
-    match read_word(reader, ctx) {
+fn read_number_or_symbol(reader: &mut Reader, obj: &mut Object) -> ReadResult {
+    match read_word(reader, obj) {
         Ok(str) => match str.parse::<i64>() {
                 Ok(num) => {
                     //integer
-                    let num = number::Integer::alloc(num, ctx);
+                    let num = number::Integer::alloc(num, obj);
                     return Ok(num.into_value());
                 },
                 Err(_) => match str.parse::<f64>() {
                     Ok(num) => {
                         //floating number
-                        let num = number::Real::alloc(num, ctx);
+                        let num = number::Real::alloc(num, obj);
                         return Ok(num.into_value());
                     }
                     Err(_) => {
                         //symbol
-                        let symbol = symbol::Symbol::alloc(&str, ctx);
+                        let symbol = symbol::Symbol::alloc(&str, obj);
                         return Ok(symbol.into_value());
                     }
                 }
@@ -183,28 +183,28 @@ fn read_number_or_symbol(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
         Err(err) => Err(err),
     }
 }
-fn read_keyword(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
+fn read_keyword(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     //skip first char
     reader.input.next();
 
-    match read_word(reader, ctx) {
-        Ok(str) => Ok(keyword::Keyword::alloc(&str, ctx).into_value()),
+    match read_word(reader, obj) {
+        Ok(str) => Ok(keyword::Keyword::alloc(&str, obj).into_value()),
         Err(err) => Err(err),
     }
 }
 
-fn read_symbol(reader: &mut Reader, ctx: &mut Context) -> ReadResult {
-    match read_word(reader, ctx) {
+fn read_symbol(reader: &mut Reader, obj: &mut Object) -> ReadResult {
+    match read_word(reader, obj) {
         Ok(str) => match &*str {
             "true" =>Ok(bool::Bool::true_().into_fptr().into_value()),
             "false" =>Ok(bool::Bool::false_().into_fptr().into_value()),
-            _ => Ok(symbol::Symbol::alloc(&str, ctx).into_value()),
+            _ => Ok(symbol::Symbol::alloc(&str, obj).into_value()),
         }
         Err(err) => Err(err),
     }
 }
 
-fn read_word(reader: &mut Reader, _ctx: &mut Context) -> Result<String, ReadError> {
+fn read_word(reader: &mut Reader, _ctx: &mut Object) -> Result<String, ReadError> {
     let mut acc: Vec<char> = Vec::new();
     loop {
         match reader.input.peek() {
@@ -281,7 +281,6 @@ const fn is_delimiter(ch: char) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::read::*;
-    use crate::context::Context;
 
     fn make_reader<'a>(s: &'a str) -> Reader<'a> {
         Reader::new( s.chars().peekable())
@@ -289,8 +288,8 @@ mod tests {
 
     #[test]
     fn read_empty() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
 
         let program = r#"
                 
@@ -298,19 +297,19 @@ mod tests {
 
         let mut reader = make_reader(program);
         let reader = &mut reader;
-        let result  = crate::read::read(reader, ctx);
+        let result  = crate::read::read(reader, obj);
         assert!(result.is_err());
     }
 
-    fn read<T: NaviType>(program: &str, ctx: &mut Context) -> FPtr<T> {
+    fn read<T: NaviType>(program: &str, obj: &mut Object) -> FPtr<T> {
         //let mut heap = navi::mm::Heap::new(1024, name.to_string());
         let mut reader = make_reader(program);
 
-        read_with_ctx(&mut reader, ctx)
+        read_with_ctx(&mut reader, obj)
     }
 
-    fn read_with_ctx<T: NaviType>(reader: &mut Reader, ctx: &mut Context) -> FPtr<T> {
-        let result = crate::read::read(reader, ctx);
+    fn read_with_ctx<T: NaviType>(reader: &mut Reader, obj: &mut Object) -> FPtr<T> {
+        let result = crate::read::read(reader, obj);
         assert!(result.is_ok());
 
         let result = result.unwrap();
@@ -321,18 +320,18 @@ mod tests {
 
     #[test]
     fn read_string() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = r#"
             "aiueo"
             "#;
 
-            let result = read::<string::NString>(program, ctx);
-            let ans = string::NString::alloc(&"aiueo".to_string(), ans_ctx);
+            let result = read::<string::NString>(program, obj);
+            let ans = string::NString::alloc(&"aiueo".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
@@ -345,108 +344,108 @@ mod tests {
             let mut reader = make_reader(program);
             let reader = &mut reader;
 
-            let result = read_with_ctx::<string::NString>(reader, ctx);
-            let ans = string::NString::alloc(&"1 + (1 - 3) = -1".to_string(), ans_ctx);
+            let result = read_with_ctx::<string::NString>(reader, obj);
+            let ans = string::NString::alloc(&"1 + (1 - 3) = -1".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<string::NString>(reader, ctx);
-            let ans = string::NString::alloc(&"3 * (4 / 2) - 12 = -6   ".to_string(), ans_ctx);
+            let result = read_with_ctx::<string::NString>(reader, obj);
+            let ans = string::NString::alloc(&"3 * (4 / 2) - 12 = -6   ".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 
     #[test]
     fn read_int() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = "1";
 
-            let result = read::<number::Integer>(program, ctx);
-            let ans = number::Integer::alloc(1, ans_ctx);
+            let result = read::<number::Integer>(program, obj);
+            let ans = number::Integer::alloc(1, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "-1";
 
-            let result = read::<number::Integer>(program, ctx);
-            let ans = number::Integer::alloc(-1, ans_ctx);
+            let result = read::<number::Integer>(program, obj);
+            let ans = number::Integer::alloc(-1, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "+1";
 
-            let result = read::<number::Integer>(program, ctx);
-            let ans = number::Integer::alloc(1, ans_ctx);
+            let result = read::<number::Integer>(program, obj);
+            let ans = number::Integer::alloc(1, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 
     #[test]
     fn read_float() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = "1.0";
 
-            let result = read::<number::Real>(program, ctx);
-            let ans = number::Real::alloc(1.0, ans_ctx);
+            let result = read::<number::Real>(program, obj);
+            let ans = number::Real::alloc(1.0, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "-1.0";
 
-            let result = read::<number::Real>(program, ctx);
-            let ans = number::Real::alloc(-1.0, ans_ctx);
+            let result = read::<number::Real>(program, obj);
+            let ans = number::Real::alloc(-1.0, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "+1.0";
 
-            let result = read::<number::Real>(program, ctx);
-            let ans = number::Real::alloc(1.0, ans_ctx);
+            let result = read::<number::Real>(program, obj);
+            let ans = number::Real::alloc(1.0, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "3.14";
 
-            let result = read::<number::Real>(program, ctx);
-            let ans = number::Real::alloc(3.14, ans_ctx);
+            let result = read::<number::Real>(program, obj);
+            let ans = number::Real::alloc(3.14, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "0.5";
 
-            let result = read::<number::Real>(program, ctx);
-            let ans = number::Real::alloc(0.5, ans_ctx);
+            let result = read::<number::Real>(program, obj);
+            let ans = number::Real::alloc(0.5, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 
     #[test]
     fn read_symbol() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = "symbol";
 
-            let result = read::<symbol::Symbol>(program, ctx);
-            let ans = symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx);
+            let result = read::<symbol::Symbol>(program, obj);
+            let ans = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
@@ -456,17 +455,17 @@ mod tests {
             let mut reader = make_reader(program);
             let reader = &mut reader;
 
-            let result = read_with_ctx::<symbol::Symbol>(reader, ctx);
-            let ans = symbol::Symbol::alloc(&"s1".to_string(), ans_ctx);
+            let result = read_with_ctx::<symbol::Symbol>(reader, obj);
+            let ans = symbol::Symbol::alloc(&"s1".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<symbol::Symbol>(reader, ctx);
-            let ans = symbol::Symbol::alloc(&"s2".to_string(), ans_ctx);
+            let result = read_with_ctx::<symbol::Symbol>(reader, obj);
+            let ans = symbol::Symbol::alloc(&"s2".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
 
-            let result = read_with_ctx::<symbol::Symbol>(reader, ctx);
-            let ans = symbol::Symbol::alloc(&"s3".to_string(), ans_ctx);
+            let result = read_with_ctx::<symbol::Symbol>(reader, obj);
+            let ans = symbol::Symbol::alloc(&"s3".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
@@ -476,20 +475,20 @@ mod tests {
             let mut reader = make_reader(program);
             let reader = &mut reader;
 
-            let result = read_with_ctx::<symbol::Symbol>(reader, ctx);
-            let ans = symbol::Symbol::alloc(&"+".to_string(), ans_ctx);
+            let result = read_with_ctx::<symbol::Symbol>(reader, obj);
+            let ans = symbol::Symbol::alloc(&"+".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(reader, ctx);
-            let ans = symbol::Symbol::alloc(&"-".to_string(), ans_ctx).into_value();
+            let result = read_with_ctx::<Value>(reader, obj);
+            let ans = symbol::Symbol::alloc(&"-".to_string(), ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(reader, ctx).into_value();
-            let ans = symbol::Symbol::alloc(&"+1-2".to_string(), ans_ctx).into_value();
+            let result = read_with_ctx::<Value>(reader, obj).into_value();
+            let ans = symbol::Symbol::alloc(&"+1-2".to_string(), ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(reader, ctx).into_value();
-            let ans = symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_ctx).into_value();
+            let result = read_with_ctx::<Value>(reader, obj).into_value();
+            let ans = symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
@@ -500,11 +499,11 @@ mod tests {
             let mut reader = make_reader(program);
             let reader = &mut reader;
 
-            let result = read_with_ctx::<Value>(reader, ctx);
+            let result = read_with_ctx::<Value>(reader, obj);
             let ans = bool::Bool::true_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(reader, ctx);
+            let result = read_with_ctx::<Value>(reader, obj);
             let ans = bool::Bool::false_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -513,48 +512,48 @@ mod tests {
 
     #[test]
     fn read_keyword() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = ":symbol";
 
-            let result = read::<keyword::Keyword>(program, ctx);
-            let ans = keyword::Keyword::alloc(&"symbol".to_string(), ans_ctx);
+            let result = read::<keyword::Keyword>(program, obj);
+            let ans = keyword::Keyword::alloc(&"symbol".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 
     #[test]
     fn read_array() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = "[]";
 
-            let result = read::<array::Array>(program, ctx);
-            let ans = array::Array::from_list(&list::List::nil(), Some(0), ans_ctx);
+            let result = read::<array::Array>(program, obj);
+            let ans = array::Array::from_list(&list::List::nil(), Some(0), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "[1 2 3]";
 
-            let result = read::<Value>(program, ctx);
+            let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_2, number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_3, number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
+            let_cap!(_2, number::Integer::alloc(2, ans_obj).into_value(), ans_obj);
+            let_cap!(_3, number::Integer::alloc(3, ans_obj).into_value(), ans_obj);
             let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, array::Array::from_list(&ans, None, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_3, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_2, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
+            let_cap!(ans, array::Array::from_list(&ans, None, ans_obj), ans_obj);
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
@@ -562,19 +561,19 @@ mod tests {
         {
             let program = "[1 3.14 \"hohoho\" symbol]";
 
-            let result = read::<Value>(program, ctx);
+            let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_3_14, number::Real::alloc(3.14, ans_ctx).into_value(), ans_ctx);
-            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_ctx).into_value(), ans_ctx);
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
+            let_cap!(_3_14, number::Real::alloc(3.14, ans_obj).into_value(), ans_obj);
+            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value(), ans_obj);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value(), ans_obj);
 
             let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, array::Array::from_list(&ans, None, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
+            let_cap!(ans, array::Array::from_list(&ans, None, ans_obj), ans_obj);
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
@@ -582,15 +581,15 @@ mod tests {
 
     #[test]
     fn read_list() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = "()";
 
-            let result = read::<Value>(program, ctx);
+            let result = read::<Value>(program, obj);
             let ans = list::List::nil().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -598,15 +597,15 @@ mod tests {
         {
             let program = "(1 2 3)";
 
-            let result = read::<Value>(program, ctx);
+            let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_2, number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_3, number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
+            let_cap!(_2, number::Integer::alloc(2, ans_obj).into_value(), ans_obj);
+            let_cap!(_3, number::Integer::alloc(3, ans_obj).into_value(), ans_obj);
             let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_3, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_2, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
@@ -614,18 +613,18 @@ mod tests {
         {
             let program = "(1 3.14 \"hohoho\" symbol)";
 
-            let result = read::<Value>(program, ctx);
+            let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_3_14, number::Real::alloc(3.14, ans_ctx).into_value(), ans_ctx);
-            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_ctx).into_value(), ans_ctx);
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
+            let_cap!(_3_14, number::Real::alloc(3.14, ans_obj).into_value(), ans_obj);
+            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value(), ans_obj);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value(), ans_obj);
 
             let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
@@ -633,15 +632,15 @@ mod tests {
 
     #[test]
     fn read_tuple() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = "{}";
 
-            let result = read::<tuple::Tuple>(program, ctx);
+            let result = read::<tuple::Tuple>(program, obj);
             let ans = tuple::Tuple::unit();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -649,16 +648,16 @@ mod tests {
         {
             let program = "{1 2 3}";
 
-            let result = read::<Value>(program, ctx);
+            let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_2, number::Integer::alloc(2, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_3, number::Integer::alloc(3, ans_ctx).into_value(), ans_ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
+            let_cap!(_2, number::Integer::alloc(2, ans_obj).into_value(), ans_obj);
+            let_cap!(_3, number::Integer::alloc(3, ans_obj).into_value(), ans_obj);
             let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&_3, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_2, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, tuple::Tuple::from_list(&ans, None, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&_3, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_2, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
+            let_cap!(ans, tuple::Tuple::from_list(&ans, None, ans_obj), ans_obj);
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
@@ -666,19 +665,19 @@ mod tests {
         {
             let program = "{1 3.14 \"hohoho\" symbol}";
 
-            let result = read::<Value>(program, ctx);
+            let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_ctx).into_value(), ans_ctx);
-            let_cap!(_3_14, number::Real::alloc(3.14, ans_ctx).into_value(), ans_ctx);
-            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_ctx).into_value(), ans_ctx);
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
+            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
+            let_cap!(_3_14, number::Real::alloc(3.14, ans_obj).into_value(), ans_obj);
+            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value(), ans_obj);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value(), ans_obj);
 
             let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, tuple::Tuple::from_list(&ans, None, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
+            let_cap!(ans, tuple::Tuple::from_list(&ans, None, ans_obj), ans_obj);
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }
@@ -687,20 +686,20 @@ mod tests {
 
     #[test]
     fn read_quote() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
             let program = "'symbol";
 
-            let result = read::<Value>(program, ctx);
+            let result = read::<Value>(program, obj);
 
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_ctx).into_value(), ans_ctx);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value(), ans_obj);
             let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_ctx), ans_ctx);
-            let_cap!(ans, list::List::alloc(&syntax::literal::quote().into_value(), &ans, ans_ctx), ans_ctx);
+            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_obj), ans_obj);
+            let_cap!(ans, list::List::alloc(&syntax::literal::quote().into_value(), &ans, ans_obj), ans_obj);
 
             assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
         }

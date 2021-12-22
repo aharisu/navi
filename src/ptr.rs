@@ -59,7 +59,7 @@ impl <T: NaviType> Clone for UIPtr<T> {
 //Reachable Pointer
 //
 #[repr(transparent)]
-pub struct RPtr<T: NaviType> {
+pub struct RPtr<T: NaviType + ?Sized> {
     pointer: *mut T,
 }
 
@@ -161,7 +161,7 @@ impl <T: NaviType> std::fmt::Debug for RPtr<T> {
 //
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct FPtr<T: NaviType> {
+pub struct FPtr<T: NaviType + ?Sized> {
     pointer: *mut T,
 }
 
@@ -225,10 +225,10 @@ impl <T: NaviType> AsMut<T> for FPtr<T> {
 
 #[macro_export]
 macro_rules! new_cap {
-    ($ptr:expr, $ctx:expr) => {
+    ($ptr:expr, $obj:expr) => {
         crate::ptr::Capture {
             v: $ptr,
-            ctx: unsafe { std::ptr::NonNull::new_unchecked( $ctx as *const Context as *mut Context) },
+            ctx: unsafe { std::ptr::NonNull::new_unchecked( ($obj).context() as *const crate::context::Context as *mut crate::context::Context) },
             next: None,
             prev: None,
             _pinned: std::marker::PhantomPinned,
@@ -238,23 +238,23 @@ macro_rules! new_cap {
 
 #[macro_export]
 macro_rules! let_cap {
-    ($name:ident, $ptr:expr, $ctx:expr) => {
+    ($name:ident, $ptr:expr, $obj:expr) => {
         #[allow(dead_code)]
-        let mut $name = new_cap!($ptr, $ctx);
+        let mut $name = new_cap!($ptr, $obj);
         //Captureはmove禁止オブジェクトなので本来はPinを使用すべき。
         //書き方が冗長になるため一時的に廃止。
         //冗長な書き方の回避方法がわかるか、
         //問題が大きいようならPinを使用するようにする。
         //pin_utils::pin_mut!($name);
-        ($ctx).add_capture(&mut ($name).cast_value_mut());
+        ($obj).context().add_capture(&mut ($name).cast_value_mut());
     };
 }
 
 #[macro_export]
 macro_rules! with_cap {
-    ($name:ident, $ptr:expr, $ctx:expr, $block:expr) => {
+    ($name:ident, $ptr:expr, $obj:expr, $block:expr) => {
         {
-            let_cap!($name, $ptr, $ctx);
+            let_cap!($name, $ptr, $obj);
             $block
         }
     };

@@ -1,9 +1,10 @@
 #[macro_export]
 macro_rules! new_typeinfo {
-    ($t:ty, $name:expr, $eq_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, ) => {
+    ($t:ty, $name:expr, $eq_func:expr, $clone_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, ) => {
         TypeInfo {
             name: $name,
             eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Value, &Value) -> bool>($eq_func) },
+            clone_func: unsafe { std::mem::transmute::<fn(&RPtr<$t>, &mut Object) -> FPtr<$t>, fn(&RPtr<Value>, &mut Object) -> FPtr<Value>>($clone_func) },
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
             finalize: match $finalize_func {
@@ -15,7 +16,7 @@ macro_rules! new_typeinfo {
                 None => None
              },
             child_traversal_func: match $child_traversal_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, usize, fn(&RPtr<Value>, usize)), fn(&Value, usize, fn(&RPtr<Value>, usize))>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, &usize, fn(&RPtr<Value>, &usize)), fn(&Value, &usize, fn(&RPtr<Value>, &usize))>(func) }),
                 None => None
              },
         }
@@ -33,10 +34,11 @@ pub mod keyword;
 pub mod func;
 pub mod syntax;
 pub mod tuple;
-pub mod object;
+pub mod object_ref;
 
 
 use crate::context::Context;
+use crate::object::Object;
 use crate::util::non_null_const::*;
 use crate::ptr::*;
 
@@ -97,19 +99,37 @@ pub fn value_is_pointer(v: &Value) -> bool {
     pointer_kind(v as *const Value) == PtrKind::Ptr
 }
 
+pub fn value_clone<T, U>(v: &T, obj: &mut Object) -> FPtr<U>
+where
+    T: AsReachable<U>,
+    U: NaviType,
+{
+    let v = v.as_reachable();
+
+    //クローンを行う値のトータルのサイズを計測
+    //リストや配列など内部に値を保持している場合は再帰的にすべての値のサイズも計測されている
+    let total_size = crate::mm::Heap::calc_total_size(v.cast_value().as_ref());
+    //事前にクローンを行うために必要なメモリスペースを確保する
+    obj.force_allocation_space(total_size);
+
+    NaviType::clone_inner(v, obj)
+}
+
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> NonNullConst<TypeInfo>;
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self>;
 }
 
 #[allow(dead_code)]
 pub struct TypeInfo {
     pub name : &'static str,
     pub eq_func: fn(&Value, &Value) -> bool,
+    pub clone_func: fn(&RPtr<Value>, &mut Object) -> FPtr<Value>,
     pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: fn(&TypeInfo) -> bool,
     pub finalize: Option<fn(&mut Value)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
-    pub child_traversal_func: Option<fn(&Value, usize, fn(&RPtr<Value>, usize))>,
+    pub child_traversal_func: Option<fn(&Value, &usize, fn(&RPtr<Value>, &usize))>,
 }
 
 pub struct Value { }
@@ -118,6 +138,7 @@ static VALUE_TYPEINFO : TypeInfo = new_typeinfo!(
     Value,
     "Value",
     Value::_eq,
+    Value::clone_inner,
     Value::_fmt,
     Value::_is_type,
     None,
@@ -128,6 +149,17 @@ static VALUE_TYPEINFO : TypeInfo = new_typeinfo!(
 impl NaviType for Value {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&VALUE_TYPEINFO as *const TypeInfo)
+    }
+
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        if value_is_pointer(this.as_ref()) {
+            let typeinfo = this.as_ref().get_typeinfo();
+           (unsafe { typeinfo.as_ref() }.clone_func)(this, obj)
+
+        } else {
+            //Immidiate Valueの場合はそのまま返す
+            this.clone().into_fptr()
+        }
     }
 }
 
@@ -170,6 +202,9 @@ impl std::fmt::Debug for Value {
 }
 
 impl Value {
+
+
+
     pub fn get_typeinfo(&self) -> NonNullConst<TypeInfo> {
         let ptr = self as *const Value;
         match pointer_kind(ptr) {
@@ -235,7 +270,7 @@ impl Value {
 
 }
 
-fn func_equal(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
+fn func_equal(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let left = args.as_ref().get(0);
     let right = args.as_ref().get(1);
 
@@ -275,21 +310,20 @@ pub mod literal {
 mod tests {
     use crate::read::Reader;
     use crate::{value::*, let_cap, new_cap};
-    use crate::context::Context;
 
     #[test]
     fn is_type() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
 
         //int
-        let v = number::Integer::alloc(10, ctx).into_value();
+        let v = number::Integer::alloc(10, obj).into_value();
         assert!(v.as_ref().is::<number::Integer>());
         assert!(v.as_ref().is::<number::Real>());
         assert!(v.as_ref().is::<number::Number>());
 
         //real
-        let v = number::Real::alloc(3.14, ctx).into_value();
+        let v = number::Real::alloc(3.14, obj).into_value();
         assert!(!v.as_ref().is::<number::Integer>());
         assert!(v.as_ref().is::<number::Real>());
         assert!(v.as_ref().is::<number::Number>());
@@ -300,20 +334,20 @@ mod tests {
         assert!(!v.as_ref().is::<string::NString>());
 
         //list
-        let_cap!(item, number::Integer::alloc(10, ctx).into_value(), ctx);
-        let_cap!(v, list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), ctx).into_value(), ctx);
+        let_cap!(item, number::Integer::alloc(10, obj).into_value(), obj);
+        let_cap!(v, list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).into_value(), obj);
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
     }
 
-    fn eval<T: NaviType>(program: &str, ctx: &mut Context) -> FPtr<T> {
+    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> FPtr<T> {
         let mut reader = Reader::new(program.chars().peekable());
-        let result = crate::read::read(&mut reader, ctx);
+        let result = crate::read::read(&mut reader, obj);
         assert!(result.is_ok());
         let sexp = result.unwrap();
 
-        let_cap!(sexp, sexp, ctx);
-        let result = crate::eval::eval(&sexp, ctx);
+        let_cap!(sexp, sexp, obj);
+        let result = crate::eval::eval(&sexp, obj);
         let result = result.try_cast::<T>();
         assert!(result.is_some());
 
@@ -323,104 +357,100 @@ mod tests {
 
     #[test]
     fn equal() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
-
-        register_global(ctx);
-        number::register_global(ctx);
-        syntax::register_global(ctx);
+        let mut obj = Object::new();
+        let obj = &mut obj;
 
         {
             let program = "(= 1 1)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1 1.0)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1.0 1)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 3.14 3.14)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1 1.001)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= \"hoge\" \"hoge\")";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= \"hoge\" \"hogehoge\")";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= \"hoge\" \"huga\")";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= 'symbol 'symbol)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 'symbol 'other)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= :keyword :keyword)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 'symbol 'other)";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= '(1 \"2\" :3) '(1 \"2\" :3))";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= '(1 \"2\" :3) '(1 \"2\" '3))";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= [1 \"2\" :3] [1 \"2\" :3])";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= [1 \"2\" :3] [1 \"2\" '3])";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= {1 \"2\" :3} {1 \"2\" :3})";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= {1 \"2\" :3} {1 \"2\" '3})";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= 1 \"1\")";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= '(1 2 3) [1 2 3])";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= {} [])";
-            let_cap!(result, eval::<bool::Bool>(program, ctx), ctx);
+            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
             assert!(result.as_ref().is_false());
         }
 

@@ -1,10 +1,12 @@
 use crate::value::*;
-use crate::context::{Context};
 use crate::ptr::*;
+use core::panic;
 use std::fmt::{self, Debug, Display};
+use std::io::Read;
 
 type StringRef = std::mem::ManuallyDrop<String>;
 
+#[repr(C)]
 pub struct NString {
     len: usize,
     len_inbytes: usize,
@@ -14,6 +16,7 @@ static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
     NString,
     "String",
     NString::eq,
+    NString::clone_inner,
     Display::fmt,
     NString::is_type,
     None,
@@ -25,6 +28,10 @@ impl NaviType for NString {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&STRING_TYPEINFO as *const TypeInfo)
     }
+
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(&this.as_ref().as_string(), obj)
+    }
 }
 
 impl NString {
@@ -33,20 +40,20 @@ impl NString {
         std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(str: &String, ctx : &mut Context) -> FPtr<NString> {
-        Self::alloc_inner(str, ctx)
+    pub fn alloc(str: &String, obj : &mut Object) -> FPtr<NString> {
+        Self::alloc_inner(str, obj)
     }
 
     //NStringとSymbol,Keywordクラス共有のアロケーション用関数。TはNSTringもしくはSymbol、Keywordのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType>(str: &String, ctx : &mut Context) -> FPtr<T> {
+    pub(crate) fn alloc_inner<T: NaviType>(str: &String, obj : &mut Object) -> FPtr<T> {
         let len_inbytes = str.len();
-        let ptr = ctx.alloc_with_additional_size::<T>(len_inbytes);
+        let ptr = obj.alloc_with_additional_size::<T>(len_inbytes);
 
-        let obj = unsafe { &mut *(ptr.as_ptr() as *mut NString) };
-        obj.len_inbytes = len_inbytes;
-        obj.len = str.chars().count();
+        let nstring = unsafe { &mut *(ptr.as_ptr() as *mut NString) };
+        nstring.len_inbytes = len_inbytes;
+        nstring.len = str.chars().count();
         unsafe {
-            let ptr = (obj as *mut NString).offset(1) as *mut u8;
+            let ptr = (nstring as *mut NString).offset(1) as *mut u8;
             std::ptr::copy_nonoverlapping(str.as_bytes().as_ptr(), ptr, len_inbytes);
         }
 
@@ -129,4 +136,31 @@ impl AsRef<str> for NString {
     fn as_ref(&self) -> &str {
         unsafe { std::str::from_utf8_unchecked(self.as_ref()) }
     }
+}
+
+#[repr(C)]
+pub struct StaticString {
+    v: NString,
+    buf: [u8; 10],
+}
+
+pub fn static_string<T: Into<String>>(str: T) -> StaticString {
+    let str = str.into();
+    let len_inbytes = str.len();
+    if str.len() > 10 {
+        panic!("static string up to 10 bytes");
+    }
+    let len = str.chars().count();
+
+    let mut static_str = StaticString {
+        v: NString {
+            len: len,
+            len_inbytes: len_inbytes
+        },
+        buf: Default::default()
+    };
+
+    (&str.as_bytes()[..]).read(&mut static_str.buf).unwrap();
+
+    static_str
 }

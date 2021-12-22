@@ -11,6 +11,7 @@ static TUPLE_TYPEINFO : TypeInfo = new_typeinfo!(
     Tuple,
     "Tuple",
     Tuple::eq,
+    Tuple::clone_inner,
     Tuple::fmt,
     Tuple::is_type,
     None,
@@ -23,14 +24,35 @@ impl NaviType for Tuple {
         NonNullConst::new_unchecked(&TUPLE_TYPEINFO as *const TypeInfo)
     }
 
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        if this.as_ref().is_unit() {
+            //UnitはImmidiate Valueなのでそのまま返す
+            this.clone().into_fptr()
+        } else {
+            let size = this.as_ref().len();
+            let mut tuple = Self::alloc(size, obj);
+
+            for index in 0..size {
+                let child = this.as_ref().get(index);
+                //clone_innerの文脈の中だけ、FPtrをキャプチャせずにRPtrとして扱うことが許されている
+                let cloned = Value::clone_inner(child, obj).into_rptr();
+
+                tuple.as_mut().set(&cloned, index);
+            }
+
+            tuple
+        }
+    }
+
 }
 
 impl Tuple {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&TUPLE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: usize, callback: fn(&RPtr<Value>, usize)) {
+    fn child_traversal(&self, arg: &usize, callback: fn(&RPtr<Value>, &usize)) {
         for index in 0..self.len {
             callback(self.get(index), arg);
         }
@@ -46,8 +68,8 @@ impl Tuple {
         std::ptr::eq(self as *const Self, IMMIDATE_UNIT as *const Self)
     }
 
-    fn alloc(size: usize, ctx: &mut Context) -> FPtr<Tuple> {
-        let ptr = ctx.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<RPtr<Value>>());
+    fn alloc(size: usize, obj: &mut Object) -> FPtr<Tuple> {
+        let ptr = obj.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<RPtr<Value>>());
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Tuple {len: size});
@@ -104,7 +126,7 @@ impl Tuple {
         }
     }
 
-    pub fn from_list<T>(list: &T, size: Option<usize>, ctx: &mut Context) -> FPtr<Tuple>
+    pub fn from_list<T>(list: &T, size: Option<usize>, obj: &mut Object) -> FPtr<Tuple>
     where
         T: AsReachable<list::List>,
     {
@@ -118,12 +140,12 @@ impl Tuple {
             Self::unit().into_fptr()
 
         } else {
-            let mut obj = Self::alloc(size, ctx);
+            let mut tuple = Self::alloc(size, obj);
             for (index, v) in list.as_ref().iter().enumerate() {
-                obj.as_mut().set(v, index);
+                tuple.as_mut().set(v, index);
             }
 
-            obj
+            tuple
         }
     }
 }
@@ -172,7 +194,7 @@ impl Debug for Tuple {
     }
 }
 
-fn func_is_tuple(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
+fn func_is_tuple(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     if v.is_type(tuple::Tuple::typeinfo()) {
         v.clone().into_fptr()
@@ -181,14 +203,14 @@ fn func_is_tuple(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
     }
 }
 
-fn func_tuple_len(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+fn func_tuple_len(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<tuple::Tuple>() };
 
-    number::Integer::alloc(v.as_ref().len as i64, ctx).into_value()
+    number::Integer::alloc(v.as_ref().len as i64, obj).into_value()
 }
 
-fn func_tuple_ref(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
+fn func_tuple_ref(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let tuple = args.as_ref().get(0);
     let tuple = unsafe { tuple.cast_unchecked::<tuple::Tuple>() };
 

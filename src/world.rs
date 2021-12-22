@@ -43,6 +43,7 @@ impl World {
 
 #[cfg(test)]
 mod tests {
+    use crate::object::Object;
     use crate::{value::*, let_cap, new_cap};
     use crate::context::{Context};
     use crate::ptr::*;
@@ -58,36 +59,36 @@ mod tests {
 
     #[test]
     fn set_get() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
 
         {
-            let_cap!(v, number::Integer::alloc(1, ctx).into_value(), ctx);
-            ctx.define_value("symbol", &v);
+            let_cap!(v, number::Integer::alloc(1, obj).into_value(), obj);
+            obj.context().define_value("symbol", &v);
 
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
-            let_cap!(result, world_get(&symbol, ctx), ctx);
-            let_cap!(ans, number::Integer::alloc(1, ctx).into_value(), ctx);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), obj), obj);
+            let_cap!(result, world_get(&symbol, obj.context()), obj);
+            let_cap!(ans, number::Integer::alloc(1, obj).into_value(), obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
 
-            let_cap!(v, number::Real::alloc(3.14, ctx).into_value(), ctx);
-            ctx.define_value("symbol", &v);
+            let_cap!(v, number::Real::alloc(3.14, obj).into_value(), obj);
+            obj.context().define_value("symbol", &v);
 
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ctx), ctx);
-            let_cap!(result, world_get(&symbol, ctx), ctx);
-            let_cap!(ans, number::Real::alloc(3.14, ctx).into_value(), ctx);
+            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), obj), obj);
+            let_cap!(result, world_get(&symbol, obj.context()), obj);
+            let_cap!(ans, number::Real::alloc(3.14, obj).into_value(), obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let_cap!(v2, string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
-            ctx.define_value("hoge", &v2);
+            let_cap!(v2, string::NString::alloc(&"bar".to_string(), obj).into_value(), obj);
+            obj.context().define_value("hoge", &v2);
 
-            let_cap!(symbol2, symbol::Symbol::alloc(&"hoge".to_string(), ctx), ctx);
-            let_cap!(result, world_get(&symbol2, ctx), ctx);
-            let_cap!(ans2, string::NString::alloc(&"bar".to_string(), ctx).into_value(), ctx);
+            let_cap!(symbol2, symbol::Symbol::alloc(&"hoge".to_string(), obj), obj);
+            let_cap!(result, world_get(&symbol2, obj.context()), obj);
+            let_cap!(ans2, string::NString::alloc(&"bar".to_string(), obj).into_value(), obj);
             assert_eq!(result.as_ref(), ans2.as_ref());
 
-            let_cap!(result, world_get(&symbol, ctx), ctx);
+            let_cap!(result, world_get(&symbol, obj.context()), obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }

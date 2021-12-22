@@ -9,6 +9,7 @@ static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Bool,
     "Bool",
     Bool::eq,
+    Bool::clone_inner,
     Display::fmt,
     Bool::is_type,
     None,
@@ -20,10 +21,16 @@ impl NaviType for Bool {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&BOOL_TYPEINFO as *const TypeInfo)
     }
+
+    fn clone_inner(this: &RPtr<Self>, _obj: &mut Object) -> FPtr<Self> {
+        //Bool型の値は常にImmidiate Valueなのでそのまま返す
+        this.clone().into_fptr()
+    }
 }
 
 
 impl Bool {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&BOOL_TYPEINFO, other_typeinfo)
     }

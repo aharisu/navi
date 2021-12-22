@@ -17,13 +17,14 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&RPtr<list::List>, &mut Context) -> FPtr<Value>,
+    body: fn(&RPtr<list::List>, &mut Object) -> FPtr<Value>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
     Syntax,
     "Syntax",
     Syntax::eq,
+    Syntax::clone_inner,
     Display::fmt,
     Syntax::is_type,
     None,
@@ -36,10 +37,17 @@ impl NaviType for Syntax {
         NonNullConst::new_unchecked(&SYNTAX_TYPEINFO as *const TypeInfo)
     }
 
+    fn clone_inner(this: &RPtr<Self>, _obj: &mut Object) -> FPtr<Self> {
+        //Syntaxのインスタンスはヒープ上に作られることがないため、自分自身を返す
+        this.clone().into_fptr()
+    }
 }
 
 impl Syntax {
-    pub fn new<T: Into<String>>(name: T, require: usize, optional: usize, has_rest: bool, body:  fn(&RPtr<list::List>, &mut Context) -> FPtr<Value>) -> Self {
+
+    pub fn new<T: Into<String>>(name: T, require: usize, optional: usize, has_rest: bool
+        , body: fn(&RPtr<list::List>, &mut Object) -> FPtr<Value>
+    ) -> Self {
         Syntax {
             name: name.into(),
             require: require,
@@ -68,11 +76,11 @@ impl Syntax {
         }
     }
 
-    pub fn apply<T>(&self, args: &T, ctx: &mut Context) -> FPtr<Value>
+    pub fn apply<T>(&self, args: &T, obj: &mut Object) -> FPtr<Value>
     where
         T: AsReachable<list::List>
     {
-        (self.body)(args.as_reachable(), ctx)
+        (self.body)(args.as_reachable(), obj)
     }
 }
 
@@ -105,29 +113,29 @@ fn is_true(v: &Value) -> bool {
     }
 }
 
-fn syntax_if(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
-    let pred = eval(args.as_ref().head_ref(), ctx);
+fn syntax_if(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
+    let pred = eval(args.as_ref().head_ref(), obj);
     let pred = is_true(pred.as_ref());
 
     let args = args.as_ref().tail_ref();
     if pred {
-        eval(args.as_ref().head_ref(), ctx)
+        eval(args.as_ref().head_ref(), obj)
 
     } else {
         let args = args.as_ref().tail_ref();
         if args.as_ref().is_nil() {
             bool::Bool::false_().into_value().into_fptr()
         } else {
-            eval(args.as_ref().head_ref(), ctx)
+            eval(args.as_ref().head_ref(), obj)
         }
     }
 }
 
-fn syntax_begin(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
-    do_begin(args, ctx)
+fn syntax_begin(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
+    do_begin(args, obj)
 }
 
-pub(crate) fn do_begin<T>(body: &T, ctx: &mut Context) -> FPtr<Value>
+pub(crate) fn do_begin<T>(body: &T, obj: &mut Object) -> FPtr<Value>
 where
     T: AsReachable<list::List>,
 {
@@ -135,7 +143,7 @@ where
 
     let mut last: Option<FPtr<Value>> = None;
     for sexp in body.as_ref().iter() {
-        let e = eval::eval(sexp, ctx);
+        let e = eval::eval(sexp, obj);
         last = Some(e);
     }
 
@@ -146,7 +154,7 @@ where
     }
 }
 
-fn syntax_cond(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+fn syntax_cond(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
     for (sexp, info) in args.as_ref().iter_with_info() {
         if let Some(clause) = sexp.try_cast::<list::List>() {
             let test = clause.as_ref().head_ref();
@@ -154,15 +162,15 @@ fn syntax_cond(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
             //最後の節のTESTがシンボルのelseの場合、無条件でbody部分を評価します
             if let Some(else_) = test.try_cast::<symbol::Symbol>() {
                 if else_.as_ref().as_ref() == "else" && info.is_tail {
-                    return do_begin(clause.as_ref().tail_ref(), ctx);
+                    return do_begin(clause.as_ref().tail_ref(), obj);
                 }
             }
 
             //TEST式を評価
-            let result = eval::eval(test, ctx);
+            let result = eval::eval(test, obj);
             //TESTの結果がtrueなら続く式を実行して結果を返す
             if is_true(result.as_ref()) {
-                return do_begin(clause.as_ref().tail_ref(), ctx);
+                return do_begin(clause.as_ref().tail_ref(), obj);
             }
 
         } else {
@@ -173,29 +181,47 @@ fn syntax_cond(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     bool::Bool::false_().into_value().into_fptr()
 }
 
-fn syntax_def(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+fn syntax_def(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
     let symbol = args.as_ref().head_ref();
     if let Some(symbol) = symbol.try_cast::<Symbol>() {
         let value = args.as_ref().tail_ref().as_ref().head_ref();
-        ctx.add_to_current_frame(symbol, value);
+        let value = eval::eval(value, obj);
+        with_cap!(value, value.clone(), obj, {
+            obj.context().add_to_current_frame(symbol, &value);
+        });
 
-        value.clone().into_fptr()
+        value
     } else {
         panic!("def variable require symbol. But got {}", symbol.as_ref());
     }
 }
 
-fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
-    let_listbuilder!(builder, ctx);
+fn syntax_def_recv(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
+    if obj.context().is_toplevel() {
+        let pat = args.as_ref().head_ref();
+        let body = args.as_ref().tail_ref();
+
+        //現在のコンテキストにレシーバーを追加する
+        obj.add_receiver(pat, body);
+
+        //どの値を返すべき？
+        bool::Bool::true_().into_value().into_fptr()
+    } else {
+        panic!("def-recv allow only top-level context")
+    }
+}
+
+pub(crate) fn syntax_fun(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
 
     //引数指定の内容を解析
+    let_listbuilder!(builder_param, obj);
     let params = args.as_ref().head_ref();
     if let Some(params) = params.try_cast::<list::List>() {
         //TODO :optionalと:rest引数の対応
         for p in params.as_ref().iter() {
             match p.try_cast::<symbol::Symbol>() {
                 Some(sym) => {
-                    builder.append(sym.cast_value(), ctx);
+                    builder_param.append(sym.cast_value(), obj);
                 }
                 None => {
                     panic!("parameter require symbol. But got {:?}", p.as_ref())
@@ -206,20 +232,20 @@ fn syntax_fun(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
         panic!("The fun paramters require list. But got {:?}", params.as_ref())
     }
 
-    let (list_ptr, size) = builder.get_with_size();
-    let params_ptr = with_cap!(list, list_ptr, ctx, {
-        array::Array::from_list(&list, Some(size), ctx)
+    let (list_ptr, size) = builder_param.get_with_size();
+    let params_ptr = with_cap!(list, list_ptr, obj, {
+        array::Array::from_list(&list, Some(size), obj)
     });
-    let_cap!(params, params_ptr, ctx);
+    let_cap!(params, params_ptr, obj);
     let body = args.as_ref().tail_ref();
 
-    closure::Closure::alloc(&params, body, ctx).into_value()
+    closure::Closure::alloc(&params, body, obj).into_value()
 }
 
-fn syntax_let(args: &RPtr<List>, ctx: &mut Context) -> FPtr<Value> {
+fn syntax_let(args: &RPtr<List>, obj: &mut Object) -> FPtr<Value> {
 
     let mut symbol_list = Vec::<&RPtr<Symbol>>::new();
-    let_listbuilder!(val_list, ctx);
+    let_listbuilder!(val_list, obj);
     //局所変数指定の内容を解析
     let binders = args.as_ref().head_ref();
     if let Some(binders) = binders.try_cast::<List>() {
@@ -233,9 +259,9 @@ fn syntax_let(args: &RPtr<List>, ctx: &mut Context) -> FPtr<Value> {
                     symbol_list.push(symbol);
 
                     let val = bind.as_ref().tail_ref().as_ref().head_ref();
-                    let val = eval::eval(val, ctx);
-                    with_cap!(val, val, ctx, {
-                        val_list.append(&val, ctx);
+                    let val = eval::eval(val, obj);
+                    with_cap!(val, val, obj, {
+                        val_list.append(&val, obj);
                     });
 
                 } else {
@@ -250,7 +276,7 @@ fn syntax_let(args: &RPtr<List>, ctx: &mut Context) -> FPtr<Value> {
         panic!("The let bind part require list. But got {:?}", binders.as_ref())
     }
 
-    with_cap!(val_list, val_list.get(), ctx, {
+    with_cap!(val_list, val_list.get(), obj, {
         //ローカルフレームを構築
         let a = val_list.as_reachable().as_ref();
         let frame: Vec::<(&RPtr<Symbol>, &RPtr<Value>)> = symbol_list.iter().zip(a.iter())
@@ -258,35 +284,35 @@ fn syntax_let(args: &RPtr<List>, ctx: &mut Context) -> FPtr<Value> {
             .collect();
 
         ////ローカルフレームを環境にプッシュ
-        ctx.push_local_frame(&frame);
+        obj.context().push_local_frame(&frame);
     });
 
     //Closure本体を実行
-    let result = syntax::do_begin(args.as_ref().tail_ref(), ctx);
+    let result = syntax::do_begin(args.as_ref().tail_ref(), obj);
 
     //ローカルフレームを環境からポップ
-    ctx.pop_local_frame();
+    obj.context().pop_local_frame();
 
     result
 }
 
-fn syntax_quote(args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
+fn syntax_quote(args: &RPtr<list::List>, _obj: &mut Object) -> FPtr<Value> {
     let sexp = args.as_ref().head_ref();
     sexp.clone().into_fptr()
 }
 
-fn syntax_unquote(_args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
+fn syntax_unquote(_args: &RPtr<list::List>, _obj: &mut Object) -> FPtr<Value> {
     unimplemented!()
 }
 
-fn syntax_bind(_args: &RPtr<list::List>, _ctx: &mut Context) -> FPtr<Value> {
+fn syntax_bind(_args: &RPtr<list::List>, _obj: &mut Object) -> FPtr<Value> {
     unimplemented!()
 }
 
-fn syntax_and(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+fn syntax_and(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
     let mut last: Option<FPtr<Value>> = None;
     for sexp in args.as_ref().iter() {
-        let result = eval::eval(sexp, ctx);
+        let result = eval::eval(sexp, obj);
         if is_true(result.as_ref()) == false {
             return bool::Bool::false_().into_fptr().into_value();
         }
@@ -301,9 +327,9 @@ fn syntax_and(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     }
 }
 
-fn syntax_or(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+fn syntax_or(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
     for sexp in args.as_ref().iter() {
-        let result = eval::eval(sexp, ctx);
+        let result = eval::eval(sexp, obj);
         if is_true(result.as_ref()) {
             return result;
         }
@@ -312,11 +338,16 @@ fn syntax_or(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
     bool::Bool::false_().into_fptr().into_value()
 }
 
-fn syntax_match(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
-    let match_expr = r#match::translate(args, ctx);
-    with_cap!(expr, match_expr, ctx, {
-        eval::eval(&expr, ctx)
-    })
+fn syntax_match(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
+    //パターン部が一つもなければUnitを返す
+    if args.as_ref().is_nil() {
+        tuple::Tuple::unit().into_value().into_fptr()
+    } else {
+        let match_expr = r#match::translate(args, obj).into_value();
+        with_cap!(expr, match_expr, obj, {
+            eval::eval(&expr, obj)
+        })
+    }
 }
 
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
@@ -332,7 +363,11 @@ static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
 });
 
 static SYNTAX_DEF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("def", 2, 0, true, syntax_def))
+    GCAllocationStruct::new(Syntax::new("def", 2, 0, false, syntax_def))
+});
+
+static SYNTAX_DEF_RECV: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("def-recv", 1, 0, true, syntax_def_recv))
 });
 
 static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
@@ -372,6 +407,7 @@ pub fn register_global(ctx: &mut Context) {
     ctx.define_value("begin", &RPtr::new(&SYNTAX_BEGIN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("cond", &RPtr::new(&SYNTAX_COND.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("def", &RPtr::new(&SYNTAX_DEF.value as *const Syntax as *mut Syntax).into_value());
+    ctx.define_value("def-recv", &RPtr::new(&SYNTAX_DEF_RECV.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("fun", &RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("let", &RPtr::new(&SYNTAX_LET.value as *const Syntax as *mut Syntax).into_value());
     ctx.define_value("quote", &RPtr::new(&SYNTAX_QUOTE.value as *const Syntax as *mut Syntax).into_value());
@@ -396,6 +432,10 @@ pub mod literal {
 
     pub fn bind() -> RPtr<Syntax> {
         RPtr::new(&SYNTAX_BIND.value as *const Syntax as *mut Syntax)
+    }
+
+    pub fn fun() -> RPtr<Syntax> {
+        RPtr::new(&SYNTAX_FUN.value as *const Syntax as *mut Syntax)
     }
 
     pub fn let_() -> RPtr<Syntax> {

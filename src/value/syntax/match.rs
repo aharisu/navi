@@ -4,7 +4,6 @@ use crate::value::symbol::Symbol;
 use crate::ptr::*;
 use crate::value::{self, *};
 use crate::{let_listbuilder, with_cap, let_cap, new_cap};
-use crate::context::Context;
 
 #[derive(PartialEq)]
 pub struct MatchFail { }
@@ -13,6 +12,7 @@ static MATCHFAIL_TYPEINFO : TypeInfo = new_typeinfo!(
     MatchFail,
     "MatchFail",
     MatchFail::eq,
+    MatchFail::clone_inner,
     std::fmt::Display::fmt,
     MatchFail::is_type,
     None,
@@ -24,9 +24,15 @@ impl NaviType for MatchFail {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&MATCHFAIL_TYPEINFO as *const TypeInfo)
     }
+
+    fn clone_inner(this: &RPtr<Self>, _obj: &mut Object) -> FPtr<Self> {
+        //MatchFail型の値は常にImmidiate Valueなのでそのまま返す
+        this.clone().into_fptr()
+    }
 }
 
 impl MatchFail {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&MATCHFAIL_TYPEINFO, other_typeinfo)
     }
@@ -65,17 +71,11 @@ enum PatKind {
     Empty,
 }
 
-pub fn translate(args: &RPtr<List>, ctx: &mut Context) -> FPtr<Value> {
-    //パターン部が一つもなければUnitを返す
-    let patterns = args.as_ref().tail_ref();
-    if patterns.as_ref().is_nil() {
-        return tuple::Tuple::unit().into_value().into_fptr()
-    }
-
+pub fn translate(args: &RPtr<List>, obj: &mut Object) -> FPtr<List> {
     //パターンリストを扱いやすいようにVecに分解
     let patterns = {
         let mut vec = Vec::<MatchClause>::new();
-        for pat in patterns.as_ref().iter() {
+        for pat in args.as_ref().tail_ref().as_ref().iter() {
             if let Some(pat) = pat.try_cast::<List>() {
                 if pat.as_ref().len_more_than(2) == false {
                     panic!("match clause require more than 2 length list. but got {:?}", pat)
@@ -93,48 +93,48 @@ pub fn translate(args: &RPtr<List>, ctx: &mut Context) -> FPtr<Value> {
     };
 
 
-    let_listbuilder!(builder_let, ctx);
-    builder_let.append(&syntax::literal::let_().into_value(), ctx);
+    let_listbuilder!(builder_let, obj);
+    builder_let.append(&syntax::literal::let_().into_value(), obj);
 
     //generate unique symbol
-    let_cap!(expr_tmp_symbol, symbol::Symbol::gensym("e", ctx).into_value(), ctx);
+    let_cap!(expr_tmp_symbol, symbol::Symbol::gensym("e", obj).into_value(), obj);
     let binders = {
         let bind = {
-            let_listbuilder!(builder_bind, ctx);
-            builder_bind.append(&expr_tmp_symbol, ctx);
-            builder_bind.append(args.as_ref().head_ref(), ctx); //マッチ対象の値を一時変数に代入する
+            let_listbuilder!(builder_bind, obj);
+            builder_bind.append(&expr_tmp_symbol, obj);
+            builder_bind.append(args.as_ref().head_ref(), obj); //マッチ対象の値を一時変数に代入する
 
             builder_bind.get().into_value()
         };
-        with_cap!(bind, bind, ctx, {
-            list::List::alloc_tail(&bind, ctx).into_value()
+        with_cap!(bind, bind, obj, {
+            list::List::alloc_tail(&bind, obj).into_value()
         })
     };
-    with_cap!(binders, binders, ctx, {
-        builder_let.append(&binders, ctx);
+    with_cap!(binders, binders, obj, {
+        builder_let.append(&binders, obj);
     });
 
     let mut cond_vec: Vec<&RPtr<Value>> = Vec::new();
     cond_vec.push(expr_tmp_symbol.as_reachable());
 
-    let body = translate_inner(cond_vec, patterns, ctx);
-    with_cap!(body, body, ctx, {
-        builder_let.append(&body, ctx);
+    let body = translate_inner(cond_vec, patterns, obj);
+    with_cap!(body, body, obj, {
+        builder_let.append(&body, obj);
     });
 
     //最後にmatchに失敗した値を捕まえてfalseを返すfail-catchを追加
-    let_listbuilder!(builder_catch, ctx);
-    builder_catch.append(&literal::fail_catch().into_value(), ctx);
-    with_cap!(body, builder_let.get().into_value(), ctx, {
-        builder_catch.append(&body, ctx);
+    let_listbuilder!(builder_catch, obj);
+    builder_catch.append(&literal::fail_catch().into_value(), obj);
+    with_cap!(body, builder_let.get().into_value(), obj, {
+        builder_catch.append(&body, obj);
     });
-    builder_catch.append(&bool::Bool::false_().into_value(), ctx);
+    builder_catch.append(&bool::Bool::false_().into_value(), obj);
 
-    builder_catch.get().into_value()
+    builder_catch.get()
 }
 
-fn translate_inner(exprs: Vec<&RPtr<Value>>, patterns: Vec<MatchClause>, ctx: &mut Context) -> FPtr<Value> {
-    fn trans(kind: PatKind, exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &mut Context) -> FPtr<Value> {
+fn translate_inner(exprs: Vec<&RPtr<Value>>, patterns: Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
+    fn trans(kind: PatKind, exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
         match kind {
             PatKind::List => {
                 translate_container_match(exprs, patterns
@@ -143,7 +143,7 @@ fn translate_inner(exprs: Vec<&RPtr<Value>>, patterns: Vec<MatchClause>, ctx: &m
                     , &list::literal::list_ref()
                     , list::List::count
                     , list::List::get
-                    , ctx)
+                    , obj)
             }
             PatKind::Array => {
                 translate_container_match(exprs, patterns
@@ -152,7 +152,7 @@ fn translate_inner(exprs: Vec<&RPtr<Value>>, patterns: Vec<MatchClause>, ctx: &m
                     , &array::literal::array_ref()
                     , array::Array::len
                     , array::Array::get
-                    , ctx)
+                    , obj)
             }
             PatKind::Tuple => {
                 translate_container_match(exprs, patterns
@@ -161,19 +161,19 @@ fn translate_inner(exprs: Vec<&RPtr<Value>>, patterns: Vec<MatchClause>, ctx: &m
                     , &tuple::literal::tuple_ref()
                     , tuple::Tuple::len
                     , tuple::Tuple::get
-                    , ctx)
+                    , obj)
             }
             PatKind::Literal => {
-                translate_literal(exprs, patterns, ctx)
+                translate_literal(exprs, patterns, obj)
             }
             PatKind::Unquote => {
                 unimplemented!()
             }
             PatKind::Bind => {
-                translate_bind(exprs, patterns, ctx)
+                translate_bind(exprs, patterns, obj)
             }
             PatKind::Empty => {
-                translate_empty(exprs, patterns, ctx)
+                translate_empty(exprs, patterns, obj)
             }
         }
     }
@@ -181,16 +181,16 @@ fn translate_inner(exprs: Vec<&RPtr<Value>>, patterns: Vec<MatchClause>, ctx: &m
     let mut grouping = pattern_grouping(patterns);
     if grouping.len() == 1 {
         let (kind, patterns) = grouping.pop().unwrap();
-        trans(kind, &exprs, &patterns, ctx)
+        trans(kind, &exprs, &patterns, obj)
 
     } else {
-        let_listbuilder!(builder, ctx);
-        builder.append(&literal::fail_catch().into_value(), ctx);
+        let_listbuilder!(builder, obj);
+        builder.append(&literal::fail_catch().into_value(), obj);
 
         for (kind, patterns) in grouping {
-            let exp = trans(kind, &exprs, &patterns, ctx);
-            with_cap!(exp, exp, ctx, {
-                builder.append(&exp, ctx);
+            let exp = trans(kind, &exprs, &patterns, obj);
+            with_cap!(exp, exp, obj, {
+                builder.append(&exp, obj);
             });
         }
         builder.get().into_value()
@@ -255,7 +255,7 @@ fn pattern_grouping(patterns: Vec<MatchClause>) -> Vec<(PatKind, Vec<MatchClause
 fn translate_container_match<T: NaviType>(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>
     , is_type_func: &RPtr<Func>, len_func: &RPtr<Func>, ref_func: &RPtr<Func>
     , pattern_len_func: fn(&T) -> usize, pattern_ref_func: fn(&T, usize) -> &RPtr<Value>
-    , ctx: &mut Context) -> FPtr<Value> {
+    , obj: &mut Object) -> FPtr<Value> {
     //長さごとにパターンを集めたVec
     let mut group = Vec::<(usize, Vec<MatchClause>)>::new();
 
@@ -276,94 +276,94 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<&RPtr<Value>>, patterns: &
 
     let target_expr = exprs.last().unwrap();
 
-    let_listbuilder!(builder_if, ctx);
-    builder_if.append(&syntax::literal::if_().into_value(), ctx);
+    let_listbuilder!(builder_if, obj);
+    builder_if.append(&syntax::literal::if_().into_value(), obj);
 
     //predicate
-    with_cap!(is_type, cons_list2(is_type_func.cast_value(), target_expr, ctx), ctx, {
-        builder_if.append(&is_type, ctx);
+    with_cap!(is_type, cons_list2(is_type_func.cast_value(), target_expr, obj), obj, {
+        builder_if.append(&is_type, obj);
     });
 
     // true clause
     let true_clause = {
-        let_listbuilder!(builder_let, ctx);
+        let_listbuilder!(builder_let, obj);
         //(let)
-        builder_let.append(&syntax::literal::let_().into_value(), ctx);
+        builder_let.append(&syntax::literal::let_().into_value(), obj);
 
         //generate unique symbol
-        let_cap!(len_symbol, symbol::Symbol::gensym("len", ctx).into_value(), ctx);
+        let_cap!(len_symbol, symbol::Symbol::gensym("len", obj).into_value(), obj);
         let binders = {
             //(len (???-len target))
             let bind = {
-                let_listbuilder!(builder_bind, ctx);
-                builder_bind.append(&len_symbol, ctx);
-                with_cap!(v, cons_list2(len_func.cast_value(), target_expr, ctx), ctx, {
-                    builder_bind.append(&v, ctx);
+                let_listbuilder!(builder_bind, obj);
+                builder_bind.append(&len_symbol, obj);
+                with_cap!(v, cons_list2(len_func.cast_value(), target_expr, obj), obj, {
+                    builder_bind.append(&v, obj);
                 });
                 builder_bind.get().into_value()
             };
             //((len (???-len target)))
-            with_cap!(bind, bind, ctx, {
-                list::List::alloc_tail(&bind, ctx).into_value()
+            with_cap!(bind, bind, obj, {
+                list::List::alloc_tail(&bind, obj).into_value()
             })
         };
         // (let ((len (???-len target))))
-        with_cap!(binders, binders, ctx, {
-            builder_let.append(&binders, ctx);
+        with_cap!(binders, binders, obj, {
+            builder_let.append(&binders, obj);
         });
 
         //(cond ...)
         let cond = {
-            let_listbuilder!(builder_cond, ctx);
+            let_listbuilder!(builder_cond, obj);
             //(cond)
-            builder_cond.append(&syntax::literal::cond().into_value(), ctx);
+            builder_cond.append(&syntax::literal::cond().into_value(), obj);
 
             for (container_len, mut clauses) in group.into_iter() {
 
-                let_listbuilder!(builder_cond_clause, ctx);
+                let_listbuilder!(builder_cond_clause, obj);
 
                 //(equal? ???-len len)
                 let equal = {
-                    let_cap!(v1, number::Integer::alloc(container_len as i64, ctx).into_value(), ctx);
-                    cons_list3(&value::literal::equal().into_value(), v1.as_reachable(), len_symbol.as_reachable(), ctx)
+                    let_cap!(v1, number::Integer::alloc(container_len as i64, obj).into_value(), obj);
+                    cons_list3(&value::literal::equal().into_value(), v1.as_reachable(), len_symbol.as_reachable(), obj)
                 };
                 //((equal? ???-len len))
-                with_cap!(equal, equal, ctx, {
-                    builder_cond_clause.append(&equal, ctx);
+                with_cap!(equal, equal, obj, {
+                    builder_cond_clause.append(&equal, obj);
                 });
 
                 //(let)
-                let_listbuilder!(builder_inner_let, ctx);
-                builder_inner_let.append(&syntax::literal::let_().into_value(), ctx);
+                let_listbuilder!(builder_inner_let, obj);
+                builder_inner_let.append(&syntax::literal::let_().into_value(), obj);
 
-                let_listbuilder!(builder_bindders, ctx);
+                let_listbuilder!(builder_bindders, obj);
                 //後々の処理の都合上、降順でコンテナ内の値を取得する
                 for index in (0..container_len).rev() {
-                    let_listbuilder!(builder_binder, ctx);
+                    let_listbuilder!(builder_binder, obj);
                     //(v0)
-                    with_cap!(sym, symbol::Symbol::gensym(String::from("v") + &index.to_string() , ctx).into_value(), ctx, {
-                        builder_binder.append(&sym, ctx);
+                    with_cap!(sym, symbol::Symbol::gensym(String::from("v") + &index.to_string() , obj).into_value(), obj, {
+                        builder_binder.append(&sym, obj);
                     });
 
                     //(???-ref container index)
-                    let container_ref = with_cap!(index, number::Integer::alloc(index as i64, ctx).into_value(), ctx, {
-                        cons_list3(ref_func.cast_value(), target_expr, index.as_reachable(), ctx)
+                    let container_ref = with_cap!(index, number::Integer::alloc(index as i64, obj).into_value(), obj, {
+                        cons_list3(ref_func.cast_value(), target_expr, index.as_reachable(), obj)
                     });
 
                     //(v0 (???-ref container index))
-                    with_cap!(container_ref, container_ref, ctx, {
-                        builder_binder.append(&container_ref, ctx);
+                    with_cap!(container_ref, container_ref, obj, {
+                        builder_binder.append(&container_ref, obj);
                     });
 
                     //((v0 (???-ref container index)))
-                    with_cap!(binder, builder_binder.get().into_value(), ctx, {
-                        builder_bindders.append(&binder, ctx);
+                    with_cap!(binder, builder_binder.get().into_value(), obj, {
+                        builder_bindders.append(&binder, obj);
                     });
                 }
 
                 //(let (... (v1 (???-ref container 1)) (v0 (???-ref container 0)) ...))
-                let_cap!(binders, builder_bindders.get(), ctx);
-                builder_inner_let.append(binders.as_reachable().cast_value(), ctx);
+                let_cap!(binders, builder_bindders.get(), obj);
+                builder_inner_let.append(binders.as_reachable().cast_value(), obj);
 
                 let mut exprs =  exprs[0..exprs.len()-1].to_vec();
                 for bind in binders.as_reachable().as_ref().iter() {
@@ -383,26 +383,26 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<&RPtr<Value>>, patterns: &
 
                 //(let (... (v1 (???-ref container 1)) (v0 (???-ref container 0)))
                 //  inner matcher ...)
-                let matcher= translate_inner(exprs, clauses, ctx);
-                with_cap!(matcher, matcher, ctx, {
-                    builder_inner_let.append(&matcher, ctx);
+                let matcher= translate_inner(exprs, clauses, obj);
+                with_cap!(matcher, matcher, obj, {
+                    builder_inner_let.append(&matcher, obj);
                 });
 
                 //((equal? container-len len)
                 // (let ........))
-                with_cap!(inner_let, builder_inner_let.get().into_value(), ctx, {
-                    builder_cond_clause.append(&inner_let, ctx);
+                with_cap!(inner_let, builder_inner_let.get().into_value(), obj, {
+                    builder_cond_clause.append(&inner_let, obj);
                 });
 
                 //(cond
                 //  ((equal? container-len len)
                 //      (let ........)))
-                with_cap!(cond_clause, builder_cond_clause.get().into_value(), ctx, {
-                    builder_cond.append(&cond_clause, ctx);
+                with_cap!(cond_clause, builder_cond_clause.get().into_value(), obj, {
+                    builder_cond.append(&cond_clause, obj);
                 });
             }
-            with_cap!(else_, cons_cond_fail(ctx), ctx, {
-                builder_cond.append(&else_, ctx);
+            with_cap!(else_, cons_cond_fail(obj), obj, {
+                builder_cond.append(&else_, obj);
             });
 
             builder_cond.get()
@@ -410,23 +410,23 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<&RPtr<Value>>, patterns: &
 
         //(let ((len (container-len target)))
         //  (cond ...))
-        with_cap!(cond, cond.into_value(), ctx, {
-            builder_let.append(&cond, ctx);
+        with_cap!(cond, cond.into_value(), obj, {
+            builder_let.append(&cond, obj);
         });
         builder_let.get()
     };
 
-    with_cap!(true_clause, true_clause.into_value(), ctx, {
-        builder_if.append(&true_clause, ctx);
+    with_cap!(true_clause, true_clause.into_value(), obj, {
+        builder_if.append(&true_clause, obj);
     });
 
     //マッチ失敗用の値をfalse節に追加
-    builder_if.append(&MatchFail::fail().into_value(), ctx);
+    builder_if.append(&MatchFail::fail().into_value(), obj);
 
     builder_if.get().into_value()
 }
 
-fn translate_literal(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &mut Context) -> FPtr<Value> {
+fn translate_literal(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
     let mut group = Vec::<(&RPtr<Value>, Vec<MatchClause>)>::new();
 
     //同じリテラルごとにグルーピングを行う
@@ -445,49 +445,49 @@ fn translate_literal(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx
     let mut exprs = exprs.clone();
     let target = exprs.pop().unwrap();
 
-    let_listbuilder!(builder_cond, ctx);
-    builder_cond.append(&syntax::literal::cond().into_value(), ctx);
+    let_listbuilder!(builder_cond, obj);
+    builder_cond.append(&syntax::literal::cond().into_value(), obj);
 
     for (literal, patterns) in group.into_iter() {
-        let_listbuilder!(builder_cond_clause, ctx);
+        let_listbuilder!(builder_cond_clause, obj);
 
         //(equal? target literal)
         let equal = cons_list3(&value::literal::equal().into_value()
             , target
             , literal
-            , ctx);
+            , obj);
         //((equal? target literal))
-        with_cap!(equal, equal, ctx, {
-            builder_cond_clause.append(&equal, ctx);
+        with_cap!(equal, equal, obj, {
+            builder_cond_clause.append(&equal, obj);
         });
 
         //((equal? target literal) next-match)
-        let matcher= translate_inner(exprs.clone(), patterns, ctx);
-        with_cap!(matcher, matcher, ctx, {
-            builder_cond_clause.append(&matcher, ctx);
+        let matcher= translate_inner(exprs.clone(), patterns, obj);
+        with_cap!(matcher, matcher, obj, {
+            builder_cond_clause.append(&matcher, obj);
         });
 
         //(cond ((equal? target literal) next-match))
         let cond_clause = builder_cond_clause.get().into_value();
-        with_cap!(cond_clause, cond_clause, ctx, {
-            builder_cond.append(&cond_clause, ctx);
+        with_cap!(cond_clause, cond_clause, obj, {
+            builder_cond.append(&cond_clause, obj);
         });
     }
 
     //最後にマッチ失敗の節を追加
-    with_cap!(else_, cons_cond_fail(ctx), ctx, {
-        builder_cond.append(&else_, ctx);
+    with_cap!(else_, cons_cond_fail(obj), obj, {
+        builder_cond.append(&else_, obj);
     });
 
     builder_cond.get().into_value()
 }
 
-fn translate_bind(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &mut Context) -> FPtr<Value> {
+fn translate_bind(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
     let mut exprs = exprs.clone();
     let target = exprs.pop().unwrap();
 
-    let_listbuilder!(builder_catch, ctx);
-    builder_catch.append(&literal::fail_catch().into_value(), ctx);
+    let_listbuilder!(builder_catch, obj);
+    builder_catch.append(&literal::fail_catch().into_value(), obj);
 
     //TODO 最適化のために同じシンボルごとにグルーピングを行いたい
     for (mut pattern, body) in patterns.clone().into_iter() {
@@ -501,35 +501,35 @@ fn translate_bind(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &
             if symbol.as_ref().as_ref() == "_" {
                 let mut patterns: Vec<MatchClause> = Vec::new();
                 patterns.push((pattern, body));
-                let matcher= translate_inner(exprs.clone(), patterns, ctx);
-                with_cap!(matcher, matcher, ctx, {
-                    builder_catch.append(&matcher, ctx);
+                let matcher= translate_inner(exprs.clone(), patterns, obj);
+                with_cap!(matcher, matcher, obj, {
+                    builder_catch.append(&matcher, obj);
                 });
 
             } else {
-                let_listbuilder!(builder_let, ctx);
-                builder_let.append(&syntax::literal::let_().into_value(), ctx);
+                let_listbuilder!(builder_let, obj);
+                builder_let.append(&syntax::literal::let_().into_value(), obj);
 
                 //(x target) for let bind part
-                let binder = cons_list2(val, target, ctx);
+                let binder = cons_list2(val, target, obj);
                 //((x target)) for let binders part
-                let binders = with_cap!(binder, binder, ctx, {
-                    list::List::alloc_tail(&binder, ctx).into_value()
+                let binders = with_cap!(binder, binder, obj, {
+                    list::List::alloc_tail(&binder, obj).into_value()
                 });
                 //(let ((x target)))
-                with_cap!(binders, binders, ctx, {
-                    builder_let.append(&binders, ctx);
+                with_cap!(binders, binders, obj, {
+                    builder_let.append(&binders, obj);
                 });
 
                 let mut patterns: Vec<MatchClause> = Vec::new();
                 patterns.push((pattern, body));
-                let matcher= translate_inner(exprs.clone(), patterns, ctx);
-                with_cap!(matcher, matcher, ctx, {
-                    builder_let.append(&matcher, ctx);
+                let matcher= translate_inner(exprs.clone(), patterns, obj);
+                with_cap!(matcher, matcher, obj, {
+                    builder_let.append(&matcher, obj);
                 });
 
-                with_cap!(let_, builder_let.get().into_value(), ctx, {
-                    builder_catch.append(&let_, ctx);
+                with_cap!(let_, builder_let.get().into_value(), obj, {
+                    builder_catch.append(&let_, obj);
                 });
             }
         } else {
@@ -540,44 +540,44 @@ fn translate_bind(exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &
     builder_catch.get().into_value()
 }
 
-fn translate_empty(_exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, ctx: &mut Context) -> FPtr<Value> {
+fn translate_empty(_exprs: &Vec<&RPtr<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
     let (_, body) = patterns.first().unwrap();
 
     let body = (*body).clone();
-    list::List::alloc(&syntax::literal::begin().into_value(), &body, ctx).into_value()
+    list::List::alloc(&syntax::literal::begin().into_value(), &body, obj).into_value()
 }
 
-fn cons_list2(v1: &RPtr<Value>, v2: &RPtr<Value>, ctx: &mut Context) -> FPtr<Value> {
-    let_listbuilder!(builder, ctx);
-    builder.append(v1, ctx);
-    builder.append(v2, ctx);
+fn cons_list2(v1: &RPtr<Value>, v2: &RPtr<Value>, obj: &mut Object) -> FPtr<Value> {
+    let_listbuilder!(builder, obj);
+    builder.append(v1, obj);
+    builder.append(v2, obj);
 
     builder.get().into_value()
 }
 
-fn cons_list3(v1: &RPtr<Value>, v2: &RPtr<Value>, v3: &RPtr<Value>, ctx: &mut Context) -> FPtr<Value> {
-    let_listbuilder!(builder, ctx);
-    builder.append(v1, ctx);
-    builder.append(v2, ctx);
-    builder.append(v3, ctx);
+fn cons_list3(v1: &RPtr<Value>, v2: &RPtr<Value>, v3: &RPtr<Value>, obj: &mut Object) -> FPtr<Value> {
+    let_listbuilder!(builder, obj);
+    builder.append(v1, obj);
+    builder.append(v2, obj);
+    builder.append(v3, obj);
 
     builder.get().into_value()
 }
 
-fn cons_cond_fail(ctx: &mut Context) -> FPtr<Value> {
-    let_listbuilder!(builder, ctx);
+fn cons_cond_fail(obj: &mut Object) -> FPtr<Value> {
+    let_listbuilder!(builder, obj);
     //TODO よく使うシンボルはsatic領域に確保してアロケーションを避ける
-    with_cap!(else_, symbol::Symbol::alloc("else", ctx).into_value(), ctx, {
-        builder.append(&else_, ctx);
+    with_cap!(else_, symbol::Symbol::alloc("else", obj).into_value(), obj, {
+        builder.append(&else_, obj);
     });
-    builder.append(&MatchFail::fail().into_value(), ctx);
+    builder.append(&MatchFail::fail().into_value(), obj);
     builder.get().into_value()
 }
 
-fn syntax_fail_catch(args: &RPtr<list::List>, ctx: &mut Context) -> FPtr<Value> {
+fn syntax_fail_catch(args: &RPtr<list::List>, obj: &mut Object) -> FPtr<Value> {
 
     for sexp in args.as_ref().iter() {
-        let e = crate::eval::eval(sexp, ctx);
+        let e = crate::eval::eval(sexp, obj);
         if MatchFail::is_fail(e.as_ref()) == false {
             return e;
         }

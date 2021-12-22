@@ -3,6 +3,7 @@ use crate::ptr::*;
 use crate::context::Context;
 use std::fmt::Display;
 use std::fmt::{self, Debug};
+use std::pin::Pin;
 
 pub struct Array {
     len: usize,
@@ -12,6 +13,7 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     Array,
     "Array",
     Array::eq,
+    Array::clone_inner,
     Display::fmt,
     Array::is_type,
     None,
@@ -24,21 +26,36 @@ impl NaviType for Array {
         NonNullConst::new_unchecked(&ARRAY_TYPEINFO as *const TypeInfo)
     }
 
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        let size = this.as_ref().len;
+        let mut array = Self::alloc(size, obj);
+
+        for index in 0..size {
+            let child = this.as_ref().get(index);
+            //clone_innerの文脈の中だけ、FPtrをキャプチャせずにRPtrとして扱うことが許されている
+            let cloned = Value::clone_inner(child, obj).into_rptr();
+
+            array.as_mut().set(&cloned, index);
+        }
+
+        array
+    }
 }
 
 impl Array {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: usize, callback: fn(&RPtr<Value>, usize)) {
+    fn child_traversal(&self, arg: &usize, callback: fn(&RPtr<Value>, &usize)) {
         for index in 0..self.len {
             callback(self.get(index), arg);
         }
     }
 
-    fn alloc(size: usize, ctx: &mut Context) -> FPtr<Array> {
-        let ptr = ctx.alloc_with_additional_size::<Array>(size * std::mem::size_of::<RPtr<Value>>());
+    pub(crate) fn alloc(size: usize, obj: &mut Object) -> FPtr<Array> {
+        let ptr = obj.alloc_with_additional_size::<Array>(size * std::mem::size_of::<RPtr<Value>>());
         unsafe {
             std::ptr::write(ptr.as_ptr(), Array { len: size})
         }
@@ -97,7 +114,7 @@ impl Array {
         }
     }
 
-    pub fn from_list<T>(list: &T, size: Option<usize>, ctx: &mut Context) -> FPtr<Array>
+    pub fn from_list<T>(list: &T, size: Option<usize>, obj: &mut Object) -> FPtr<Array>
     where
         T: AsReachable<list::List>,
     {
@@ -107,12 +124,12 @@ impl Array {
             None => list.as_ref().count(),
         };
 
-        let mut obj = Self::alloc(size, ctx);
+        let mut array = Self::alloc(size, obj);
         for (index, v) in list.as_ref().iter().enumerate() {
-            obj.as_mut().set(v, index);
+            array.as_mut().set(v, index);
         }
 
-        obj
+        array
     }
 
     pub fn is_array_func() -> RPtr<Func> {
@@ -187,7 +204,45 @@ impl Debug for Array {
     }
 }
 
-fn func_is_array(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
+pub struct ArrayBuilder {
+    pub ary: Capture<Array>,
+    pub index: usize,
+    pub _pinned: std::marker::PhantomPinned,
+}
+
+#[macro_export]
+macro_rules! let_arraybuilder {
+    ($name:ident, $size:expr, $obj:expr) => {
+        let $name = crate::value::array::ArrayBuilder {
+            ary: new_cap!(crate::value::array::Array::alloc($size, $obj), $obj),
+            index: 0,
+            _pinned: std::marker::PhantomPinned,
+        };
+        pin_utils::pin_mut!($name);
+        unsafe {
+            ($obj).context().add_capture($name.as_mut().get_unchecked_mut().ary.cast_value_mut());
+        }
+    };
+}
+
+impl ArrayBuilder {
+    pub fn push<T>(self: &mut Pin<&mut Self>, v: &T, _obj: &mut Object)
+    where
+        T: AsReachable<Value>
+    {
+        let this = unsafe {
+            self.as_mut().get_unchecked_mut()
+        };
+        this.ary.as_mut().set(v, this.index);
+        this.index += 1;
+    }
+
+    pub fn get(self: Pin<&mut Self>) -> FPtr<Array> {
+        self.ary.as_reachable().clone().into_fptr()
+    }
+}
+
+fn func_is_array(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     if v.is_type(array::Array::typeinfo()) {
         v.clone().into_fptr()
@@ -196,14 +251,14 @@ fn func_is_array(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
     }
 }
 
-fn func_array_len(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+fn func_array_len(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<Array>() };
 
-    number::Integer::alloc(v.as_ref().len() as i64, ctx).into_value()
+    number::Integer::alloc(v.as_ref().len() as i64, obj).into_value()
 }
 
-fn func_array_ref(args: &RPtr<array::Array>, _ctx: &mut Context) -> FPtr<Value> {
+fn func_array_ref(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<Array>() };
 
@@ -272,36 +327,35 @@ pub mod literal {
 #[cfg(test)]
 mod tests {
     use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
-    use crate::context::{Context};
 
     #[test]
     fn test() {
-        let mut ctx = Context::new();
-        let ctx = &mut ctx;
+        let mut obj = Object::new();
+        let obj = &mut obj;
 
-        let mut ans_ctx = Context::new();
-        let ans_ctx = &mut ans_ctx;
+        let mut ans_obj = Object::new();
+        let ans_obj = &mut ans_obj;
 
         {
-            let_listbuilder!(builder, ctx);
+            let_listbuilder!(builder, obj);
 
-            with_cap!(v, number::Integer::alloc(1, ctx).into_value(), ctx, {
-                builder.append(&v, ctx);
+            with_cap!(v, number::Integer::alloc(1, obj).into_value(), obj, {
+                builder.append(&v, obj);
             });
-            with_cap!(v, number::Real::alloc(3.14, ctx).into_value(), ctx, {
-                builder.append(&v, ctx);
+            with_cap!(v, number::Real::alloc(3.14, obj).into_value(), obj, {
+                builder.append(&v, obj);
             });
-            builder.append(&list::List::nil().into_value(), ctx);
-            builder.append(&bool::Bool::true_().into_value(), ctx);
+            builder.append(&list::List::nil().into_value(), obj);
+            builder.append(&bool::Bool::true_().into_value(), obj);
 
             let (list, size) = builder.get_with_size();
-            let_cap!(list, list, ctx);
-            let ary = array::Array::from_list(&list, Some(size), ctx);
+            let_cap!(list, list, obj);
+            let ary = array::Array::from_list(&list, Some(size), obj);
 
-            let ans= number::Integer::alloc(1, ans_ctx).into_value();
+            let ans= number::Integer::alloc(1, ans_obj).into_value();
             assert_eq!(ary.as_ref().get(0).as_ref(), ans.as_ref());
 
-            let ans= number::Real::alloc(3.14, ans_ctx).into_value();
+            let ans= number::Real::alloc(3.14, ans_obj).into_value();
             assert_eq!(ary.as_ref().get(1).as_ref(), ans.as_ref());
 
             let ans= list::List::nil().into_value();

@@ -1,4 +1,5 @@
 use crate::mm::get_typeinfo;
+use crate::object::Object;
 use crate::ptr::*;
 use crate::value::*;
 use crate::value::func::*;
@@ -19,6 +20,7 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     Integer,
     "Integer",
     Integer::eq,
+    Integer::clone_inner,
     Display::fmt,
     Integer::is_type,
     None,
@@ -29,6 +31,10 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
 impl NaviType for Integer {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&INTEGER_TYPEINFO as *const TypeInfo)
+    }
+
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(this.as_ref().num, obj)
     }
 }
 
@@ -45,8 +51,8 @@ impl Integer {
         || std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(num: i64, ctx : &mut Context) -> FPtr<Integer> {
-        let ptr = ctx.alloc::<Integer>();
+    pub fn alloc(num: i64, obj : &mut Object) -> FPtr<Integer> {
+        let ptr = obj.alloc::<Integer>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Integer { num: num });
@@ -109,6 +115,7 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     Real,
     "Real",
     Real::eq,
+    Real::clone_inner,
     Display::fmt,
     Real::is_type,
     None,
@@ -120,9 +127,14 @@ impl NaviType for Real {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&REAL_TYPEINFO as *const TypeInfo)
     }
+
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(this.as_ref().num, obj)
+    }
 }
 
 impl Real {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
         || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
@@ -133,8 +145,8 @@ impl Real {
         || std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(num: f64, ctx : &mut Context) -> FPtr<Real> {
-        let ptr = ctx.alloc::<Real>();
+    pub fn alloc(num: f64, obj : &mut Object) -> FPtr<Real> {
+        let ptr = obj.alloc::<Real>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Real { num: num });
@@ -191,6 +203,7 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number,
     "Number",
     Number::eq,
+    Number::clone_inner,
     Display::fmt,
     Number::is_type,
     None,
@@ -202,9 +215,15 @@ impl NaviType for Number {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&NUMBER_TYPEINFO as *const TypeInfo)
     }
+
+    fn clone_inner(_this: &RPtr<Self>, _obj: &mut Object) -> FPtr<Self> {
+        //Number型のインスタンスは存在しないため、cloneが呼ばれることはない。
+        unreachable!()
+    }
 }
 
 impl Number {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
@@ -230,7 +249,7 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+fn func_add(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -262,18 +281,18 @@ fn func_add(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
     }
 
     if int.is_some() {
-        number::Integer::alloc(int.unwrap(), ctx).into_value()
+        number::Integer::alloc(int.unwrap(), obj).into_value()
     } else {
-        number::Real::alloc(real.unwrap(), ctx).into_value()
+        number::Real::alloc(real.unwrap(), obj).into_value()
     }
 }
 
-fn func_abs(args: &RPtr<array::Array>, ctx: &mut Context) -> FPtr<Value> {
+fn func_abs(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     match number_to(v.as_ref()) {
-        Num::Int(num) => number::Integer::alloc(num.abs(), ctx).into_value(),
-        Num::Real(num) => number::Real::alloc(num.abs(), ctx).into_value(),
+        Num::Int(num) => number::Integer::alloc(num.abs(), obj).into_value(),
+        Num::Real(num) => number::Real::alloc(num.abs(), obj).into_value(),
     }
 }
 

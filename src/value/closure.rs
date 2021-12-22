@@ -1,6 +1,6 @@
+use crate::object::Object;
 use crate::value::*;
 use crate::ptr::*;
-use crate::context::{Context};
 use std::fmt::{Debug, Display};
 
 
@@ -13,6 +13,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure,
     "Closure",
     Closure::eq,
+    Closure::clone_inner,
     Display::fmt,
     Closure::is_type,
     None,
@@ -24,24 +25,33 @@ impl NaviType for Closure {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&CLOSURE_TYPEINFO as *const TypeInfo)
     }
+
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        //clone_innerの文脈の中だけ、FPtrをキャプチャせずにRPtrとして扱うことが許されている
+        let params = array::Array::clone_inner(&this.as_ref().params, obj).into_rptr();
+        let body = list::List::clone_inner(&this.as_ref().body, obj).into_rptr();
+
+        Self::alloc(&params, &body, obj)
+    }
 }
 
 impl Closure {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: usize, callback: fn(&RPtr<Value>, arg: usize)) {
+    fn child_traversal(&self, arg: &usize, callback: fn(&RPtr<Value>, arg: &usize)) {
         callback(self.params.cast_value(), arg);
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc<T, U>(params: &T, body: &U, ctx: &mut Context) -> FPtr<Self>
+    pub fn alloc<T, U>(params: &T, body: &U, obj: &mut Object) -> FPtr<Self>
     where
         T: AsReachable<array::Array>,
         U: AsReachable<list::List>,
     {
-        let ptr = ctx.alloc::<Closure>();
+        let ptr = obj.alloc::<Closure>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), Closure {
                 params: params.as_reachable().clone(),
@@ -53,7 +63,7 @@ impl Closure {
         ptr.into_fptr()
     }
 
-    pub fn process_arguments_descriptor<T>(&self, args: &T, _ctx: &mut Context) -> bool
+    pub fn process_arguments_descriptor<T>(&self, args: &T, _obj: &mut Object) -> bool
     where
         T: AsReachable<list::List>
     {
@@ -65,15 +75,13 @@ impl Closure {
         }
     }
 
-    pub fn apply<T>(&self, args: &T, ctx: &mut Context) -> FPtr<Value>
-    where
-        T: AsReachable<array::Array>,
+    pub fn apply<'a>(&self, args_iter: impl Iterator<Item=&'a RPtr<Value>>, obj: &mut Object) -> FPtr<Value>
     {
         //ローカルフレームを構築
         let mut frame = Vec::<(&RPtr<symbol::Symbol>, &RPtr<Value>)>::new();
 
         let iter1 = self.params.as_ref().iter();
-        let iter2 = args.as_reachable().as_ref().iter();
+        let iter2 = args_iter;
 
         let iter = iter1.zip(iter2);
         for (sym, v) in iter {
@@ -82,19 +90,18 @@ impl Closure {
         }
 
         //ローカルフレームを環境にプッシュ
-        ctx.push_local_frame(&frame);
+        obj.context().push_local_frame(&frame);
 
         //Closure本体を実行
-        let result = syntax::do_begin(&self.body, ctx);
+        let result = syntax::do_begin(&self.body, obj);
 
         //ローカルフレームを環境からポップ
-        ctx.pop_local_frame();
+        obj.context().pop_local_frame();
 
         result
     }
 
 }
-
 
 impl Eq for Closure { }
 

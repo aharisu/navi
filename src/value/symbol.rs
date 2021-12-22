@@ -1,5 +1,4 @@
 use crate::value::*;
-use crate::context::{Context};
 use crate::ptr::*;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,6 +13,7 @@ static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Symbol,
     "Symbol",
     Symbol::eq,
+    Symbol::clone_inner,
     Symbol::fmt,
     Symbol::is_type,
     None,
@@ -27,21 +27,26 @@ impl NaviType for Symbol {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&SYMBOL_TYPEINFO as *const TypeInfo)
     }
+
+    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(this.as_ref().as_ref(), obj)
+    }
 }
 
 impl Symbol {
+
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&SYMBOL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<T: Into<String>>(str: T, ctx : &mut Context) -> FPtr<Symbol> {
-        string::NString::alloc_inner::<Symbol>(&str.into(), ctx)
+    pub fn alloc<T: Into<String>>(str: T, obj : &mut Object) -> FPtr<Symbol> {
+        string::NString::alloc_inner::<Symbol>(&str.into(), obj)
     }
 
-    pub fn gensym<T :Into<String>>(name: T, ctx: &mut Context) -> FPtr<Symbol> {
+    pub fn gensym<T :Into<String>>(name: T, obj: &mut Object) -> FPtr<Symbol> {
         let count = GENSYM_COUNTER.fetch_add(1, Ordering::SeqCst);
         let name = name.into() + "_" + &count.to_string();
-        Self::alloc(&name, ctx)
+        Self::alloc(&name, obj)
     }
 
 }
@@ -69,4 +74,31 @@ impl std::fmt::Debug for Symbol {
 }
 
 pub mod literal {
+}
+
+#[allow(dead_code)]
+#[repr(transparent)]
+pub(crate) struct StaticSymbol {
+    inner: string::StaticString,
+}
+
+impl AsRef<Symbol> for StaticSymbol {
+    fn as_ref(&self) -> &Symbol {
+        //StaticSymbolとSymbolは同じメモリレイアウトなので
+        //無理やりキャストしてSymbolとして扱えるようにする。
+        unsafe {
+            std::mem::transmute(self)
+        }
+    }
+}
+
+pub(crate) fn gensym_static<T: Into<String>>(name: T) -> GCAllocationStruct<StaticSymbol> {
+    let count = GENSYM_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let name = name.into() + "_" + &count.to_string();
+
+    let symbol = StaticSymbol {
+        inner: string::static_string(name)
+    };
+
+    GCAllocationStruct::new_with_typeinfo(symbol, Symbol::typeinfo())
 }
