@@ -14,6 +14,8 @@ pub struct List {
 static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
     List,
     "List",
+    std::mem::size_of::<List>(),
+    None,
     List::eq,
     List::clone_inner,
     Display::fmt,

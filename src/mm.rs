@@ -26,7 +26,7 @@ impl <T: NaviType> GCAllocationStruct<T> {
     pub fn new(value: T) -> GCAllocationStruct<T> {
         GCAllocationStruct {
             header: GCHeader {
-                flags: gc_flags_pack(std::mem::size_of::<T>() as u16, 0, false, false),
+                flags: gc_flags_pack(0, false, false),
                 typeinfo: T::typeinfo(),
             },
             value: value,
@@ -38,7 +38,7 @@ impl <T> GCAllocationStruct<T> {
     pub fn new_with_typeinfo(value: T, typeinfo: NonNullConst<TypeInfo>) -> GCAllocationStruct<T> {
         GCAllocationStruct {
             header: GCHeader {
-                flags: gc_flags_pack(std::mem::size_of::<T>() as u16, 0, false, false),
+                flags: gc_flags_pack(0, false, false),
                 typeinfo: typeinfo,
             },
             value: value,
@@ -51,29 +51,26 @@ const SIZE_BIT_SHIFT: usize = 2;
 #[cfg(target_pointer_width="64")]
 const SIZE_BIT_SHIFT: usize = 3;
 
-
+const VALUE_ALIGN:usize = mem::size_of::<usize>();
 
 #[inline]
-const fn gc_flags_pack(alloc_size: u16, forwarding_index: u16, need_move: bool, alive: bool) -> usize {
+const fn gc_flags_pack(forwarding_index: u16, need_move: bool, alive: bool) -> usize {
     //Node: アドレスサイズが64bitの場合
     //alloc_sizeとforwading_indexは必ず8の倍数になる
     //容量圧縮のためにそれぞれ8で割った数をフラグ内に持つようにする。
     //8で割ることと同じ結果になる右に3シフトと本来シフトしたいbit幅の差分だけシフトして、フラグを構築する。
 
     // p:13bit GC時のCopy先アドレスインデックス
-    // s:11bit アロケーションしたサイズ / (8 or 4)
     // m 1bit GC時に使用する移動が必要かどうかのフラグ
     // a 1bit GCで使用する到達可能フラグ
     ((forwarding_index as usize) << (16 - SIZE_BIT_SHIFT)) |
-    ((alloc_size as usize) >> (SIZE_BIT_SHIFT - 2)) |
     (need_move as usize) << 1|
     (alive as usize)
 }
 
 #[inline]
-const fn gc_flags_unpack(flags: usize) -> (u16, u16, bool, bool) {
+const fn gc_flags_unpack(flags: usize) -> (u16, bool, bool) {
     (
-        ((flags & 0x1FFC) << (SIZE_BIT_SHIFT - 2)) as u16, //allocation size 11bit
         ((flags & 0x1FFF_0000) >> (16 - SIZE_BIT_SHIFT)) as u16, //forwarding index
         (flags & 2) == 2, //GC時に使用する移動が必要かどうかのフラグ
         (flags & 1) == 1 //GC到達可能フラグ 1bit
@@ -88,7 +85,7 @@ pub struct Heap {
 
 impl Heap {
     pub fn new(page_size : usize) -> Self {
-        let layout = alloc::Layout::from_size_align(page_size, mem::size_of::<usize>()).unwrap();
+        let layout = alloc::Layout::from_size_align(page_size, VALUE_ALIGN).unwrap();
 
         let ptr = unsafe {
              alloc::alloc(layout)
@@ -119,8 +116,7 @@ impl Heap {
         let need_size = gc_header_size + obj_size + additional_size;
 
         //確保するバイト数をアラインメントに沿うように切り上げる
-        let aligh = self.page_layout.align();
-        let aligned_size = (need_size + (aligh - 1)) / aligh * aligh;
+        let aligned_size = (need_size + (VALUE_ALIGN - 1)) / VALUE_ALIGN * VALUE_ALIGN;
 
         let alloc_size = aligned_size;
 
@@ -131,7 +127,7 @@ impl Heap {
                     let gc_header_ptr = self.pool_ptr.add(self.used);
                     let gc_header = &mut *(gc_header_ptr as *mut GCHeader);
 
-                    gc_header.flags = gc_flags_pack(alloc_size as u16, 0, false, false);
+                    gc_header.flags = gc_flags_pack(0, false, false);
                     gc_header.typeinfo = T::typeinfo();
 
                     let obj_ptr = gc_header_ptr.add(gc_header_size) as *mut T;
@@ -155,10 +151,10 @@ impl Heap {
     pub fn calc_total_size(v: &Value) -> usize {
         if value::value_is_pointer(v) {
             let header = Self::get_gc_header(v);
-            let (size, _, _, _) = gc_flags_unpack(header.flags);
+            let typeinfo = unsafe { header.typeinfo.as_ref() };
 
-            let size = size as usize;
-            if let Some(func) = unsafe { header.typeinfo.as_ref() }.child_traversal_func {
+            let size = Self::get_allocation_size(v, typeinfo);
+            if let Some(func) = typeinfo.child_traversal_func {
                 func(v, &size, |child, total_size| {
                     let size = Self::calc_total_size(child.as_ref());
                     //Typeinfoの実装上の制限でClosureを渡すことができない。
@@ -217,10 +213,11 @@ impl Heap {
 
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
-                let (size, forwarding_index, need_move, marked) = gc_flags_unpack(header.flags);
+                let (forwarding_index, need_move, marked) = gc_flags_unpack(header.flags);
                 let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
                 let v = &*(v_ptr as *const Value);
 
+                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
                 println!("[dump] {:<8}, size:{}, mark:{}, forwarding:{:x}, need_move:{}, ptr:{:x}, {:?}",
                     header.typeinfo.as_ref().name,
                     size,
@@ -245,6 +242,16 @@ impl Heap {
         self.move_object(obj);
     }
 
+    fn get_allocation_size(v: &Value, typeinfo: &TypeInfo) -> usize {
+        let val_size = if let Some(size_of_func) = typeinfo.variable_size_func {
+            let size = size_of_func(v);
+            (size + (VALUE_ALIGN - 1)) / VALUE_ALIGN * VALUE_ALIGN
+        } else {
+            typeinfo.fixed_size
+        };
+        val_size + std::mem::size_of::<GCHeader>()
+    }
+
     fn get_gc_header(v: &Value) -> &mut GCHeader {
         let ptr = v as *const Value as *const u8;
         unsafe {
@@ -254,7 +261,7 @@ impl Heap {
     }
 
     fn is_marked(v: &Value) -> bool {
-        let (_, _, _, marked) = gc_flags_unpack(Self::get_gc_header(v).flags);
+        let (_, _, marked) = gc_flags_unpack(Self::get_gc_header(v).flags);
         marked
     }
 
@@ -265,13 +272,13 @@ impl Heap {
 
     fn mark(v: &Value) {
         let header = Self::get_gc_header(v);
+        let typeinfo = unsafe { header.typeinfo.as_ref() };
 
         //対象オブジェクトに対して到達フラグを立てる
-        let (size, _, _, _) = gc_flags_unpack(header.flags);
-        header.flags = gc_flags_pack(size, 0,false, true);
+        header.flags = gc_flags_pack(0,false, true);
 
         //対象オブジェクトが子オブジェクトを持っているなら、再帰的にマーク処理を行う
-        if let Some(func) = unsafe { header.typeinfo.as_ref() }.child_traversal_func {
+        if let Some(func) = typeinfo.child_traversal_func {
             let dummy:usize = 0;
             func(v, &dummy, |child, _| {
                 let child = child.as_ref();
@@ -301,20 +308,21 @@ impl Heap {
             let mut forwarding_index:usize = 0;
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
-                let (size, _, _, marked) = gc_flags_unpack(header.flags);
+                let v = &mut *(ptr.add(std::mem::size_of::<GCHeader>()) as *mut Value);
+                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+
+                let (_, _, marked) = gc_flags_unpack(header.flags);
                 //生きているオブジェクトなら
                 if marked {
                     //再配置される先のアドレス(スタート地点のポインタからのオフセット)をヘッダー内に一時保存する
                     if is_moving {
-                        header.flags = gc_flags_pack(size, forwarding_index as u16, true, true);
+                        header.flags = gc_flags_pack(forwarding_index as u16, true, true);
                     }
                     forwarding_index += size as usize;
 
                 } else {
                     //マークがないオブジェクトは開放する
                     if let Some(finalize) = header.typeinfo.as_ref().finalize {
-                        let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
-                        let v = &mut *(v_ptr as *mut Value);
                         finalize(v);
                     }
 
@@ -336,7 +344,7 @@ impl Heap {
             //子オブジェクトへのポインタを移動先の新しいポインタで置き換える
             if value::value_is_pointer(child.as_ref()) {
                 let header = crate::mm::Heap::get_gc_header(child.as_ref());
-                let (_, forwarding_index, need_move, _) = gc_flags_unpack(header.flags);
+                let (forwarding_index, need_move, _) = gc_flags_unpack(header.flags);
 
                 //子オブジェクトが移動しているなら移動先のポインタを参照するように更新する
                 if need_move {
@@ -359,14 +367,14 @@ impl Heap {
             let end = ptr.add(self.used);
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
-                let (size, _, _, marked) = gc_flags_unpack(header.flags);
+                let v = &*(ptr.add(std::mem::size_of::<GCHeader>()) as *const Value);
+                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+
+                let (_, _, marked) = gc_flags_unpack(header.flags);
                 //対象オブジェクトがまだ生きていて、
                 if marked {
                     //内部で保持しているオブジェクトを持っている場合は
                     if let Some(func) = header.typeinfo.as_ref().child_traversal_func {
-                        let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
-                        let v = &*(v_ptr as *const Value);
-
                         func(v, &start, update_child_pointer);
                     }
 
@@ -386,11 +394,14 @@ impl Heap {
             let mut used:usize = 0;
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
-                let (size, forwarding_index, need_move, marked) = gc_flags_unpack(header.flags);
+                let v = &*(ptr.add(std::mem::size_of::<GCHeader>()) as *const Value);
+                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+
+                let (forwarding_index, need_move, marked) = gc_flags_unpack(header.flags);
                 //対象オブジェクトがまだ生きているなら
                 if marked {
                     //GC中に使用したフラグをすべてリセット
-                    header.flags = gc_flags_pack(size, 0, false, false);
+                    header.flags = gc_flags_pack(0, false, false);
 
                     //現在のポインタと新しい位置のポインタが変わっていたら
                     if need_move {
@@ -419,11 +430,12 @@ impl Drop for Heap {
 
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
-                let (size, _, _, _) = gc_flags_unpack(header.flags);
+                let typeinfo = header.typeinfo.as_ref();
 
-                if let Some(finalize) = header.typeinfo.as_ref().finalize {
-                    let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
-                    let v = &mut *(v_ptr as *mut Value);
+                let v = &mut *(ptr.add(std::mem::size_of::<GCHeader>()) as *mut Value);
+                let size = Self::get_allocation_size(v, typeinfo);
+
+                if let Some(finalize) = typeinfo.finalize {
                     finalize(v);
                 }
 

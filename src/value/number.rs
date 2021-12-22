@@ -19,6 +19,8 @@ pub struct Integer {
 static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     Integer,
     "Integer",
+    std::mem::size_of::<Integer>(),
+    None,
     Integer::eq,
     Integer::clone_inner,
     Display::fmt,
@@ -114,6 +116,8 @@ pub struct Real {
 static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     Real,
     "Real",
+    std::mem::size_of::<Real>(),
+    None,
     Real::eq,
     Real::clone_inner,
     Display::fmt,
@@ -202,6 +206,7 @@ pub struct Number {
 static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number,
     "Number",
+    0, None,
     Number::eq,
     Number::clone_inner,
     Display::fmt,

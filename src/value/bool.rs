@@ -8,6 +8,7 @@ pub struct Bool {
 static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Bool,
     "Bool",
+    0, None, //Immidiate Valueだけなのでサイズは常に0
     Bool::eq,
     Bool::clone_inner,
     Display::fmt,

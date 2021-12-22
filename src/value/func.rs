@@ -37,6 +37,8 @@ impl Param {
 static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func,
     "Func",
+    std::mem::size_of::<Func>(),
+    None,
     Func::eq,
     Func::clone_inner,
     Display::fmt,

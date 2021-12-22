@@ -11,6 +11,7 @@ pub struct MatchFail { }
 static MATCHFAIL_TYPEINFO : TypeInfo = new_typeinfo!(
     MatchFail,
     "MatchFail",
+    0, None, //Immidiate Valueだけなのでサイズは常に0
     MatchFail::eq,
     MatchFail::clone_inner,
     std::fmt::Display::fmt,

@@ -10,6 +10,8 @@ pub struct Tuple {
 static TUPLE_TYPEINFO : TypeInfo = new_typeinfo!(
     Tuple,
     "Tuple",
+    0,
+    Some(Tuple::size_of),
     Tuple::eq,
     Tuple::clone_inner,
     Tuple::fmt,
@@ -47,6 +49,10 @@ impl NaviType for Tuple {
 }
 
 impl Tuple {
+    fn size_of(&self) -> usize {
+        std::mem::size_of::<Tuple>()
+            + self.len * std::mem::size_of::<RPtr<Value>>()
+    }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&TUPLE_TYPEINFO, other_typeinfo)

@@ -12,6 +12,8 @@ pub struct Symbol {
 static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Symbol,
     "Symbol",
+    0,
+    Some(Symbol::size_of),
     Symbol::eq,
     Symbol::clone_inner,
     Symbol::fmt,
@@ -34,6 +36,9 @@ impl NaviType for Symbol {
 }
 
 impl Symbol {
+    fn size_of(&self) -> usize {
+        string::NString::size_of(&self.inner)
+    }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&SYMBOL_TYPEINFO, other_typeinfo)

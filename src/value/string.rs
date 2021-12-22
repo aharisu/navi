@@ -15,6 +15,8 @@ pub struct NString {
 static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
     NString,
     "String",
+    0,
+    Some(NString::size_of),
     NString::eq,
     NString::clone_inner,
     Display::fmt,
@@ -35,6 +37,9 @@ impl NaviType for NString {
 }
 
 impl NString {
+    pub(crate) fn size_of(&self) -> usize {
+        std::mem::size_of::<NString>() + self.len_inbytes
+    }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)

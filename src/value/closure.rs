@@ -12,6 +12,8 @@ pub struct Closure {
 static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure,
     "Closure",
+    std::mem::size_of::<Closure>(),
+    None,
     Closure::eq,
     Closure::clone_inner,
     Display::fmt,

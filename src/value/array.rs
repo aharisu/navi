@@ -12,6 +12,8 @@ pub struct Array {
 static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     Array,
     "Array",
+    0,
+    Some(Array::size_of),
     Array::eq,
     Array::clone_inner,
     Display::fmt,
@@ -43,6 +45,10 @@ impl NaviType for Array {
 }
 
 impl Array {
+    fn size_of(&self) -> usize {
+        std::mem::size_of::<Array>()
+            + self.len * std::mem::size_of::<RPtr<Value>>()
+    }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)

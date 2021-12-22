@@ -12,6 +12,8 @@ pub struct ObjectRef {
 static OBJECT_TYPEINFO : TypeInfo = new_typeinfo!(
     ObjectRef,
     "Object",
+    std::mem::size_of::<ObjectRef>(),
+    None,
     ObjectRef::eq,
     ObjectRef::clone_inner,
     Display::fmt,

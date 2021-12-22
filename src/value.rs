@@ -1,8 +1,13 @@
 #[macro_export]
 macro_rules! new_typeinfo {
-    ($t:ty, $name:expr, $eq_func:expr, $clone_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, ) => {
+    ($t:ty, $name:expr, $fixed_size:expr, $variable_size_func:expr, $eq_func:expr, $clone_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, ) => {
         TypeInfo {
             name: $name,
+            fixed_size: $fixed_size,
+            variable_size_func: match $variable_size_func {
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t) -> usize, fn(&Value) -> usize>(func) }),
+                None => None
+            },
             eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Value, &Value) -> bool>($eq_func) },
             clone_func: unsafe { std::mem::transmute::<fn(&RPtr<$t>, &mut Object) -> FPtr<$t>, fn(&RPtr<Value>, &mut Object) -> FPtr<Value>>($clone_func) },
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
@@ -123,6 +128,8 @@ pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
 #[allow(dead_code)]
 pub struct TypeInfo {
     pub name : &'static str,
+    pub fixed_size: usize,
+    pub variable_size_func: Option<fn(&Value) -> usize>,
     pub eq_func: fn(&Value, &Value) -> bool,
     pub clone_func: fn(&RPtr<Value>, &mut Object) -> FPtr<Value>,
     pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
@@ -137,6 +144,7 @@ pub struct Value { }
 static VALUE_TYPEINFO : TypeInfo = new_typeinfo!(
     Value,
     "Value",
+    0, None,
     Value::_eq,
     Value::clone_inner,
     Value::_fmt,

@@ -23,6 +23,8 @@ pub struct Syntax {
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
     Syntax,
     "Syntax",
+    std::mem::size_of::<Syntax>(),
+    None,
     Syntax::eq,
     Syntax::clone_inner,
     Display::fmt,

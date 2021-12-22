@@ -12,6 +12,8 @@ pub struct Keyword {
 static KEYWORD_TYPEINFO: TypeInfo = new_typeinfo!(
     Keyword,
     "Keyword",
+    0,
+    Some(Keyword::size_of),
     Keyword::eq,
     Keyword::clone_inner,
     Display::fmt,
@@ -32,6 +34,9 @@ impl NaviType for Keyword {
 }
 
 impl Keyword {
+    fn size_of(&self) -> usize {
+        string::NString::size_of(&self.inner)
+    }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&KEYWORD_TYPEINFO, other_typeinfo)
