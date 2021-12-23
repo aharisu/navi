@@ -54,7 +54,7 @@ impl Array {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: &usize, callback: fn(&RPtr<Value>, &usize)) {
+    fn child_traversal(&self, arg: *mut u8, callback: fn(&RPtr<Value>, *mut u8)) {
         for index in 0..self.len {
             callback(self.get(index), arg);
         }

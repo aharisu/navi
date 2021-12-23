@@ -43,7 +43,7 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: &usize, callback: fn(&RPtr<Value>, arg: &usize)) {
+    fn child_traversal(&self, arg: *mut u8, callback: fn(&RPtr<Value>, arg: *mut u8)) {
         callback(self.params.cast_value(), arg);
         callback(self.body.cast_value(), arg);
     }

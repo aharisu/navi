@@ -21,7 +21,7 @@ macro_rules! new_typeinfo {
                 None => None
              },
             child_traversal_func: match $child_traversal_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, &usize, fn(&RPtr<Value>, &usize)), fn(&Value, &usize, fn(&RPtr<Value>, &usize))>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, *mut u8, fn(&RPtr<Value>, *mut u8)), fn(&Value, *mut u8, fn(&RPtr<Value>, *mut u8))>(func) }),
                 None => None
              },
         }
@@ -136,7 +136,7 @@ pub struct TypeInfo {
     pub is_type_func: fn(&TypeInfo) -> bool,
     pub finalize: Option<fn(&mut Value)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
-    pub child_traversal_func: Option<fn(&Value, &usize, fn(&RPtr<Value>, &usize))>,
+    pub child_traversal_func: Option<fn(&Value, *mut u8, fn(&RPtr<Value>, *mut u8))>,
 }
 
 pub struct Value { }

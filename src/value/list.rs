@@ -51,7 +51,7 @@ impl List {
         std::ptr::eq(&LIST_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: &usize, callback: fn(&RPtr<Value>, arg: &usize)) {
+    fn child_traversal(&self, arg: *mut u8, callback: fn(&RPtr<Value>, arg: *mut u8)) {
         callback(&self.v, arg);
         callback(self.next.cast_value(), arg);
     }

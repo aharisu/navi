@@ -87,8 +87,10 @@ impl <T: NaviType> RPtr<T> {
     }
 
     pub fn update_pointer(&self, new_ptr: *mut T) {
-        unsafe {
-            std::ptr::write(&self.pointer as *const *mut T as *mut *mut T, new_ptr);
+        if self.pointer != new_ptr {
+            unsafe {
+                std::ptr::write(&self.pointer as *const *mut T as *mut *mut T, new_ptr);
+            }
         }
     }
 }

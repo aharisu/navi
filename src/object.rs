@@ -21,7 +21,7 @@ impl Object {
         let mut ctx = Context::new();
         ctx.register_core_global();
 
-        let heap = Heap::new(1024 * 32);
+        let heap = Heap::new();
 
         Object {
             ctx: ctx,
@@ -127,7 +127,7 @@ impl Object {
         self.heap.borrow().dump_heap(self);
     }
 
-    pub(crate) fn for_each_all_alived_value(&self, arg: &usize, callback: fn(&RPtr<Value>, &usize)) {
+    pub(crate) fn for_each_all_alived_value(&self, arg: *mut u8, callback: fn(&RPtr<Value>, *mut u8)) {
         self.ctx.for_each_all_alived_value(arg, callback);
 
         self.receiver_vec.iter().for_each(|(pat, body)| {

@@ -152,7 +152,7 @@ impl Context {
         };
     }
 
-    pub(crate) fn for_each_all_alived_value(&self, arg: &usize, callback: fn(&RPtr<Value>, &usize)) {
+    pub(crate) fn for_each_all_alived_value(&self, arg: *mut u8, callback: fn(&RPtr<Value>, *mut u8)) {
         //ローカルフレーム内で保持している値
         for frame in self.frames.iter() {
             for (sym, v) in frame.iter() {
