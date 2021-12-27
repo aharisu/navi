@@ -50,9 +50,12 @@ const SIZE_BIT_SHIFT: usize = 3;
 
 const VALUE_ALIGN:usize = mem::size_of::<usize>();
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 enum HeapSize {
-    _32k
+    _2k,
+    _8k,
+    _16k,
+    _32k,
 }
 
 pub struct Heap {
@@ -62,15 +65,15 @@ pub struct Heap {
     heap_size: HeapSize,
 }
 
-struct GCTempArg<'a> {
+struct GCCompactionArg<'a> {
     start_addr: *const u8,
     end_addr: *const u8,
     flags: &'a mut [u16],
 }
 
-impl <'a> GCTempArg<'a> {
+impl <'a> GCCompactionArg<'a> {
     pub fn new(start_addr: *const u8, end_addr: *const u8, flags: &'a mut [u16]) -> Self {
-        GCTempArg {
+        GCCompactionArg {
             start_addr: start_addr,
             end_addr: end_addr,
             flags: flags,
@@ -78,23 +81,70 @@ impl <'a> GCTempArg<'a> {
     }
 
     pub fn as_ptr(&mut self) -> *mut u8 {
-        self as *mut GCTempArg as *mut u8
+        self as *mut GCCompactionArg as *mut u8
     }
 
     pub unsafe fn from_ptr(ptr: *mut u8) -> &'a mut Self {
-        &mut *(ptr as *mut GCTempArg)
+        &mut *(ptr as *mut GCCompactionArg)
     }
 }
 
+struct GCCopyingArg {
+    start_addr: *const u8,
+    end_addr: *const u8,
+    free_ptr: *mut u8,
+    used: usize,
+}
+
+impl GCCopyingArg {
+    pub fn new(start_addr: *const u8, end_addr: *const u8, free_ptr: *mut u8) -> Self {
+        GCCopyingArg {
+            start_addr: start_addr,
+            end_addr: end_addr,
+            free_ptr: free_ptr,
+            used: 0,
+        }
+    }
+
+    pub fn as_ptr(&mut self) -> *mut u8 {
+        self as *mut Self as *mut u8
+    }
+
+    pub unsafe fn from_ptr<'a>(ptr: *mut u8) -> &'a mut Self {
+        &mut *(ptr as *mut Self)
+    }
+}
+
+#[repr(C)]
+struct CopiedValue {
+    mark: usize,
+    forwarding_pointer: *mut u8,
+}
+
+impl CopiedValue {
+    pub unsafe fn is_copied(this: *mut Self) -> bool {
+        (*this).mark == value::IMMIDATE_GC_COPIED
+    }
+
+    pub unsafe fn forwarding_pointer(this: *mut Self) -> *mut u8 {
+        (*this).forwarding_pointer
+    }
+
+    pub unsafe fn mark_copied(this: *mut Self, forwarding_pointer: *mut u8) {
+        std::ptr::write(this, CopiedValue {
+            mark: value::IMMIDATE_GC_COPIED,
+            forwarding_pointer: forwarding_pointer,
+        });
+    }
+
+}
 
 impl Heap {
     pub fn new() -> Self {
-        let heapsize = HeapSize::_32k;
-        let layout = Self::alloc_layout(heapsize);
+        let heapsize = HeapSize::_2k;
 
-        let ptr = unsafe {
-             alloc::alloc(layout)
-        };
+        let layout = Self::get_alloc_layout(heapsize);
+        let ptr = unsafe { alloc::alloc(layout) };
 
         let heap = Heap {
             pool_ptr: ptr,
@@ -105,9 +155,12 @@ impl Heap {
         heap
     }
 
-    fn alloc_layout(heapsize: HeapSize) -> alloc::Layout {
+    fn get_alloc_layout(heapsize: HeapSize) -> alloc::Layout {
         let size = match heapsize {
-            _32k => 1024usize * 32,
+            HeapSize::_2k => 1024usize * 2,
+            HeapSize::_8k => 1024usize * 8,
+            HeapSize::_16k => 1024usize * 16,
+            HeapSize::_32k => 1024usize * 32,
         };
 
         alloc::Layout::from_size_align(size, VALUE_ALIGN).unwrap()
@@ -119,7 +172,7 @@ impl Heap {
 
     pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, obj: &Object) -> UIPtr<T> {
         //GCのバグを発見しやすいように、allocのたびにGCを実行する
-        self.debug_gc(obj);
+        //self.debug_gc(obj);
 
         let gc_header_size = mem::size_of::<GCHeader>();
         let obj_size = std::mem::size_of::<T>();
@@ -158,6 +211,14 @@ impl Heap {
 
                 panic!("oom");
             }
+        }
+    }
+
+    fn get_gc_header(v: &Value) -> &mut GCHeader {
+        let ptr = v as *const Value as *const u8;
+        unsafe {
+            let ptr = ptr.sub(mem::size_of::<GCHeader>());
+            &mut *(ptr as *const GCHeader as *mut GCHeader)
         }
     }
 
@@ -208,6 +269,7 @@ impl Heap {
         self.used
     }
 
+    #[allow(dead_code)]
     fn debug_gc(&mut self, obj: &Object) {
         self.gc(obj);
 
@@ -218,6 +280,16 @@ impl Heap {
         }
 
         //self.dump_heap(obj);
+    }
+
+    pub fn value_info(&self, v: &Value) {
+        //値を指している参照から、GCHeaderを指しているポインタに変換
+        let alloc_ptr = unsafe {
+            let ptr = v as *const Value as *const u8;
+            ptr.sub(mem::size_of::<GCHeader>())
+        };
+        let offset = unsafe { alloc_ptr.offset_from(self.pool_ptr) };
+        println!("[info] offset:{:>4} {}", offset, v);
     }
 
     pub fn dump_heap(&self, _obj: &Object) {
@@ -233,7 +305,7 @@ impl Heap {
                 let v = &*(v_ptr as *const Value);
 
                 let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
-                println!("[dump] {:<8}, size:{}, ptr:{:x}, {:?}",
+                println!("[dump] {:<8}, size:{}, ptr:{:>4}, {:?}",
                     header.typeinfo.as_ref().name,
                     size,
                     ptr.offset_from(self.pool_ptr),
@@ -247,22 +319,170 @@ impl Heap {
         println!("[dump] **** end ****");
     }
 
-    pub(crate) fn gc(&mut self, obj: &Object) {
-        match self.heap_size {
-            HeapSize::_32k => self.gc_32k(obj)
-        };
+    pub fn dump_gc_heap(&self, flags: &[u16], _obj: &Object) {
+        println!("[dump]------------------------------------");
+
+        unsafe {
+            let mut ptr = self.pool_ptr;
+            let end = self.pool_ptr.add(self.used);
+
+            while ptr < end {
+                let header = &mut *(ptr as *mut GCHeader);
+                let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
+                let v = &*(v_ptr as *const Value);
+
+                let (alive, forwarding) = Self::get_gc_flag(self.pool_ptr, ptr, flags);
+
+                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                println!("[dump] {:<8}, size:{}, alive:{}, forwarding:{}, ptr:{:>4}, {:?}",
+                    header.typeinfo.as_ref().name,
+                    size,
+                    alive,
+                    forwarding,
+                    ptr.offset_from(self.pool_ptr),
+                    v
+                );
+
+                ptr = ptr.add(size as usize);
+            }
+        }
+
+        println!("[dump] **** end ****");
     }
 
-    fn gc_32k(&mut self, obj: &Object) {
+    pub(crate) fn gc(&mut self, obj: &Object) {
+        //self.dump_heap(obj);
+
+        match self.heap_size {
+            HeapSize::_2k => self.gc_copying_nnk(HeapSize::_8k, obj),
+            HeapSize::_8k => self.gc_copying_nnk(HeapSize::_16k, obj),
+            HeapSize::_16k => self.gc_copying_nnk(HeapSize::_32k, obj),
+            HeapSize::_32k => self.gc_compaction_32k(obj),
+        };
+
+        //self.dump_heap(obj);
+    }
+
+    fn is_valid_value(v: &Value, arg: &mut GCCopyingArg) -> bool {
+        //ポインタかつ、自分自身のヒープ内に存在するオブジェクトなら、有効な値。
+        value::value_is_pointer(v)
+            && Self::is_pointer_within_heap(v, arg.start_addr, arg.end_addr)
+    }
+
+    fn gc_copying_copy(v: &Value, arg: &mut GCCopyingArg) -> *mut u8 {
+        //値を指している参照から、GCHeaderを指しているポインタに変換
+        let alloc_ptr = unsafe {
+            let ptr = v as *const Value as *const u8;
+            ptr.sub(mem::size_of::<GCHeader>())
+        };
+
+        unsafe {
+            //オブジェクトがあるはずの場所をCopiedValueとして無理やり解釈する。
+            //※有効な値とは絶対にかぶらないような値構造になっているため安全。
+            //※まだコピーされていない有効な値の場合、最初のフィールドにはtypeinfoへのポインタが入っている。
+            //※コピー済みの場合はポインタではない特別なImmidiate Valueが入っているため区別できる。
+            let copied = alloc_ptr as *mut CopiedValue;
+            //まだコピーされていないオブジェクトなら
+            if CopiedValue::is_copied(copied) == false {
+                let header = &mut *(alloc_ptr as *mut GCHeader);
+
+                //新しい領域にオブジェクトをコピー
+                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                let new_ptr = arg.free_ptr;
+                std::ptr::copy_nonoverlapping(alloc_ptr, new_ptr, size);
+
+                //古い領域のコピー済み領域に、マークとコピー先のポインタを保存する
+                CopiedValue::mark_copied(copied, new_ptr.add(std::mem::size_of::<GCHeader>()));
+                //※注意、これ以降は元の領域にアクセスすると壊れたデータになっている!!
+
+                //使用した分空き領域を指すポインタを進める
+                arg.free_ptr = arg.free_ptr.add(size);
+                arg.used += size;
+
+                //コピー先の領域にあるデータ参照するように諸々のローカル変数を更新
+                let header = &mut *(new_ptr as *mut GCHeader);
+                let v = &*(new_ptr.add(mem::size_of::<GCHeader>()) as *const Value);
+
+                //コピーしたオブジェクトが子オブジェクトを持っているなら、再帰的にコピー処理を行う
+                if let Some(func) = header.typeinfo.as_ref().child_traversal_func {
+                    func(v, arg.as_ptr(), |child, arg_ptr| {
+                        let arg = GCCopyingArg::from_ptr(arg_ptr);
+
+                        if Self::is_valid_value(child.as_ref(), arg) {
+                            let new_child_ptr = Self::gc_copying_copy(child.as_ref(), arg);
+
+                            //コピー先の新しいポインタで、内部で保持している子オブジェクトへのポインタを上書きする
+                            child.update_pointer(new_child_ptr as *mut Value);
+                        }
+                    });
+                }
+            }
+
+            //戻り値としてコピーした先のポインタを返す
+            CopiedValue::forwarding_pointer(copied)
+        }
+    }
+
+    fn gc_copying_nnk(&mut self, next_heap_size: HeapSize, obj: &Object) {
+        //self.dump_heap(obj);
+        //コピー先の新しいヒープを作成
+        let new_layout = Self::get_alloc_layout(next_heap_size);
+
+        println!("copying:{:?} {:?}", next_heap_size, new_layout);
+        //self.dump_heap(obj);
+
+        let new_heap_ptr = unsafe { alloc::alloc(new_layout) };
+
+        let mut arg = GCCopyingArg::new(
+            self.pool_ptr,
+            unsafe { self.pool_ptr.add(self.used) },
+            new_heap_ptr,
+        );
+
+        //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
+        //ルートから辿ることができるオブジェクトをすべて取得して、新しい領域へコピーする
+        obj.for_each_all_alived_value(arg.as_ptr(), |v, arg_ptr| {
+            let arg = unsafe { GCCopyingArg::from_ptr(arg_ptr) };
+            let value = v.as_ref();
+
+            if Self::is_valid_value(value, arg) {
+                let new_ptr = Self::gc_copying_copy(value, arg);
+                //コピー先の新しいポインタで、保持しているポインタを上書きする
+                v.update_pointer(new_ptr as *mut Value);
+            }
+        });
+
+        //古いヒープを削除
+        unsafe {
+            alloc::dealloc(self.pool_ptr, self.page_layout);
+        }
+
+        self.heap_size = next_heap_size;
+        self.page_layout = new_layout;
+        self.pool_ptr = new_heap_ptr;
+        self.used = arg.used;
+
+        println!("{:?} ... {:?}", new_heap_ptr, unsafe { new_heap_ptr.add(new_layout.size()) });
+
+        //self.dump_heap(obj);
+    }
+
+    fn gc_compaction_32k(&mut self, obj: &Object) {
+        println!("compaction: 32k");
+
         //32kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
         //※最後のシフトは8,または16で割り算することと同じ意味。
         //値の最低サイズは32bitOSなら8、64bitOSなら16なのでそれぞれの数字で割る。
         let mut flags = [0u16; 1024 * 32 >> SIZE_BIT_SHIFT];
 
-        self.mark_phase(&mut flags, obj);
-        self.setup_forwad_ptr(&mut flags, obj);
-        self.update_reference(&mut flags, obj);
-        self.move_object(&mut flags, obj);
+        self.gc_compaction_mark_phase(&mut flags, obj);
+        self.gc_compaction_setup_forwad_ptr(&mut flags, obj);
+        //self.dump_gc_heap(&flags, obj);
+
+        self.gc_compaction_update_reference(&mut flags, obj);
+        self.gc_compaction_move_object(&mut flags, obj);
+
+        self.heap_size = HeapSize::_32k;
     }
 
     fn get_allocation_size(v: &Value, typeinfo: &TypeInfo) -> usize {
@@ -275,32 +495,24 @@ impl Heap {
         val_size + std::mem::size_of::<GCHeader>()
     }
 
-    fn get_gc_header(v: &Value) -> &mut GCHeader {
+    fn is_pointer_within_heap(v: &Value, start_addr: *const u8, end_addr: *const u8) -> bool {
         let ptr = v as *const Value as *const u8;
-        unsafe {
-            let ptr = ptr.sub(mem::size_of::<GCHeader>());
-            &mut *(ptr as *const GCHeader as *mut GCHeader)
-        }
+        start_addr <= ptr && ptr < end_addr
     }
 
-    fn is_need_mark(v: &Value, arg: &GCTempArg) -> bool {
+    fn is_need_mark(v: &Value, arg: &GCCompactionArg) -> bool {
         //Immidiate Valueの場合があるため正しくポインタであるかを確認
-        if value::value_is_pointer(v) {
+        //かつ、 funcやsyntaxなど、ヒープ外のstaticな領域に確保された値の可能性があるのでチェック
+        if value::value_is_pointer(v) && Self::is_pointer_within_heap(v, arg.start_addr, arg.end_addr) {
             //値を指している参照から、GCHeaderを指しているポインタに変換
             let alloc_ptr = unsafe {
                 let ptr = v as *const Value as *const u8;
                 ptr.sub(mem::size_of::<GCHeader>())
             };
+            let (alive, _) = Self::get_gc_flag(arg.start_addr, alloc_ptr, arg.flags);
 
-            //funcやsyntaxなど、ヒープ外のstaticな領域に確保された値の可能性があるのでチェック
-            if arg.start_addr <= alloc_ptr && alloc_ptr < arg.end_addr {
-                let (alive, _) = Self::get_gc_flag(arg.start_addr, alloc_ptr, arg.flags);
-
-                //まだ生存フラグを立てていなければ、マークが必要
-                alive == false
-            } else {
-                false
-            }
+            //まだ生存フラグを立てていなければ、マークが必要
+            alive == false
         } else {
             false
         }
@@ -336,7 +548,7 @@ impl Heap {
         )
     }
 
-    fn mark(v: &Value, arg: &mut GCTempArg) {
+    fn gc_compaction_mark(v: &Value, arg: &mut GCCompactionArg) {
         //値を指している参照から、GCHeaderを指しているポインタに変換
         let alloc_ptr = unsafe {
             let ptr = v as *const Value as *const u8;
@@ -351,33 +563,33 @@ impl Heap {
         if let Some(func) = typeinfo.child_traversal_func {
             //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
             func(v, arg.as_ptr(), |child, arg_ptr| {
-                let arg = unsafe { GCTempArg::from_ptr(arg_ptr) };
+                let arg = unsafe { GCCompactionArg::from_ptr(arg_ptr) };
 
                 let child = child.as_ref();
                 if Self::is_need_mark(child, arg) {
-                    Self::mark(child, arg);
+                    Self::gc_compaction_mark(child, arg);
                 }
             });
         }
     }
 
-    fn mark_phase(&mut self, flags: &mut [u16], obj: &Object) {
+    fn gc_compaction_mark_phase(&mut self, flags: &mut [u16], obj: &Object) {
         let mut arg = unsafe {
-            GCTempArg::new(self.pool_ptr, self.pool_ptr.add(self.used), flags)
+            GCCompactionArg::new(self.pool_ptr, self.pool_ptr.add(self.used), flags)
         };
 
         //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
         obj.for_each_all_alived_value(arg.as_ptr(), |v, arg_ptr| {
-            let arg = unsafe { GCTempArg::from_ptr(arg_ptr) };
+            let arg = unsafe { GCCompactionArg::from_ptr(arg_ptr) };
 
             let v = v.as_ref();
             if Self::is_need_mark(v, arg) {
-                Self::mark(v, arg);
+                Self::gc_compaction_mark(v, arg);
             }
         });
     }
 
-    fn setup_forwad_ptr(&self, flags: &mut [u16], _obj: &Object) {
+    fn gc_compaction_setup_forwad_ptr(&self, flags: &mut [u16], _obj: &Object) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let end = self.pool_ptr.add(self.used);
@@ -409,31 +621,30 @@ impl Heap {
         }
     }
 
-    fn update_reference(&mut self, flags: &mut [u16], obj: &Object) {
+    fn gc_compaction_update_reference(&mut self, flags: &mut [u16], obj: &Object) {
         //生きているオブジェクトの内部で保持したままのアドレスを、
         //再配置後のアドレスで上書きする
 
-        fn update_child_pointer(child: &RPtr<Value>, arg_ptr: *mut u8) {
-            let arg = unsafe { GCTempArg::from_ptr(arg_ptr) };
+        fn update_child_pointer(child: &FPtr<Value>, arg_ptr: *mut u8) {
+            let arg = unsafe { GCCompactionArg::from_ptr(arg_ptr) };
+            let value = child.as_ref();
 
             //子オブジェクトへのポインタを移動先の新しいポインタで置き換える
-            if value::value_is_pointer(child.as_ref()) {
+            if value::value_is_pointer(value)
+                && crate::mm::Heap::is_pointer_within_heap(value, arg.start_addr, arg.end_addr) {
                 //値を指している参照から、GCHeaderを指しているポインタに変換
                 let alloc_ptr = unsafe {
-                    let ptr = child.as_ref() as *const Value as *const u8;
+                    let ptr = value as *const Value as *const u8;
                     ptr.sub(mem::size_of::<GCHeader>())
                 };
 
-                //funcやsyntaxなど、ヒープ外のstaticな領域に確保された値の可能性があるのでチェック
-                if arg.start_addr <= alloc_ptr && alloc_ptr < arg.end_addr {
-                    let (_, forwarding_index) = crate::mm::Heap::get_gc_flag(arg.start_addr, alloc_ptr, arg.flags);
+                let (_, forwarding_index) = crate::mm::Heap::get_gc_flag(arg.start_addr, alloc_ptr, arg.flags);
 
-                    //子オブジェクトが移動しているなら移動先のポインタを参照するように更新する
-                    let offset = forwarding_index + std::mem::size_of::<GCHeader>();
-                    let new_ptr = unsafe { arg.start_addr.add(offset) } as *mut Value;
+                //子オブジェクトが移動しているなら移動先のポインタを参照するように更新する
+                let offset = forwarding_index + std::mem::size_of::<GCHeader>();
+                let new_ptr = unsafe { arg.start_addr.add(offset) } as *mut Value;
 
-                    child.update_pointer(new_ptr);
-                }
+                child.update_pointer(new_ptr);
             }
         }
 
@@ -441,7 +652,7 @@ impl Heap {
             let mut ptr = self.pool_ptr;
             let end = ptr.add(self.used);
 
-            let mut arg = GCTempArg::new(ptr, end, flags);
+            let mut arg = GCCompactionArg::new(ptr, end, flags);
 
             //ルートオブジェクトとして保持されているオブジェクト内のポインタを更新
             obj.for_each_all_alived_value(arg.as_ptr(), update_child_pointer);
@@ -466,7 +677,7 @@ impl Heap {
         }
     }
 
-    fn move_object(&mut self, flags: &[u16], _obj: &Object) {
+    fn gc_compaction_move_object(&mut self, flags: &[u16], _obj: &Object) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let start = ptr;
