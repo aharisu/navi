@@ -31,8 +31,8 @@ impl NaviType for NString {
         NonNullConst::new_unchecked(&STRING_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(&this.as_ref().as_string(), obj)
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(&self.as_string(), obj)
     }
 }
 

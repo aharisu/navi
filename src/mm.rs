@@ -560,7 +560,6 @@ pub fn ptr_to_usize<T>(ptr: *const T) -> usize {
 #[cfg(test)]
 mod tests {
     use crate::object::Object;
-    use crate::{let_cap, new_cap};
     use crate::value::*;
 
     #[test]
@@ -569,10 +568,10 @@ mod tests {
         let obj = &mut obj;
 
         {
-            let_cap!(_1, number::Integer::alloc(1, obj).into_value(), obj);
+            let _1 = number::Integer::alloc(1, obj).into_value().capture(obj);
             {
-                let_cap!(_2, number::Integer::alloc(2, obj).into_value(), obj);
-                let_cap!(_3, number::Integer::alloc(3, obj).into_value(), obj);
+                let _2 = number::Integer::alloc(2, obj).into_value().capture(obj);
+                let _3 = number::Integer::alloc(3, obj).into_value().capture(obj);
 
                 obj.do_gc();
                 let used = (std::mem::size_of::<crate::mm::GCHeader>() + std::mem::size_of::<number::Integer>()) * 3;

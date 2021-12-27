@@ -28,8 +28,8 @@ impl NaviType for Keyword {
         NonNullConst::new_unchecked(&KEYWORD_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(this.as_ref().as_ref(), obj)
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(self.as_ref(), obj)
     }
 }
 

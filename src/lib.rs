@@ -1,5 +1,6 @@
 pub mod eval;
 pub mod mm;
+pub mod fixed_size_alloc;
 pub mod object;
 pub mod context;
 pub mod ptr;

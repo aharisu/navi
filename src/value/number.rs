@@ -35,8 +35,8 @@ impl NaviType for Integer {
         NonNullConst::new_unchecked(&INTEGER_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(this.as_ref().num, obj)
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(self.num, obj)
     }
 }
 
@@ -132,8 +132,8 @@ impl NaviType for Real {
         NonNullConst::new_unchecked(&REAL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(this.as_ref().num, obj)
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(self.num, obj)
     }
 }
 
@@ -221,7 +221,7 @@ impl NaviType for Number {
         NonNullConst::new_unchecked(&NUMBER_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(_this: &RPtr<Self>, _obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, _obj: &mut Object) -> FPtr<Self> {
         //Number型のインスタンスは存在しないため、cloneが呼ばれることはない。
         unreachable!()
     }
@@ -254,7 +254,7 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_add(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -263,9 +263,9 @@ fn func_add(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
     };
 
     let rest = args.as_ref().get(1);
-    let rest = rest.try_cast::<list::List>().unwrap();
+    let rest = unsafe { rest.cast_unchecked::<list::List>() };
 
-    let iter =  rest.as_ref().iter();
+    let iter =  unsafe { rest.as_ref().iter_gcunsafe() };
     for v in iter {
         match (number_to(&v.as_ref()), int, real) {
             (Num::Int(num), Some(acc), None) => {
@@ -292,7 +292,7 @@ fn func_add(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
     }
 }
 
-fn func_abs(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_abs(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     match number_to(v.as_ref()) {
@@ -323,6 +323,6 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("+", &RPtr::new(&FUNC_ADD.value as *const Func as *mut Func).into_value());
-    ctx.define_value("abs", &RPtr::new(&FUNC_ABS.value as *const Func as *mut Func).into_value());
+    ctx.define_value("+", Reachable::new_static(&FUNC_ADD.value).cast_value());
+    ctx.define_value("abs", Reachable::new_static(&FUNC_ABS.value).cast_value());
 }

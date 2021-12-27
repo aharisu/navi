@@ -1,12 +1,16 @@
-use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
+use crate::cap_append;
+use crate::value::*;
 use crate::ptr::*;
+use crate::value::list::ListBuilder;
 use std::fmt::{Debug, Display};
+
+use super::array::Array;
 
 
 pub struct Func {
     name: String,
     params: Vec<Param>,
-    body:  fn(&RPtr<array::Array>, &mut Object) -> FPtr<Value>,
+    body:  fn(&Reachable<array::Array>, &mut Object) -> FPtr<Value>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -53,15 +57,15 @@ impl NaviType for Func {
         NonNullConst::new_unchecked(&FUNC_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, _obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, _obj: &mut Object) -> FPtr<Self> {
         //Funcのインスタンスはヒープ上に作られることがないため、自分自身を返す
-        this.clone().into_fptr()
+        FPtr::new(self)
     }
 }
 
 impl Func {
 
-    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&RPtr<array::Array>, &mut Object) -> FPtr<Value>) -> Func {
+    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&Reachable<array::Array>, &mut Object) -> FPtr<Value>) -> Func {
         Func {
             name: name.into(),
             params: params.to_vec(),
@@ -74,18 +78,14 @@ impl Func {
     }
 
     //TODO 戻り値をboolからResultに変更。Errorには適切なエラー内容を含んだenum
-    pub fn process_arguments_descriptor<T>(&self, args: &T, obj: &mut Object) -> Option<FPtr<list::List>>
-    where
-        T: AsReachable<list::List>
-    {
-        let args = args.as_reachable();
-        fn check_type(v: &RPtr<Value>, param: &Param) -> bool {
+    pub fn process_arguments_descriptor(&self, args: &Reachable<list::List>, obj: &mut Object) -> Option<FPtr<list::List>> {
+        fn check_type(v: &FPtr<Value>, param: &Param) -> bool {
             v.is_type(param.typeinfo)
         }
 
-        let_listbuilder!(builder, obj);
+        let mut builder = ListBuilder::new(obj);
 
-        let mut args_iter = args.as_ref().iter();
+        let mut args_iter = args.iter(obj);
         for param in self.params.iter() {
             let arg = args_iter.next();
 
@@ -97,7 +97,7 @@ impl Func {
                             return None;
                         } else {
                             //OK!!
-                            builder.append(arg, obj);
+                            builder.append(&arg.reach(obj), obj);
                         }
                     } else {
                         //必須の引数が足らないエラー
@@ -111,7 +111,7 @@ impl Func {
                             return None;
                         } else {
                             //OK!!
-                            builder.append(arg, obj);
+                            builder.append(&arg.reach(obj), obj);
                         }
                     } else {
                         //Optionalなパラメータに対応する引数がなければ
@@ -121,7 +121,8 @@ impl Func {
                 }
                 ParamKind::Rest => {
                     if let Some(arg) = arg {
-                        let_listbuilder!(rest, obj);
+                        let mut rest = ListBuilder::new(obj);
+
                         let mut arg = arg;
                         loop {
                             if check_type(&arg, param) == false {
@@ -129,18 +130,19 @@ impl Func {
                                 return None;
                             } else {
                                 //OK!!
-                                rest.append(arg, obj);
+
+                                rest.append(&arg.reach(obj), obj);
                             }
 
                             match args_iter.next() {
-                                Some(a) => arg = a,
+                                Some(next) => {
+                                    arg = next;
+                                }
                                 None => break
                             }
                         }
 
-                        with_cap!(v, rest.get().into_value(), obj, {
-                            builder.append(&v, obj);
-                        });
+                        cap_append!(builder, rest.get().into_value(), obj);
                     } else {
                         //restパラメータに対応する引数がなければ
                         //nilをデフォルト値として設定
@@ -153,11 +155,8 @@ impl Func {
         Some(builder.get())
     }
 
-    pub fn apply<T>(&self, args: &T, obj: &mut Object) -> FPtr<Value>
-    where
-        T: AsReachable<array::Array>,
-    {
-        (self.body)(args.as_reachable(), obj)
+    pub fn apply(&self, args: &Reachable<Array>, obj: &mut Object) -> FPtr<Value> {
+        (self.body)(args, obj)
     }
 }
 

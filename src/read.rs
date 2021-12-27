@@ -1,10 +1,11 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+use crate::cap_append;
 use crate::object::Object;
-use crate::{let_listbuilder, new_cap, with_cap, let_cap};
 use crate::value::*;
 use crate::ptr::*;
+use crate::value::list::ListBuilder;
 
 #[derive(Debug)]
 pub struct ReadError {
@@ -65,22 +66,19 @@ fn read_list(reader: &mut Reader, obj: &mut Object) -> ReadResult {
 
 fn read_array(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     let list = read_sequence(']', reader, obj)?;
-    let_cap!(list, list, obj);
-    Ok(array::Array::from_list(&list, None, obj).into_value())
+    Ok(array::Array::from_list(&list.reach(obj), None, obj).into_value())
 }
 
 fn read_tuple(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     let list = read_sequence('}', reader, obj)?;
-    let_cap!(list, list, obj);
-    Ok(tuple::Tuple::from_list(&list, None, obj).into_value())
+    Ok(tuple::Tuple::from_list(&list.reach(obj), None, obj).into_value())
 }
 
 fn read_sequence(end_char:char, reader: &mut Reader, obj: &mut Object) -> Result<FPtr<list::List>, ReadError> {
     //skip first char
     reader.input.next();
 
-    let_listbuilder!(builder, obj);
-
+    let mut builder = ListBuilder::new(obj);
     loop {
         skip_whitespace(reader);
         match reader.input.peek() {
@@ -96,9 +94,7 @@ fn read_sequence(end_char:char, reader: &mut Reader, obj: &mut Object) -> Result
                     //内部でエラーが発生した場合は途中停止
                     Err(msg) => return Err(msg),
                     Ok(v) => {
-                        with_cap!(v, v, obj, {
-                            builder.append(&v, obj)
-                        })
+                        cap_append!(builder, v, obj);
                     }
                 }
             }
@@ -141,7 +137,7 @@ fn read_bind(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     read_with_modifier(syntax::literal::bind().cast_value(), reader, obj)
 }
 
-fn read_with_modifier(modifier: &RPtr<Value>, reader: &mut Reader, obj: &mut Object) -> ReadResult {
+fn read_with_modifier(modifier: &Reachable<Value>, reader: &mut Reader, obj: &mut Object) -> ReadResult {
     //skip first char
     reader.input.next();
 
@@ -151,9 +147,9 @@ fn read_with_modifier(modifier: &RPtr<Value>, reader: &mut Reader, obj: &mut Obj
         Err(msg) => return Err(msg),
         Ok(v) => v,
     };
-    let_cap!(sexp, sexp, obj);
+    let sexp = sexp.reach(obj);
 
-    let_listbuilder!(builder, obj);
+    let mut builder = ListBuilder::new(obj);
     builder.append(modifier, obj);
     builder.append(&sexp, obj);
     Ok(builder.get().into_value())
@@ -280,7 +276,7 @@ const fn is_delimiter(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::read::*;
+    use crate::{read::*, value::array::ArrayBuilder};
 
     fn make_reader<'a>(s: &'a str) -> Reader<'a> {
         Reader::new( s.chars().peekable())
@@ -315,7 +311,7 @@ mod tests {
         let result = result.unwrap();
         let result = result.as_ref().try_cast::<T>();
         assert!(result.is_some());
-        FPtr::new(result.unwrap() as *const T as *mut T)
+        FPtr::new(result.unwrap())
     }
 
     #[test]
@@ -546,16 +542,17 @@ mod tests {
 
             let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
-            let_cap!(_2, number::Integer::alloc(2, ans_obj).into_value(), ans_obj);
-            let_cap!(_3, number::Integer::alloc(3, ans_obj).into_value(), ans_obj);
-            let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&_3, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_2, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
-            let_cap!(ans, array::Array::from_list(&ans, None, ans_obj), ans_obj);
+            let _1 = number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj);
+            let _2 = number::Integer::alloc(2, ans_obj).into_value().reach(ans_obj);
+            let _3 = number::Integer::alloc(3, ans_obj).into_value().reach(ans_obj);
 
-            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+            let ans = list::List::nil();
+            let ans = list::List::alloc(&_3, &ans, ans_obj).reach(ans_obj);
+            let ans = list::List::alloc(&_2, &ans, ans_obj).reach(ans_obj);
+            let ans = list::List::alloc(&_1, &ans, ans_obj).reach(ans_obj);
+            let ans = array::Array::from_list(&ans, None, ans_obj).reach(ans_obj);
+
+            assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
 
         {
@@ -563,19 +560,19 @@ mod tests {
 
             let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
-            let_cap!(_3_14, number::Real::alloc(3.14, ans_obj).into_value(), ans_obj);
-            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value(), ans_obj);
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value(), ans_obj);
+            let _1 = number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj);
+            let _3_14 = number::Real::alloc(3.14, ans_obj).into_value().reach(ans_obj);
+            let hohoho = string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value().reach(ans_obj);
+            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value().reach(ans_obj);
 
-            let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
-            let_cap!(ans, array::Array::from_list(&ans, None, ans_obj), ans_obj);
+            let mut builder = ArrayBuilder::new(4, ans_obj);
+            builder.push(&_1, ans_obj);
+            builder.push(&_3_14, ans_obj);
+            builder.push(&hohoho, ans_obj);
+            builder.push(&symbol, ans_obj);
+            let ans = builder.get().reach(ans_obj);
 
-            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+            assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
     }
 
@@ -599,15 +596,13 @@ mod tests {
 
             let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
-            let_cap!(_2, number::Integer::alloc(2, ans_obj).into_value(), ans_obj);
-            let_cap!(_3, number::Integer::alloc(3, ans_obj).into_value(), ans_obj);
-            let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&_3, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_2, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
+            let mut builder = ListBuilder::new(ans_obj);
+            builder.append( &number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &number::Integer::alloc(2, ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &number::Integer::alloc(3, ans_obj).into_value().reach(ans_obj), ans_obj);
+            let ans = builder.get().capture(ans_obj);
 
-            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+            assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
 
         {
@@ -615,18 +610,14 @@ mod tests {
 
             let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
-            let_cap!(_3_14, number::Real::alloc(3.14, ans_obj).into_value(), ans_obj);
-            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value(), ans_obj);
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value(), ans_obj);
+            let mut builder = ListBuilder::new(ans_obj);
+            builder.append( &number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &number::Real::alloc(3.14, ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value().reach(ans_obj), ans_obj);
+            let ans = builder.get().reach(ans_obj);
 
-            let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
-
-            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+            assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
     }
 
@@ -650,16 +641,14 @@ mod tests {
 
             let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
-            let_cap!(_2, number::Integer::alloc(2, ans_obj).into_value(), ans_obj);
-            let_cap!(_3, number::Integer::alloc(3, ans_obj).into_value(), ans_obj);
-            let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&_3, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_2, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
-            let_cap!(ans, tuple::Tuple::from_list(&ans, None, ans_obj), ans_obj);
+            let mut builder = ListBuilder::new(ans_obj);
+            builder.append( &number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &number::Integer::alloc(2, ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &number::Integer::alloc(3, ans_obj).into_value().reach(ans_obj), ans_obj);
+            let ans = builder.get().reach(ans_obj);
+            let ans = tuple::Tuple::from_list(&ans, None, ans_obj).reach(ans_obj);
 
-            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+            assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
 
         {
@@ -667,19 +656,15 @@ mod tests {
 
             let result = read::<Value>(program, obj);
 
-            let_cap!(_1, number::Integer::alloc(1, ans_obj).into_value(), ans_obj);
-            let_cap!(_3_14, number::Real::alloc(3.14, ans_obj).into_value(), ans_obj);
-            let_cap!(hohoho, string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value(), ans_obj);
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value(), ans_obj);
+            let mut builder = ListBuilder::new(ans_obj);
+            builder.append( &number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &number::Real::alloc(3.14, ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value().reach(ans_obj), ans_obj);
+            builder.append( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value().reach(ans_obj), ans_obj);
+            let ans = builder.get().reach(ans_obj);
+            let ans = tuple::Tuple::from_list(&ans, None, ans_obj).reach(ans_obj);
 
-            let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&hohoho, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_3_14, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&_1, &ans, ans_obj), ans_obj);
-            let_cap!(ans, tuple::Tuple::from_list(&ans, None, ans_obj), ans_obj);
-
-            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+            assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
 
     }
@@ -696,12 +681,14 @@ mod tests {
 
             let result = read::<Value>(program, obj);
 
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value(), ans_obj);
-            let ans = list::List::nil();
-            let_cap!(ans, list::List::alloc(&symbol, &ans, ans_obj), ans_obj);
-            let_cap!(ans, list::List::alloc(&syntax::literal::quote().into_value(), &ans, ans_obj), ans_obj);
+            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value().reach(ans_obj);
 
-            assert_eq!(result.as_ref(), ans.as_reachable().cast_value().as_ref());
+            let mut builder = ListBuilder::new(ans_obj);
+            builder.append(syntax::literal::quote().cast_value(), ans_obj);
+            builder.append(&symbol, ans_obj);
+            let ans = builder.get().reach(ans_obj);
+
+            assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
 
     }

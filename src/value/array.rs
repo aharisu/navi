@@ -3,7 +3,6 @@ use crate::ptr::*;
 use crate::context::Context;
 use std::fmt::Display;
 use std::fmt::{self, Debug};
-use std::pin::Pin;
 
 pub struct Array {
     len: usize,
@@ -28,16 +27,16 @@ impl NaviType for Array {
         NonNullConst::new_unchecked(&ARRAY_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        let size = this.as_ref().len;
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        let size = self.len;
         let mut array = Self::alloc(size, obj);
 
         for index in 0..size {
-            let child = this.as_ref().get(index);
-            //clone_innerの文脈の中だけ、FPtrをキャプチャせずにRPtrとして扱うことが許されている
-            let cloned = Value::clone_inner(child, obj).into_rptr();
+            let child = self.get_inner(index);
+            //clone_innerの文脈の中だけ、PtrをキャプチャせずにRPtrとして扱うことが許されている
+            let cloned = Value::clone_inner(child.as_ref(), obj);
 
-            array.as_mut().set(&cloned, index);
+            array.as_mut().set(cloned.as_ref(), index);
         }
 
         array
@@ -47,21 +46,21 @@ impl NaviType for Array {
 impl Array {
     fn size_of(&self) -> usize {
         std::mem::size_of::<Array>()
-            + self.len * std::mem::size_of::<RPtr<Value>>()
+            + self.len * std::mem::size_of::<FPtr<Value>>()
     }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&RPtr<Value>, *mut u8)) {
+    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
         for index in 0..self.len {
-            callback(self.get(index), arg);
+            callback(self.get_inner(index), arg);
         }
     }
 
     pub(crate) fn alloc(size: usize, obj: &mut Object) -> FPtr<Array> {
-        let ptr = obj.alloc_with_additional_size::<Array>(size * std::mem::size_of::<RPtr<Value>>());
+        let ptr = obj.alloc_with_additional_size::<Array>(size * std::mem::size_of::<FPtr<Value>>());
         unsafe {
             std::ptr::write(ptr.as_ptr(), Array { len: size})
         }
@@ -69,29 +68,30 @@ impl Array {
         ptr.into_fptr()
     }
 
-    fn set<T>(&mut self, v: &T, index: usize)
-    where
-        T: AsReachable<Value>
+    fn set(&mut self, v: &Value, index: usize)
     {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
 
-        let v = v.as_reachable();
         let ptr = self as *mut Array;
         unsafe {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut RPtr<Value>;
+            let storage_ptr = ptr as *mut FPtr<Value>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
-            std::ptr::write(storage_ptr, v.clone());
+            std::ptr::write(storage_ptr, FPtr::new(v));
         };
     }
 
-    pub fn get<'a>(&'a self, index: usize) -> &'a RPtr<Value> {
+    pub fn get(&self, index: usize) -> FPtr<Value> {
+        self.get_inner(index).clone()
+    }
+
+    fn get_inner<'a>(&'a self, index: usize) -> &'a FPtr<Value> {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -101,7 +101,7 @@ impl Array {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut RPtr<Value>;
+            let storage_ptr = ptr as *mut FPtr<Value>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
 
@@ -109,53 +109,49 @@ impl Array {
         }
     }
 
+
     pub fn len(&self) -> usize {
         self.len
     }
 
-    pub fn iter(&self) -> ArrayIterator {
-        ArrayIterator {
-            ary: self,
-            index: 0,
-        }
-    }
-
-    pub fn from_list<T>(list: &T, size: Option<usize>, obj: &mut Object) -> FPtr<Array>
-    where
-        T: AsReachable<list::List>,
-    {
-        let list = list.as_reachable();
+    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> FPtr<Array> {
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
         };
 
         let mut array = Self::alloc(size, obj);
-        for (index, v) in list.as_ref().iter().enumerate() {
-            array.as_mut().set(v, index);
+        for (index, v) in list.iter(obj).enumerate() {
+            array.as_mut().set(v.as_ref(), index);
         }
 
         array
     }
 
-    pub fn is_array_func() -> RPtr<Func> {
-        RPtr::new(&FUNC_IS_ARRAY.value as *const Func as *mut Func)
+}
+
+impl Reachable<Array> {
+    pub fn iter(&self) -> ArrayIterator {
+        ArrayIterator {
+            ary: self,
+            index: 0,
+        }
     }
 }
 
 pub struct ArrayIterator<'a> {
-    ary: &'a Array,
+    ary: &'a Reachable<Array>,
     index: usize,
 }
 
 impl <'a> std::iter::Iterator for ArrayIterator<'a> {
-    type Item = &'a RPtr<Value>;
+    type Item = FPtr<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.ary.len() <= self.index {
+        if self.ary.as_ref().len() <= self.index {
             None
         } else {
-            let result = self.ary.get(self.index);
+            let result = self.ary.as_ref().get(self.index);
             self.index += 1;
             Some(result)
         }
@@ -211,60 +207,45 @@ impl Debug for Array {
 }
 
 pub struct ArrayBuilder {
-    pub ary: Capture<Array>,
-    pub index: usize,
-    pub _pinned: std::marker::PhantomPinned,
-}
-
-#[macro_export]
-macro_rules! let_arraybuilder {
-    ($name:ident, $size:expr, $obj:expr) => {
-        let $name = crate::value::array::ArrayBuilder {
-            ary: new_cap!(crate::value::array::Array::alloc($size, $obj), $obj),
-            index: 0,
-            _pinned: std::marker::PhantomPinned,
-        };
-        pin_utils::pin_mut!($name);
-        unsafe {
-            ($obj).context().add_capture($name.as_mut().get_unchecked_mut().ary.cast_value_mut());
-        }
-    };
+    ary: Cap<Array>,
+    index: usize,
 }
 
 impl ArrayBuilder {
-    pub fn push<T>(self: &mut Pin<&mut Self>, v: &T, _obj: &mut Object)
-    where
-        T: AsReachable<Value>
-    {
-        let this = unsafe {
-            self.as_mut().get_unchecked_mut()
-        };
-        this.ary.as_mut().set(v, this.index);
-        this.index += 1;
+    pub fn new(size: usize, obj: &mut Object) -> Self {
+        ArrayBuilder {
+            ary:  Array::alloc(size, obj).capture(obj),
+            index: 0,
+        }
     }
 
-    pub fn get(self: Pin<&mut Self>) -> FPtr<Array> {
-        self.ary.as_reachable().clone().into_fptr()
+    pub fn push(&mut self, v: &Reachable<Value>, _obj: &mut Object) {
+        self.ary.as_mut().set(v.as_ref(), self.index);
+        self.index += 1;
+    }
+
+    pub fn get(self) -> FPtr<Array> {
+        self.ary.take()
     }
 }
 
-fn func_is_array(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_is_array(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
-    if v.is_type(array::Array::typeinfo()) {
-        v.clone().into_fptr()
+    if v.as_ref().is_type(array::Array::typeinfo()) {
+        v.clone()
     } else {
-        bool::Bool::false_().into_value().into_fptr()
+        bool::Bool::false_().into_fptr().into_value()
     }
 }
 
-fn func_array_len(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_array_len(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<Array>() };
 
     number::Integer::alloc(v.as_ref().len() as i64, obj).into_value()
 }
 
-fn func_array_ref(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_array_ref(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<Array>() };
 
@@ -273,7 +254,7 @@ fn func_array_ref(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
 
     let index = index.as_ref().get() as usize;
 
-    v.as_ref().get(index).clone().into_fptr()
+    v.as_ref().get(index)
 }
 
 static FUNC_IS_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
@@ -308,31 +289,33 @@ static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("array?", &RPtr::new(&FUNC_IS_ARRAY.value as *const Func as *mut Func).into_value());
-    ctx.define_value("array-len", &RPtr::new(&FUNC_ARRAY_LEN.value as *const Func as *mut Func).into_value());
-    ctx.define_value("array-ref", &RPtr::new(&FUNC_ARRAY_REF.value as *const Func as *mut Func).into_value());
+    ctx.define_value("array?", Reachable::new_static(&FUNC_IS_ARRAY.value).cast_value());
+    ctx.define_value("array-len", Reachable::new_static(&FUNC_ARRAY_LEN.value).cast_value());
+    ctx.define_value("array-ref", Reachable::new_static(&FUNC_ARRAY_REF.value).cast_value());
 }
 
 pub mod literal {
     use super::*;
 
-    pub fn is_array() -> RPtr<Func> {
-        RPtr::new(&FUNC_IS_ARRAY.value as *const Func as *mut Func)
+    pub fn is_array() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_IS_ARRAY.value)
     }
 
-    pub fn array_len() -> RPtr<Func> {
-        RPtr::new(&FUNC_ARRAY_LEN.value as *const Func as *mut Func)
+    pub fn array_len() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_ARRAY_LEN.value)
     }
 
-    pub fn array_ref() -> RPtr<Func> {
-        RPtr::new(&FUNC_ARRAY_REF.value as *const Func as *mut Func)
+    pub fn array_ref() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_ARRAY_REF.value)
     }
 
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{value::*, let_listbuilder, new_cap, with_cap, let_cap};
+    use crate::{cap_append};
+    use crate::value::list::ListBuilder;
+    use crate::value::*;
 
     #[test]
     fn test() {
@@ -343,19 +326,15 @@ mod tests {
         let ans_obj = &mut ans_obj;
 
         {
-            let_listbuilder!(builder, obj);
+            let mut builder = ListBuilder::new(obj);
 
-            with_cap!(v, number::Integer::alloc(1, obj).into_value(), obj, {
-                builder.append(&v, obj);
-            });
-            with_cap!(v, number::Real::alloc(3.14, obj).into_value(), obj, {
-                builder.append(&v, obj);
-            });
-            builder.append(&list::List::nil().into_value(), obj);
-            builder.append(&bool::Bool::true_().into_value(), obj);
+            cap_append!(builder, number::Integer::alloc(1, obj).into_value(), obj);
+            cap_append!(builder, number::Real::alloc(3.14, obj).into_value(), obj);
+            builder.append(list::List::nil().cast_value(), obj);
+            builder.append(bool::Bool::true_().cast_value(), obj);
 
             let (list, size) = builder.get_with_size();
-            let_cap!(list, list, obj);
+            let list = list.reach(obj);
             let ary = array::Array::from_list(&list, Some(size), obj);
 
             let ans= number::Integer::alloc(1, ans_obj).into_value();

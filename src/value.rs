@@ -9,7 +9,7 @@ macro_rules! new_typeinfo {
                 None => None
             },
             eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Value, &Value) -> bool>($eq_func) },
-            clone_func: unsafe { std::mem::transmute::<fn(&RPtr<$t>, &mut Object) -> FPtr<$t>, fn(&RPtr<Value>, &mut Object) -> FPtr<Value>>($clone_func) },
+            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut Object) -> FPtr<$t>, fn(&Value, &mut Object) -> FPtr<Value>>($clone_func) },
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
             finalize: match $finalize_func {
@@ -21,7 +21,7 @@ macro_rules! new_typeinfo {
                 None => None
              },
             child_traversal_func: match $child_traversal_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, *mut u8, fn(&RPtr<Value>, *mut u8)), fn(&Value, *mut u8, fn(&RPtr<Value>, *mut u8))>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, *mut u8, fn(&FPtr<Value>, *mut u8)), fn(&Value, *mut u8, fn(&FPtr<Value>, *mut u8))>(func) }),
                 None => None
              },
         }
@@ -60,11 +60,12 @@ const fn tagged_value(tag: usize) -> usize {
     (tag << 16) | IMMIDATE_TAGGED_VALUE
 }
 
-pub(crate) const IMMIDATE_NIL: usize = tagged_value(0);
-pub(crate) const IMMIDATE_TRUE: usize = tagged_value(1);
-pub(crate) const IMMIDATE_FALSE: usize = tagged_value(2);
-pub(crate) const IMMIDATE_UNIT: usize = tagged_value(3);
-pub(crate) const IMMIDATE_MATCHFAIL: usize = tagged_value(4);
+pub(crate) const IMMIDATE_GC_COPIED: usize = tagged_value(0); //GC内でだけ使用する特別な値。
+pub(crate) const IMMIDATE_NIL: usize = tagged_value(1);
+pub(crate) const IMMIDATE_TRUE: usize = tagged_value(2);
+pub(crate) const IMMIDATE_FALSE: usize = tagged_value(3);
+pub(crate) const IMMIDATE_UNIT: usize = tagged_value(4);
+pub(crate) const IMMIDATE_MATCHFAIL: usize = tagged_value(5);
 
 #[derive(PartialEq)]
 enum PtrKind {
@@ -95,7 +96,7 @@ fn pointer_kind<T>(ptr: *const T) -> PtrKind {
                     _ => panic!("invalid tagged value"),
                 }
             }
-            _ => panic!("invalid pointer"),
+            _ => panic!("invalid pointer: {}", value),
         }
     }
 }
@@ -104,25 +105,19 @@ pub fn value_is_pointer(v: &Value) -> bool {
     pointer_kind(v as *const Value) == PtrKind::Ptr
 }
 
-pub fn value_clone<T, U>(v: &T, obj: &mut Object) -> FPtr<U>
-where
-    T: AsReachable<U>,
-    U: NaviType,
-{
-    let v = v.as_reachable();
-
+pub fn value_clone<T: NaviType>(v: &Reachable<T>, obj: &mut Object) -> FPtr<T> {
     //クローンを行う値のトータルのサイズを計測
     //リストや配列など内部に値を保持している場合は再帰的にすべての値のサイズも計測されている
     let total_size = crate::mm::Heap::calc_total_size(v.cast_value().as_ref());
     //事前にクローンを行うために必要なメモリスペースを確保する
     obj.force_allocation_space(total_size);
 
-    NaviType::clone_inner(v, obj)
+    NaviType::clone_inner(v.as_ref(), obj)
 }
 
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> NonNullConst<TypeInfo>;
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self>;
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self>;
 }
 
 #[allow(dead_code)]
@@ -131,12 +126,12 @@ pub struct TypeInfo {
     pub fixed_size: usize,
     pub variable_size_func: Option<fn(&Value) -> usize>,
     pub eq_func: fn(&Value, &Value) -> bool,
-    pub clone_func: fn(&RPtr<Value>, &mut Object) -> FPtr<Value>,
+    pub clone_func: fn(&Value, &mut Object) -> FPtr<Value>,
     pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: fn(&TypeInfo) -> bool,
     pub finalize: Option<fn(&mut Value)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
-    pub child_traversal_func: Option<fn(&Value, *mut u8, fn(&RPtr<Value>, *mut u8))>,
+    pub child_traversal_func: Option<fn(&Value, *mut u8, fn(&FPtr<Value>, *mut u8))>,
 }
 
 pub struct Value { }
@@ -159,14 +154,14 @@ impl NaviType for Value {
         NonNullConst::new_unchecked(&VALUE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        if value_is_pointer(this.as_ref()) {
-            let typeinfo = this.as_ref().get_typeinfo();
-           (unsafe { typeinfo.as_ref() }.clone_func)(this, obj)
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        if value_is_pointer(self) {
+            let typeinfo = self.get_typeinfo();
+           (unsafe { typeinfo.as_ref() }.clone_func)(self, obj)
 
         } else {
             //Immidiate Valueの場合はそのまま返す
-            this.clone().into_fptr()
+            FPtr::new(self)
         }
     }
 }
@@ -278,7 +273,7 @@ impl Value {
 
 }
 
-fn func_equal(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_equal(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let left = args.as_ref().get(0);
     let right = args.as_ref().get(1);
 
@@ -303,21 +298,21 @@ static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("=", &RPtr::new(&FUNC_EQUAL.value as *const Func as *mut Func).into_value());
+    ctx.define_value("=", Reachable::new_static(&FUNC_EQUAL.value).cast_value());
 }
 
 pub mod literal {
     use super::*;
 
-    pub fn equal() -> RPtr<Func> {
-        RPtr::new(&FUNC_EQUAL.value as *const Func as *mut Func)
+    pub fn equal() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_EQUAL.value)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::read::Reader;
-    use crate::{value::*, let_cap, new_cap};
+    use crate::value::*;
 
     #[test]
     fn is_type() {
@@ -342,8 +337,8 @@ mod tests {
         assert!(!v.as_ref().is::<string::NString>());
 
         //list
-        let_cap!(item, number::Integer::alloc(10, obj).into_value(), obj);
-        let_cap!(v, list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).into_value(), obj);
+        let item = number::Integer::alloc(10, obj).into_value().reach(obj);
+        let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).into_value().reach(obj);
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
     }
@@ -354,7 +349,7 @@ mod tests {
         assert!(result.is_ok());
         let sexp = result.unwrap();
 
-        let_cap!(sexp, sexp, obj);
+        let sexp = sexp.reach(obj);
         let result = crate::eval::eval(&sexp, obj);
         let result = result.try_cast::<T>();
         assert!(result.is_some());
@@ -370,95 +365,95 @@ mod tests {
 
         {
             let program = "(= 1 1)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1 1.0)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1.0 1)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 3.14 3.14)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1 1.001)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= \"hoge\" \"hoge\")";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= \"hoge\" \"hogehoge\")";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= \"hoge\" \"huga\")";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= 'symbol 'symbol)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 'symbol 'other)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= :keyword :keyword)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 'symbol 'other)";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= '(1 \"2\" :3) '(1 \"2\" :3))";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= '(1 \"2\" :3) '(1 \"2\" '3))";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= [1 \"2\" :3] [1 \"2\" :3])";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= [1 \"2\" :3] [1 \"2\" '3])";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= {1 \"2\" :3} {1 \"2\" :3})";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= {1 \"2\" :3} {1 \"2\" '3})";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= 1 \"1\")";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= '(1 2 3) [1 2 3])";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= {} [])";
-            let_cap!(result, eval::<bool::Bool>(program, obj), obj);
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 

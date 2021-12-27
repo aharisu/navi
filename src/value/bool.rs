@@ -1,5 +1,5 @@
 use crate::value::*;
-use crate::ptr::RPtr;
+use crate::ptr::*;
 use std::fmt::{self, Debug, Display};
 
 pub struct Bool {
@@ -23,9 +23,9 @@ impl NaviType for Bool {
         NonNullConst::new_unchecked(&BOOL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, _obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, _obj: &mut Object) -> FPtr<Self> {
         //Bool型の値は常にImmidiate Valueなのでそのまま返す
-        this.clone().into_fptr()
+        FPtr::new(self)
     }
 }
 
@@ -37,13 +37,13 @@ impl Bool {
     }
 
     #[inline(always)]
-    pub fn true_() -> RPtr<Bool> {
-        RPtr::<Bool>::new_immidiate(IMMIDATE_TRUE)
+    pub fn true_() -> Reachable<Bool> {
+        Reachable::<Bool>::new_immidiate(IMMIDATE_TRUE)
     }
 
     #[inline(always)]
-    pub fn false_() -> RPtr<Bool> {
-        RPtr::<Bool>::new_immidiate(IMMIDATE_FALSE)
+    pub fn false_() -> Reachable<Bool> {
+        Reachable::<Bool>::new_immidiate(IMMIDATE_FALSE)
     }
 
     #[inline(always)]

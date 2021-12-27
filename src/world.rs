@@ -6,7 +6,7 @@ mod map;
 //TODO Worldはざっくりいうとグローバル変数空間
 
 pub struct World {
-    area: crate::world::map::PatriciaTree<RPtr<Value>>,
+    area: crate::world::map::PatriciaTree<FPtr<Value>>,
 }
 
 impl World {
@@ -16,22 +16,21 @@ impl World {
         }
     }
 
-    pub fn set<K, V>(&mut self, key: K, v: &V)
+    pub fn set<K>(&mut self, key: K, v: &Reachable<Value>)
     where
         K: AsRef<str>,
-        V: AsReachable<Value>,
     {
-        self.area.add(key, v.as_reachable().clone())
+        self.area.add(key, FPtr::new(v.as_ref()))
     }
 
-    pub fn get<K>(&self, key: K) -> Option<&RPtr<Value>>
+    pub fn get<K>(&self, key: K) -> Option<&FPtr<Value>>
     where
         K: AsRef<str>
     {
         self.area.get(key)
     }
 
-    pub(crate) fn get_all_values(&self) -> Vec<&RPtr<Value>> {
+    pub(crate) fn get_all_values(&self) -> Vec<&FPtr<Value>> {
         let vec = self.area.to_vec_preorder();
         vec.iter().filter_map(|node| {
             node.value_as_ref()
@@ -44,17 +43,14 @@ impl World {
 #[cfg(test)]
 mod tests {
     use crate::object::Object;
-    use crate::{value::*, let_cap, new_cap};
+    use crate::{value::*};
     use crate::context::{Context};
     use crate::ptr::*;
 
-    fn world_get<T>(symbol: &T, ctx: &Context) -> FPtr<Value>
-    where
-        T: AsReachable<symbol::Symbol>
-    {
+    fn world_get(symbol: &Reachable<symbol::Symbol>, ctx: &Context) -> FPtr<Value> {
         let result = ctx.find_value(symbol);
         assert!(result.is_some());
-        result.unwrap().clone().into_fptr()
+        result.unwrap()
     }
 
     #[test]
@@ -63,32 +59,32 @@ mod tests {
         let obj = &mut obj;
 
         {
-            let_cap!(v, number::Integer::alloc(1, obj).into_value(), obj);
+            let v = number::Integer::alloc(1, obj).into_value().reach(obj);
             obj.context().define_value("symbol", &v);
 
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), obj), obj);
-            let_cap!(result, world_get(&symbol, obj.context()), obj);
-            let_cap!(ans, number::Integer::alloc(1, obj).into_value(), obj);
+            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), obj).reach(obj);
+            let result = world_get(&symbol, obj.context()).reach(obj);
+            let ans = number::Integer::alloc(1, obj).into_value().reach(obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
 
-            let_cap!(v, number::Real::alloc(3.14, obj).into_value(), obj);
+            let v = number::Real::alloc(3.14, obj).into_value().reach(obj);
             obj.context().define_value("symbol", &v);
 
-            let_cap!(symbol, symbol::Symbol::alloc(&"symbol".to_string(), obj), obj);
-            let_cap!(result, world_get(&symbol, obj.context()), obj);
-            let_cap!(ans, number::Real::alloc(3.14, obj).into_value(), obj);
+            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), obj).reach(obj);
+            let result = world_get(&symbol, obj.context()).reach(obj);
+            let ans = number::Real::alloc(3.14, obj).into_value().reach(obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let_cap!(v2, string::NString::alloc(&"bar".to_string(), obj).into_value(), obj);
+            let v2 = string::NString::alloc(&"bar".to_string(), obj).into_value().reach(obj);
             obj.context().define_value("hoge", &v2);
 
-            let_cap!(symbol2, symbol::Symbol::alloc(&"hoge".to_string(), obj), obj);
-            let_cap!(result, world_get(&symbol2, obj.context()), obj);
-            let_cap!(ans2, string::NString::alloc(&"bar".to_string(), obj).into_value(), obj);
+            let symbol2 = symbol::Symbol::alloc(&"hoge".to_string(), obj).reach(obj);
+            let result = world_get(&symbol2, obj.context()).reach(obj);
+            let ans2 = string::NString::alloc(&"bar".to_string(), obj).into_value().reach(obj);
             assert_eq!(result.as_ref(), ans2.as_ref());
 
-            let_cap!(result, world_get(&symbol, obj.context()), obj);
+            let result = world_get(&symbol, obj.context()).reach(obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }

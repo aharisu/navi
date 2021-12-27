@@ -28,9 +28,9 @@ impl NaviType for ObjectRef {
         NonNullConst::new_unchecked(&OBJECT_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
         //コンテキスト自体はクローンせずに同じ実体を持つRcをクローンする。
-        let handle = this.as_ref().handle.clone();
+        let handle = self.handle.clone();
         Self::alloc_inner(handle, obj)
     }
 }
@@ -67,15 +67,11 @@ impl ObjectRef {
         &mut *(ptr as *mut Object)
     }
 
-    pub fn recv<T>(&self, msg: &T) -> FPtr<Value>
-    where
-        T: AsReachable<Value>
-    {
-        let msg = msg.as_reachable();
+    pub fn recv(&self, msg: &Reachable<Value>) -> FPtr<Value> {
         //let mut obj = (*self.handle).borrow_mut();
         let obj = unsafe { self.get() };
 
-        obj.recv_message(msg.as_reachable())
+        obj.recv_message(msg)
 
         /*
         //TODO 自分から自分へのsendの場合はクローンする必要がないので場合分けしたい
@@ -117,16 +113,16 @@ impl Debug for ObjectRef {
     }
 }
 
-fn func_spawn(_args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_spawn(_args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
     ObjectRef::alloc(obj).into_value()
 }
 
-fn func_send(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_send(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let target_obj = args.as_ref().get(0);
     let target_obj = unsafe { target_obj.cast_unchecked::<ObjectRef>() };
     let message = args.as_ref().get(1);
 
-    target_obj.as_ref().recv(message)
+    target_obj.as_ref().recv(&message.reach(obj))
 }
 
 static FUNC_SPAWN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
@@ -148,8 +144,8 @@ static FUNC_SEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Context) {
-    obj.define_value("spawn", &RPtr::new(&FUNC_SPAWN.value as *const Func as *mut Func).into_value());
-    obj.define_value("send", &RPtr::new(&FUNC_SEND.value as *const Func as *mut Func).into_value());
+    obj.define_value("spawn", Reachable::new_static(&FUNC_SPAWN.value).cast_value());
+    obj.define_value("send", Reachable::new_static(&FUNC_SEND.value).cast_value());
 }
 
 #[cfg(test)]
@@ -157,7 +153,6 @@ mod tests {
     use super::*;
     use crate::read::*;
 
-    use crate::{let_cap, new_cap};
 
     fn eval<T: NaviType>(program: &str, obj: &mut Object) -> FPtr<T> {
         let mut reader = Reader::new(program.chars().peekable());
@@ -165,7 +160,7 @@ mod tests {
         assert!(result.is_ok());
         let sexp = result.unwrap();
 
-        let_cap!(sexp, sexp, obj);
+        let sexp = sexp.reach(obj);
         let result = crate::eval::eval(&sexp, obj);
         let result = result.try_cast::<T>();
         assert!(result.is_some());
@@ -180,8 +175,7 @@ mod tests {
 
         {
             let program = "(def obj (spawn))";
-            let new_obj_ref = eval::<ObjectRef>(program, obj);
-            let_cap!(new_obj_ref, new_obj_ref, obj);
+            let new_obj_ref = eval::<ObjectRef>(program, obj).capture(obj);
 
             let new_obj = unsafe { new_obj_ref.as_ref().get() };
 

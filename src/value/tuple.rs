@@ -26,20 +26,20 @@ impl NaviType for Tuple {
         NonNullConst::new_unchecked(&TUPLE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        if this.as_ref().is_unit() {
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        if self.is_unit() {
             //UnitはImmidiate Valueなのでそのまま返す
-            this.clone().into_fptr()
+            FPtr::new(self)
         } else {
-            let size = this.as_ref().len();
+            let size = self.len();
             let mut tuple = Self::alloc(size, obj);
 
             for index in 0..size {
-                let child = this.as_ref().get(index);
-                //clone_innerの文脈の中だけ、FPtrをキャプチャせずにRPtrとして扱うことが許されている
-                let cloned = Value::clone_inner(child, obj).into_rptr();
+                let child = self.get_inner(index);
+                //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
+                let cloned = Value::clone_inner(child.as_ref(), obj);
 
-                tuple.as_mut().set(&cloned, index);
+                tuple.as_mut().set(cloned.as_ref(), index);
             }
 
             tuple
@@ -51,22 +51,22 @@ impl NaviType for Tuple {
 impl Tuple {
     fn size_of(&self) -> usize {
         std::mem::size_of::<Tuple>()
-            + self.len * std::mem::size_of::<RPtr<Value>>()
+            + self.len * std::mem::size_of::<FPtr<Value>>()
     }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&TUPLE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&RPtr<Value>, *mut u8)) {
+    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
         for index in 0..self.len {
-            callback(self.get(index), arg);
+            callback(self.get_inner(index), arg);
         }
     }
 
     #[inline(always)]
-    pub fn unit() -> RPtr<Tuple> {
-        RPtr::<Tuple>::new_immidiate(IMMIDATE_UNIT)
+    pub fn unit() -> Reachable<Tuple> {
+        Reachable::<Tuple>::new_immidiate(IMMIDATE_UNIT)
     }
 
     #[inline(always)]
@@ -75,7 +75,7 @@ impl Tuple {
     }
 
     fn alloc(size: usize, obj: &mut Object) -> FPtr<Tuple> {
-        let ptr = obj.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<RPtr<Value>>());
+        let ptr = obj.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<FPtr<Value>>());
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Tuple {len: size});
@@ -84,29 +84,29 @@ impl Tuple {
         ptr.into_fptr()
     }
 
-    fn set<T>(&mut self, v: &T, index: usize)
-    where
-        T: AsReachable<Value>
-    {
+    fn set(&mut self, v: &Value, index: usize) {
         if self.len() <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
 
-        let v = v.as_reachable();
         let ptr = self as *mut Tuple;
         unsafe {
             //ポインタをTuple構造体の後ろに移す
             let ptr = ptr.add(1);
             //Tuple構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut RPtr<Value>;
+            let storage_ptr = ptr as *mut FPtr<Value>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
-            std::ptr::write(storage_ptr, v.clone());
+            std::ptr::write(storage_ptr, FPtr::new(v));
         };
     }
 
-    pub fn get<'a>(&'a self, index: usize) -> &'a RPtr<Value> {
+    pub fn get(&self, index: usize) -> FPtr<Value> {
+        self.get_inner(index).clone()
+    }
+
+    fn get_inner<'a>(&'a self, index: usize) -> &'a FPtr<Value> {
         if self.len() <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -116,7 +116,7 @@ impl Tuple {
             //ポインタをTuple構造体の後ろに移す
             let ptr = ptr.add(1);
             //Tuple構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut RPtr<Value>;
+            let storage_ptr = ptr as *mut FPtr<Value>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
 
@@ -132,11 +132,24 @@ impl Tuple {
         }
     }
 
-    pub fn from_list<T>(list: &T, size: Option<usize>, obj: &mut Object) -> FPtr<Tuple>
-    where
-        T: AsReachable<list::List>,
-    {
-        let list = list.as_reachable();
+    pub fn from_array(ary: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Tuple> {
+        let len = ary.as_ref().len();
+
+        if len == 0 {
+            Self::unit().into_fptr()
+
+        } else {
+            let mut tuple = Self::alloc(len, obj);
+            for index in 0..len {
+                tuple.as_mut().set(ary.as_ref().get(index).as_ref(), index);
+            }
+
+            tuple
+        }
+
+    }
+
+    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> FPtr<Tuple> {
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
@@ -147,8 +160,8 @@ impl Tuple {
 
         } else {
             let mut tuple = Self::alloc(size, obj);
-            for (index, v) in list.as_ref().iter().enumerate() {
-                tuple.as_mut().set(v, index);
+            for (index, v) in list.iter(obj).enumerate() {
+                tuple.as_mut().set(v.as_ref(), index);
             }
 
             tuple
@@ -200,23 +213,23 @@ impl Debug for Tuple {
     }
 }
 
-fn func_is_tuple(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_is_tuple(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     if v.is_type(tuple::Tuple::typeinfo()) {
-        v.clone().into_fptr()
+        v.clone()
     } else {
-        bool::Bool::false_().into_value().into_fptr()
+        bool::Bool::false_().into_fptr().into_value()
     }
 }
 
-fn func_tuple_len(args: &RPtr<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_tuple_len(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<tuple::Tuple>() };
 
     number::Integer::alloc(v.as_ref().len as i64, obj).into_value()
 }
 
-fn func_tuple_ref(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_tuple_ref(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
     let tuple = args.as_ref().get(0);
     let tuple = unsafe { tuple.cast_unchecked::<tuple::Tuple>() };
 
@@ -225,7 +238,6 @@ fn func_tuple_ref(args: &RPtr<array::Array>, _obj: &mut Object) -> FPtr<Value> {
 
     tuple.as_ref().get(index.as_ref().get() as usize)
         .clone()
-        .into_fptr()
 }
 
 static FUNC_IS_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
@@ -260,25 +272,26 @@ static FUNC_TUPLE_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("tuple?", &RPtr::new(&FUNC_IS_TUPLE.value as *const Func as *mut Func).into_value());
-    ctx.define_value("tuple-len", &RPtr::new(&FUNC_TUPLE_LEN.value as *const Func as *mut Func).into_value());
-    ctx.define_value("tuple-ref", &RPtr::new(&FUNC_TUPLE_REF.value as *const Func as *mut Func).into_value());
+    ctx.define_value("tuple?", Reachable::new_static(&FUNC_IS_TUPLE.value).cast_value());
+    ctx.define_value("tuple-len", Reachable::new_static(&FUNC_TUPLE_LEN.value).cast_value());
+    ctx.define_value("tuple-ref", Reachable::new_static(&FUNC_TUPLE_REF.value).cast_value());
 }
 
 pub mod literal {
-    use crate::{ptr::RPtr, value::func::Func};
+    use crate::ptr::*;
+    use crate::value::func::Func;
     use super::*;
 
-    pub fn is_tuple() -> RPtr<Func> {
-        RPtr::new(&FUNC_IS_TUPLE.value as *const Func as *mut Func)
+    pub fn is_tuple() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_IS_TUPLE.value)
     }
 
-    pub fn tuple_len() -> RPtr<Func> {
-        RPtr::new(&FUNC_TUPLE_LEN.value as *const Func as *mut Func)
+    pub fn tuple_len() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_TUPLE_LEN.value)
     }
 
-    pub fn tuple_ref() -> RPtr<Func> {
-        RPtr::new(&FUNC_TUPLE_REF.value as *const Func as *mut Func)
+    pub fn tuple_ref() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_TUPLE_REF.value)
     }
 
 }

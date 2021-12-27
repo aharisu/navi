@@ -30,8 +30,8 @@ impl NaviType for Symbol {
         NonNullConst::new_unchecked(&SYMBOL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(this.as_ref().as_ref(), obj)
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        Self::alloc(self.as_ref(), obj)
     }
 }
 

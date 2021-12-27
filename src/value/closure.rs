@@ -5,8 +5,8 @@ use std::fmt::{Debug, Display};
 
 
 pub struct Closure {
-    params: RPtr<array::Array>,
-    body: RPtr<list::List>,
+    params: Vec::<FPtr<symbol::Symbol>>,
+    body: FPtr<list::List>,
 }
 
 static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -28,12 +28,25 @@ impl NaviType for Closure {
         NonNullConst::new_unchecked(&CLOSURE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(this: &RPtr<Self>, obj: &mut Object) -> FPtr<Self> {
-        //clone_innerの文脈の中だけ、FPtrをキャプチャせずにRPtrとして扱うことが許されている
-        let params = array::Array::clone_inner(&this.as_ref().params, obj).into_rptr();
-        let body = list::List::clone_inner(&this.as_ref().body, obj).into_rptr();
+    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+        //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
+        unsafe {
+            let params = self.params.iter()
+                .map(|param| symbol::Symbol::clone_inner(param.as_ref(), obj))
+                .collect()
+                ;
+            //array::Array::clone_inner(self.params.as_ref(), obj).into_rptr();
+            let body = list::List::clone_inner(self.body.as_ref(), obj).into_reachable();
 
-        Self::alloc(&params, &body, obj)
+            let ptr = obj.alloc::<Closure>();
+
+            std::ptr::write(ptr.as_ptr(), Closure {
+                params: params,
+                body: FPtr::new(body.as_ref()),
+            });
+
+            ptr.into_fptr()
+        }
     }
 }
 
@@ -43,59 +56,54 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&RPtr<Value>, arg: *mut u8)) {
-        callback(self.params.cast_value(), arg);
+    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, arg: *mut u8)) {
+        self.params.iter().for_each(|param| callback(param.cast_value(), arg));
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc<T, U>(params: &T, body: &U, obj: &mut Object) -> FPtr<Self>
-    where
-        T: AsReachable<array::Array>,
-        U: AsReachable<list::List>,
-    {
+    pub fn alloc(params: Vec::<Reachable<symbol::Symbol>>, body: &Reachable<list::List>, obj: &mut Object) -> FPtr<Self> {
         let ptr = obj.alloc::<Closure>();
+
+        let params: Vec::<FPtr<symbol::Symbol>> = params.into_iter()
+            .map(|param| FPtr::new(param.as_ref()))
+            .collect()
+            ;
+
         unsafe {
             std::ptr::write(ptr.as_ptr(), Closure {
-                params: params.as_reachable().clone(),
-                body: body.as_reachable().clone(),
+                params: params,
+                body: FPtr::new(body.as_ref()),
             })
         }
-
 
         ptr.into_fptr()
     }
 
-    pub fn process_arguments_descriptor<T>(&self, args: &T, _obj: &mut Object) -> bool
-    where
-        T: AsReachable<list::List>
-    {
-        let count = args.as_reachable().as_ref().count();
-        if count < self.params.as_ref().len() {
+    pub fn process_arguments_descriptor(&self, args: &Reachable<list::List>, _obj: &mut Object) -> bool {
+        //TODO 各種パラメータ指定の処理(:option, :rest)
+
+        let count = args.as_ref().count();
+        if count < self.params.len() {
             false
         } else {
             true
         }
     }
 
-    pub fn apply<'a>(&self, args_iter: impl Iterator<Item=&'a RPtr<Value>>, obj: &mut Object) -> FPtr<Value>
-    {
+    pub fn apply(&self, args_iter: impl Iterator<Item=FPtr<Value>>, obj: &mut Object) -> FPtr<Value> {
         //ローカルフレームを構築
-        let mut frame = Vec::<(&RPtr<symbol::Symbol>, &RPtr<Value>)>::new();
+        let mut frame = Vec::<(&symbol::Symbol, &Value)>::new();
 
-        let iter1 = self.params.as_ref().iter();
-        let iter2 = args_iter;
-
-        let iter = iter1.zip(iter2);
-        for (sym, v) in iter {
-            let sym = unsafe { sym.cast_unchecked::<symbol::Symbol>() };
-            frame.push((sym, v));
+        for (sym, v) in self.params.iter().zip(args_iter) {
+            frame.push((sym.as_ref(), v.as_ref()));
         }
 
         //ローカルフレームを環境にプッシュ
         obj.context().push_local_frame(&frame);
 
         //Closure本体を実行
-        let result = syntax::do_begin(&self.body, obj);
+        let body = self.body.clone().reach(obj);
+        let result = syntax::do_begin(&body, obj);
 
         //ローカルフレームを環境からポップ
         obj.context().pop_local_frame();
