@@ -65,7 +65,7 @@ fn main() {
 
     //println!("{}", (navi::number::NUMBER_HEADER.size_of.unwrap())(&navi::object::Number{num: 101}));
 
-    let mut heap = navi::mm::Heap::new();
+    let mut heap = navi::object::mm::Heap::new();
     /*
     let num = NaviValue::alloc::<navi::t::number::Number>(&mut heap);
     println!("{}", num.num);

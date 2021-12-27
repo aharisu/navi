@@ -42,12 +42,12 @@ pub mod tuple;
 pub mod object_ref;
 
 
-use crate::context::Context;
+use crate::object::context::Context;
 use crate::object::Object;
+use crate::object::mm::{self, GCAllocationStruct, ptr_to_usize};
 use crate::util::non_null_const::*;
 use crate::ptr::*;
 
-use crate::mm::{GCAllocationStruct};
 use crate::value::func::*;
 use once_cell::sync::Lazy;
 
@@ -78,7 +78,7 @@ enum PtrKind {
 }
 
 fn pointer_kind<T>(ptr: *const T) -> PtrKind {
-    let value = crate::mm::ptr_to_usize(ptr);
+    let value = mm::ptr_to_usize(ptr);
 
     //下位2bitが00なら生ポインタ
     if value & 0b11 == 0 {
@@ -108,7 +108,7 @@ pub fn value_is_pointer(v: &Value) -> bool {
 pub fn value_clone<T: NaviType>(v: &Reachable<T>, obj: &mut Object) -> FPtr<T> {
     //クローンを行う値のトータルのサイズを計測
     //リストや配列など内部に値を保持している場合は再帰的にすべての値のサイズも計測されている
-    let total_size = crate::mm::Heap::calc_total_size(v.cast_value().as_ref());
+    let total_size = mm::Heap::calc_total_size(v.cast_value().as_ref());
     //事前にクローンを行うために必要なメモリスペースを確保する
     obj.force_allocation_space(total_size);
 
@@ -224,7 +224,7 @@ impl Value {
                 crate::value::syntax::r#match::MatchFail::typeinfo()
             }
             PtrKind::Ptr => {
-                crate::mm::get_typeinfo(ptr)
+                mm::get_typeinfo(ptr)
             }
         }
     }

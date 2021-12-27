@@ -3,7 +3,7 @@
 
 use crate::value::{self, *};
 use crate::ptr::*;
-use crate::world::World;
+use crate::object::world::World;
 
 pub struct Context {
     world: World,

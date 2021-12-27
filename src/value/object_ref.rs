@@ -1,6 +1,6 @@
 use crate::value::*;
-use crate::context::Context;
 use crate::object::Object;
+use crate::object::context::Context;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
 

@@ -1,10 +1,9 @@
-use crate::mm::get_typeinfo;
-use crate::object::Object;
 use crate::ptr::*;
 use crate::value::*;
 use crate::value::func::*;
-use crate::context::Context;
-use crate::mm::{GCAllocationStruct};
+use crate::object::Object;
+use crate::object::context::Context;
+use crate::object::mm::{GCAllocationStruct, get_typeinfo};
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;

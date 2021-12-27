@@ -1,12 +1,12 @@
 use crate::eval::eval;
-use crate::mm::GCAllocationStruct;
 use crate::value::symbol::Symbol;
 use crate::value::list::List;
 use crate::cap_eval;
 use crate::value::*;
 use crate::value::list;
 use crate::ptr::*;
-use crate::context::Context;
+use crate::object::mm::GCAllocationStruct;
+use crate::object::context::Context;
 use std::fmt::{Debug, Display};
 use std::panic;
 use once_cell::sync::Lazy;

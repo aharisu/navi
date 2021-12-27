@@ -1,6 +1,6 @@
 use crate::value::*;
 use crate::ptr::*;
-use crate::context::Context;
+use crate::object::context::Context;
 use std::fmt::{self, Debug};
 
 pub struct Tuple {

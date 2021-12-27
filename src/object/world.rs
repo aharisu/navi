@@ -6,13 +6,13 @@ mod map;
 //TODO Worldはざっくりいうとグローバル変数空間
 
 pub struct World {
-    area: crate::world::map::PatriciaTree<FPtr<Value>>,
+    area: crate::object::world::map::PatriciaTree<FPtr<Value>>,
 }
 
 impl World {
     pub fn new() -> Self {
         World {
-            area: crate::world::map::PatriciaTree::new(),
+            area: crate::object::world::map::PatriciaTree::new(),
         }
     }
 
@@ -44,7 +44,7 @@ impl World {
 mod tests {
     use crate::object::Object;
     use crate::{value::*};
-    use crate::context::{Context};
+    use crate::object::context::{Context};
     use crate::ptr::*;
 
     fn world_get(symbol: &Reachable<symbol::Symbol>, ctx: &Context) -> FPtr<Value> {

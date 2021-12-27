@@ -631,14 +631,14 @@ impl Heap {
 
             //子オブジェクトへのポインタを移動先の新しいポインタで置き換える
             if value::value_is_pointer(value)
-                && crate::mm::Heap::is_pointer_within_heap(value, arg.start_addr, arg.end_addr) {
+                && crate::object::mm::Heap::is_pointer_within_heap(value, arg.start_addr, arg.end_addr) {
                 //値を指している参照から、GCHeaderを指しているポインタに変換
                 let alloc_ptr = unsafe {
                     let ptr = value as *const Value as *const u8;
                     ptr.sub(mem::size_of::<GCHeader>())
                 };
 
-                let (_, forwarding_index) = crate::mm::Heap::get_gc_flag(arg.start_addr, alloc_ptr, arg.flags);
+                let (_, forwarding_index) = crate::object::mm::Heap::get_gc_flag(arg.start_addr, alloc_ptr, arg.flags);
 
                 //子オブジェクトが移動しているなら移動先のポインタを参照するように更新する
                 let offset = forwarding_index + std::mem::size_of::<GCHeader>();
@@ -770,6 +770,7 @@ pub fn ptr_to_usize<T>(ptr: *const T) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::object::Object;
     use crate::value::*;
 
@@ -785,12 +786,12 @@ mod tests {
                 let _3 = number::Integer::alloc(3, obj).into_value().capture(obj);
 
                 obj.do_gc();
-                let used = (std::mem::size_of::<crate::mm::GCHeader>() + std::mem::size_of::<number::Integer>()) * 3;
+                let used = (std::mem::size_of::<GCHeader>() + std::mem::size_of::<number::Integer>()) * 3;
                 assert_eq!(obj.heap_used(), used);
             }
 
             obj.do_gc();
-            let used = (std::mem::size_of::<crate::mm::GCHeader>() + std::mem::size_of::<number::Integer>()) * 1;
+            let used = (std::mem::size_of::<GCHeader>() + std::mem::size_of::<number::Integer>()) * 1;
             assert_eq!(obj.heap_used(), used);
         }
 

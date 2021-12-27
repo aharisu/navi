@@ -1,14 +1,21 @@
+mod fixed_size_alloc;
+mod world;
+pub mod context;
+pub mod mm;
+
+
 use std::cell::RefCell;
 
 use once_cell::sync::Lazy;
 
-use crate::context::Context;
-use crate::fixed_size_alloc::FixedSizeAllocator;
 use crate::value::*;
 use crate::ptr::*;
 
-use crate::mm::{GCAllocationStruct, Heap};
 use crate::value::list::ListBuilder;
+
+use self::context::Context;
+use self::fixed_size_alloc::FixedSizeAllocator;
+use self::mm::{GCAllocationStruct, Heap};
 
 pub struct Object {
     ctx: Context,
