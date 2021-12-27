@@ -81,11 +81,11 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
             panic!("{:?} is not found", symbol.as_ref())
         }
 
-    } else if let Some(ary) = sexp.try_cast::<array::Array>() {
-        let mut builder = ArrayBuilder::new(ary.as_ref().len(), obj);
+    } else if let Some(ary) = sexp.try_cast::<array::Array<Value>>() {
+        let mut builder = ArrayBuilder::<Value>::new(ary.as_ref().len(), obj);
         for sexp in ary.iter() {
-            let v = cap_eval!(sexp, obj).reach(obj);
-            builder.push(&v, obj)
+            let v = cap_eval!(sexp, obj);
+            builder.push(v.as_ref(), obj)
         }
         builder.get().into_value()
 
@@ -95,11 +95,11 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
             tuple::Tuple::unit().into_fptr().into_value()
 
         } else {
-            let mut builder = ArrayBuilder::new(len, obj);
+            let mut builder = ArrayBuilder::<Value>::new(len, obj);
             for index in 0..len {
                 let sexp = tuple.as_ref().get(index).reach(obj);
-                let v = eval(&sexp, obj).reach(obj);
-                builder.push(&v, obj)
+                let v = eval(&sexp, obj);
+                builder.push(v.as_ref(), obj)
             }
             tuple::Tuple::from_array(&builder.get().reach(obj), obj).into_value()
         }

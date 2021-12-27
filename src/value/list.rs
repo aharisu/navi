@@ -373,7 +373,7 @@ impl ListBuilder {
 
 }
 
-fn func_is_list(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_is_list(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     if v.is_type(list::List::typeinfo()) {
         v.clone()
@@ -382,14 +382,14 @@ fn func_is_list(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value
     }
 }
 
-fn func_list_len(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_list_len(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<List>() };
 
     number::Integer::alloc(v.as_ref().count() as i64, obj).into_value()
 }
 
-fn func_list_ref(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_list_ref(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<List>() };
 

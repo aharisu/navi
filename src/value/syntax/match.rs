@@ -228,7 +228,7 @@ fn pattern_grouping(patterns: Vec<MatchClause>) -> Vec<(PatKind, Vec<MatchClause
                     PatKind::List
                 }
 
-            } else if std::ptr::eq(tf, array::Array::typeinfo().as_ptr()) {
+            } else if std::ptr::eq(tf, array::Array::<Value>::typeinfo().as_ptr()) {
                 PatKind::Array
             } else if std::ptr::eq(tf, tuple::Tuple::typeinfo().as_ptr()) {
                 PatKind::Tuple

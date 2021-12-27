@@ -3,26 +3,28 @@ use crate::ptr::*;
 use crate::object::context::Context;
 use std::fmt::Display;
 use std::fmt::{self, Debug};
+use std::marker::PhantomData;
 
-pub struct Array {
+pub struct Array<T: NaviType> {
     len: usize,
+    _type: PhantomData<T>,
 }
 
 static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
-    Array,
+    Array<Value>,
     "Array",
     0,
-    Some(Array::size_of),
-    Array::eq,
-    Array::clone_inner,
+    Some(Array::<Value>::size_of),
+    Array::<Value>::eq,
+    Array::<Value>::clone_inner,
     Display::fmt,
-    Array::is_type,
+    Array::<Value>::is_type,
     None,
     None,
-    Some(Array::child_traversal),
+    Some(Array::<Value>::child_traversal),
 );
 
-impl NaviType for Array {
+impl <T:NaviType> NaviType for Array<T> {
     fn typeinfo() -> NonNullConst<TypeInfo> {
         NonNullConst::new_unchecked(&ARRAY_TYPEINFO as *const TypeInfo)
     }
@@ -33,8 +35,10 @@ impl NaviType for Array {
 
         for index in 0..size {
             let child = self.get_inner(index);
+            let child = child.cast_value();
             //clone_innerの文脈の中だけ、PtrをキャプチャせずにRPtrとして扱うことが許されている
             let cloned = Value::clone_inner(child.as_ref(), obj);
+            let cloned = unsafe { cloned.cast_unchecked::<T>() };
 
             array.as_mut().set(cloned.as_ref(), index);
         }
@@ -43,9 +47,9 @@ impl NaviType for Array {
     }
 }
 
-impl Array {
+impl <T: NaviType> Array<T> {
     fn size_of(&self) -> usize {
-        std::mem::size_of::<Array>()
+        std::mem::size_of::<Array<T>>()
             + self.len * std::mem::size_of::<FPtr<Value>>()
     }
 
@@ -55,31 +59,31 @@ impl Array {
 
     fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
         for index in 0..self.len {
-            callback(self.get_inner(index), arg);
+            callback(self.get_inner(index).cast_value(), arg);
         }
     }
 
-    pub(crate) fn alloc(size: usize, obj: &mut Object) -> FPtr<Array> {
-        let ptr = obj.alloc_with_additional_size::<Array>(size * std::mem::size_of::<FPtr<Value>>());
+    pub(crate) fn alloc(size: usize, obj: &mut Object) -> FPtr<Array<T>> {
+        let ptr = obj.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<FPtr<Value>>());
         unsafe {
-            std::ptr::write(ptr.as_ptr(), Array { len: size})
+            std::ptr::write(ptr.as_ptr(), Array { len: size, _type: PhantomData})
         }
 
         ptr.into_fptr()
     }
 
-    fn set(&mut self, v: &Value, index: usize)
+    fn set(&mut self, v: &T, index: usize)
     {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
 
-        let ptr = self as *mut Array;
+        let ptr = self as *mut Array<T>;
         unsafe {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut FPtr<Value>;
+            let storage_ptr = ptr as *mut FPtr<T>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
@@ -87,21 +91,21 @@ impl Array {
         };
     }
 
-    pub fn get(&self, index: usize) -> FPtr<Value> {
+    pub fn get(&self, index: usize) -> FPtr<T> {
         self.get_inner(index).clone()
     }
 
-    fn get_inner<'a>(&'a self, index: usize) -> &'a FPtr<Value> {
+    fn get_inner<'a>(&'a self, index: usize) -> &'a FPtr<T> {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
 
-        let ptr = self as *const Array;
+        let ptr = self as *const Array<T>;
         unsafe {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut FPtr<Value>;
+            let storage_ptr = ptr as *mut FPtr<T>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
 
@@ -109,12 +113,21 @@ impl Array {
         }
     }
 
-
     pub fn len(&self) -> usize {
         self.len
     }
 
-    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> FPtr<Array> {
+    pub unsafe fn iter_gcunsafe<'a>(&'a self) -> ArrayIteratorGCUnsafe<'a, T> {
+        ArrayIteratorGCUnsafe {
+            ary: self,
+            index: 0,
+        }
+    }
+
+}
+
+impl Array<Value> {
+    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> FPtr<Array<Value>> {
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
@@ -127,40 +140,11 @@ impl Array {
 
         array
     }
-
 }
 
-impl Reachable<Array> {
-    pub fn iter(&self) -> ArrayIterator {
-        ArrayIterator {
-            ary: self,
-            index: 0,
-        }
-    }
-}
+impl <T: NaviType> Eq for Array<T> { }
 
-pub struct ArrayIterator<'a> {
-    ary: &'a Reachable<Array>,
-    index: usize,
-}
-
-impl <'a> std::iter::Iterator for ArrayIterator<'a> {
-    type Item = FPtr<Value>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.ary.as_ref().len() <= self.index {
-            None
-        } else {
-            let result = self.ary.as_ref().get(self.index);
-            self.index += 1;
-            Some(result)
-        }
-    }
-}
-
-impl Eq for Array { }
-
-impl PartialEq for Array {
+impl <T: NaviType> PartialEq for Array<T> {
     fn eq(&self, other: &Self) -> bool {
         if self.len == other.len {
             for index in 0..self.len {
@@ -176,7 +160,7 @@ impl PartialEq for Array {
     }
 }
 
-fn display(this: &Array, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Result {
+fn display<T: NaviType>(this: &Array<T>, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Result {
     write!(f, "[")?;
     let mut first = true;
     for index in 0..this.len() {
@@ -194,24 +178,71 @@ fn display(this: &Array, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Res
     write!(f, "]")
 }
 
-impl Display for Array {
+impl <T: NaviType> Display for Array<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         display(self, f, false)
     }
 }
 
-impl Debug for Array {
+impl <T: NaviType> Debug for Array<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         display(self, f, true)
     }
 }
 
-pub struct ArrayBuilder {
-    ary: Cap<Array>,
+pub struct ArrayIteratorGCUnsafe<'a, T: NaviType> {
+    ary: &'a Array<T>,
     index: usize,
 }
 
-impl ArrayBuilder {
+impl <'a, T: NaviType> std::iter::Iterator for ArrayIteratorGCUnsafe<'a, T> {
+    type Item = FPtr<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ary.len() <= self.index {
+            None
+        } else {
+            let result = self.ary.get(self.index);
+            self.index += 1;
+            Some(result)
+        }
+    }
+}
+
+impl <T: NaviType> Reachable<Array<T>> {
+    pub fn iter(&self) -> ArrayIterator<T> {
+        ArrayIterator {
+            ary: self,
+            index: 0,
+        }
+    }
+}
+
+pub struct ArrayIterator<'a, T: NaviType> {
+    ary: &'a Reachable<Array<T>>,
+    index: usize,
+}
+
+impl <'a, T: NaviType> std::iter::Iterator for ArrayIterator<'a, T> {
+    type Item = FPtr<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ary.as_ref().len() <= self.index {
+            None
+        } else {
+            let result = self.ary.as_ref().get(self.index);
+            self.index += 1;
+            Some(result)
+        }
+    }
+}
+
+pub struct ArrayBuilder<T: NaviType> {
+    ary: Cap<Array<T>>,
+    index: usize,
+}
+
+impl <T: NaviType> ArrayBuilder<T> {
     pub fn new(size: usize, obj: &mut Object) -> Self {
         ArrayBuilder {
             ary:  Array::alloc(size, obj).capture(obj),
@@ -219,35 +250,35 @@ impl ArrayBuilder {
         }
     }
 
-    pub fn push(&mut self, v: &Reachable<Value>, _obj: &mut Object) {
-        self.ary.as_mut().set(v.as_ref(), self.index);
+    pub fn push(&mut self, v: &T, _obj: &mut Object) {
+        self.ary.as_mut().set(v, self.index);
         self.index += 1;
     }
 
-    pub fn get(self) -> FPtr<Array> {
+    pub fn get(self) -> FPtr<Array<T>> {
         self.ary.take()
     }
 }
 
-fn func_is_array(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_is_array(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
-    if v.as_ref().is_type(array::Array::typeinfo()) {
+    if v.as_ref().is_type(array::Array::<Value>::typeinfo()) {
         v.clone()
     } else {
         bool::Bool::false_().into_fptr().into_value()
     }
 }
 
-fn func_array_len(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_array_len(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
-    let v = unsafe { v.cast_unchecked::<Array>() };
+    let v = unsafe { v.cast_unchecked::<Array<Value>>() };
 
     number::Integer::alloc(v.as_ref().len() as i64, obj).into_value()
 }
 
-fn func_array_ref(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_array_ref(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
-    let v = unsafe { v.cast_unchecked::<Array>() };
+    let v = unsafe { v.cast_unchecked::<Array<Value>>() };
 
     let index = args.as_ref().get(1);
     let index = unsafe { index.cast_unchecked::<number::Integer>() };
@@ -271,7 +302,7 @@ static FUNC_ARRAY_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("array-len",
             &[
-            Param::new("array", ParamKind::Require, Array::typeinfo()),
+            Param::new("array", ParamKind::Require, Array::<Value>::typeinfo()),
             ],
             func_array_len)
     )
@@ -281,7 +312,7 @@ static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("array-ref",
             &[
-            Param::new("array", ParamKind::Require, Array::typeinfo()),
+            Param::new("array", ParamKind::Require, Array::<Value>::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
             ],
             func_array_ref)

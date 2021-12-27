@@ -532,7 +532,7 @@ mod tests {
         {
             let program = "[]";
 
-            let result = read::<array::Array>(program, obj);
+            let result = read::<array::Array<Value>>(program, obj);
             let ans = array::Array::from_list(&list::List::nil(), Some(0), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -560,16 +560,18 @@ mod tests {
 
             let result = read::<Value>(program, obj);
 
+
             let _1 = number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj);
             let _3_14 = number::Real::alloc(3.14, ans_obj).into_value().reach(ans_obj);
             let hohoho = string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value().reach(ans_obj);
             let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value().reach(ans_obj);
 
-            let mut builder = ArrayBuilder::new(4, ans_obj);
-            builder.push(&_1, ans_obj);
-            builder.push(&_3_14, ans_obj);
-            builder.push(&hohoho, ans_obj);
-            builder.push(&symbol, ans_obj);
+            let mut builder = ArrayBuilder::<Value>::new(4, ans_obj);
+
+            builder.push(_1.as_ref(), ans_obj);
+            builder.push(_3_14.as_ref(), ans_obj);
+            builder.push(hohoho.as_ref(), ans_obj);
+            builder.push(symbol.as_ref(), ans_obj);
             let ans = builder.get().reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());

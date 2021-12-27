@@ -44,7 +44,7 @@ pub mod object_ref;
 
 use crate::object::context::Context;
 use crate::object::Object;
-use crate::object::mm::{self, GCAllocationStruct, ptr_to_usize};
+use crate::object::mm::{self, GCAllocationStruct};
 use crate::util::non_null_const::*;
 use crate::ptr::*;
 
@@ -273,7 +273,7 @@ impl Value {
 
 }
 
-fn func_equal(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_equal(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
     let left = args.as_ref().get(0);
     let right = args.as_ref().get(1);
 

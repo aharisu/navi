@@ -11,6 +11,8 @@ use std::fmt::{Debug, Display};
 use std::panic;
 use once_cell::sync::Lazy;
 
+use super::array::ArrayBuilder;
+
 pub mod r#match;
 
 pub struct Syntax {
@@ -210,31 +212,33 @@ fn syntax_def_recv(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value
 }
 
 pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
-
-    //引数指定の内容を解析
-    let mut param_vec: Vec<Reachable<symbol::Symbol>> = Vec::new();
     let params = args.as_ref().head();
     if let Some(params) = params.try_cast::<list::List>() {
         let params = params.clone().reach(obj);
+
+        let mut builder_params = ArrayBuilder::<symbol::Symbol>::new(params.as_ref().count(), obj);
 
         //TODO :optionalと:rest引数の対応
         for param in params.iter(obj) {
             match param.try_cast::<symbol::Symbol>() {
                 Some(symbol) => {
-                    param_vec.push(symbol.clone().reach(obj));
+                    builder_params.push(symbol.as_ref(), obj);
                 }
                 None => {
                     panic!("parameter require symbol. But got {:?}", param.as_ref())
                 }
             }
         }
+
+
+        let params = builder_params.get().reach(obj);
+        let body = args.as_ref().tail().reach(obj);
+
+        closure::Closure::alloc(&params, &body, obj).into_value()
+
     } else {
         panic!("The fun paramters require list. But got {:?}", params.as_ref())
     }
-
-    let body = args.as_ref().tail().reach(obj);
-
-    closure::Closure::alloc(param_vec, &body, obj).into_value()
 }
 
 fn syntax_let(args: &Reachable<List>, obj: &mut Object) -> FPtr<Value> {

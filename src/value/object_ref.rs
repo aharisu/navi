@@ -113,11 +113,11 @@ impl Debug for ObjectRef {
     }
 }
 
-fn func_spawn(_args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_spawn(_args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
     ObjectRef::alloc(obj).into_value()
 }
 
-fn func_send(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_send(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
     let target_obj = args.as_ref().get(0);
     let target_obj = unsafe { target_obj.cast_unchecked::<ObjectRef>() };
     let message = args.as_ref().get(1);

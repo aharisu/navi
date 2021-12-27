@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display};
 
 
 pub struct Closure {
-    params: Vec::<FPtr<symbol::Symbol>>,
+    params: FPtr<array::Array<symbol::Symbol>>,
     body: FPtr<list::List>,
 }
 
@@ -31,17 +31,13 @@ impl NaviType for Closure {
     fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         unsafe {
-            let params = self.params.iter()
-                .map(|param| symbol::Symbol::clone_inner(param.as_ref(), obj))
-                .collect()
-                ;
-            //array::Array::clone_inner(self.params.as_ref(), obj).into_rptr();
+            let params = array::Array::<symbol::Symbol>::clone_inner(self.params.as_ref(), obj).into_reachable();
             let body = list::List::clone_inner(self.body.as_ref(), obj).into_reachable();
 
             let ptr = obj.alloc::<Closure>();
 
             std::ptr::write(ptr.as_ptr(), Closure {
-                params: params,
+                params: FPtr::new(params.as_ref()),
                 body: FPtr::new(body.as_ref()),
             });
 
@@ -57,21 +53,16 @@ impl Closure {
     }
 
     fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, arg: *mut u8)) {
-        self.params.iter().for_each(|param| callback(param.cast_value(), arg));
+        callback(self.params.cast_value(), arg);
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc(params: Vec::<Reachable<symbol::Symbol>>, body: &Reachable<list::List>, obj: &mut Object) -> FPtr<Self> {
+    pub fn alloc(params: &Reachable<array::Array<symbol::Symbol>>, body: &Reachable<list::List>, obj: &mut Object) -> FPtr<Self> {
         let ptr = obj.alloc::<Closure>();
-
-        let params: Vec::<FPtr<symbol::Symbol>> = params.into_iter()
-            .map(|param| FPtr::new(param.as_ref()))
-            .collect()
-            ;
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Closure {
-                params: params,
+                params: FPtr::new(params.as_ref()),
                 body: FPtr::new(body.as_ref()),
             })
         }
@@ -83,7 +74,7 @@ impl Closure {
         //TODO 各種パラメータ指定の処理(:option, :rest)
 
         let count = args.as_ref().count();
-        if count < self.params.len() {
+        if count < self.params.as_ref().len() {
             false
         } else {
             true
@@ -94,8 +85,11 @@ impl Closure {
         //ローカルフレームを構築
         let mut frame = Vec::<(&symbol::Symbol, &Value)>::new();
 
-        for (sym, v) in self.params.iter().zip(args_iter) {
-            frame.push((sym.as_ref(), v.as_ref()));
+        {
+            let params_iter = unsafe { self.params.as_ref().iter_gcunsafe() };
+            for (sym, v) in params_iter.zip(args_iter) {
+                frame.push((sym.as_ref(), v.as_ref()));
+            }
         }
 
         //ローカルフレームを環境にプッシュ

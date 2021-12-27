@@ -132,7 +132,7 @@ impl Tuple {
         }
     }
 
-    pub fn from_array(ary: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Tuple> {
+    pub fn from_array(ary: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Tuple> {
         let len = ary.as_ref().len();
 
         if len == 0 {
@@ -213,7 +213,7 @@ impl Debug for Tuple {
     }
 }
 
-fn func_is_tuple(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_is_tuple(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     if v.is_type(tuple::Tuple::typeinfo()) {
         v.clone()
@@ -222,14 +222,14 @@ fn func_is_tuple(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Valu
     }
 }
 
-fn func_tuple_len(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_tuple_len(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     let v = unsafe { v.cast_unchecked::<tuple::Tuple>() };
 
     number::Integer::alloc(v.as_ref().len as i64, obj).into_value()
 }
 
-fn func_tuple_ref(args: &Reachable<array::Array>, _obj: &mut Object) -> FPtr<Value> {
+fn func_tuple_ref(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
     let tuple = args.as_ref().get(0);
     let tuple = unsafe { tuple.cast_unchecked::<tuple::Tuple>() };
 

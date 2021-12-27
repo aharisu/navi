@@ -253,7 +253,7 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_add(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -291,7 +291,7 @@ fn func_add(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
     }
 }
 
-fn func_abs(args: &Reachable<array::Array>, obj: &mut Object) -> FPtr<Value> {
+fn func_abs(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
 
     match number_to(v.as_ref()) {

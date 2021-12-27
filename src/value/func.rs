@@ -10,7 +10,7 @@ use super::array::Array;
 pub struct Func {
     name: String,
     params: Vec<Param>,
-    body:  fn(&Reachable<array::Array>, &mut Object) -> FPtr<Value>,
+    body:  fn(&Reachable<array::Array<Value>>, &mut Object) -> FPtr<Value>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -65,7 +65,7 @@ impl NaviType for Func {
 
 impl Func {
 
-    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&Reachable<array::Array>, &mut Object) -> FPtr<Value>) -> Func {
+    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&Reachable<array::Array<Value>>, &mut Object) -> FPtr<Value>) -> Func {
         Func {
             name: name.into(),
             params: params.to_vec(),
@@ -155,7 +155,7 @@ impl Func {
         Some(builder.get())
     }
 
-    pub fn apply(&self, args: &Reachable<Array>, obj: &mut Object) -> FPtr<Value> {
+    pub fn apply(&self, args: &Reachable<Array<Value>>, obj: &mut Object) -> FPtr<Value> {
         (self.body)(args, obj)
     }
 }

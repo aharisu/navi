@@ -11,6 +11,7 @@ use once_cell::sync::Lazy;
 use crate::value::*;
 use crate::ptr::*;
 
+use crate::value::array::ArrayBuilder;
 use crate::value::list::ListBuilder;
 
 use self::context::Context;
@@ -93,11 +94,12 @@ impl Object {
             let closure_body = closure_body.reach(obj);
 
             //Closure生成のためのパラメータ部分を構築
-            let mut params_vec = Vec::new();
-            params_vec.push(literal::msg_symbol());
+            let mut builder_params = ArrayBuilder::<symbol::Symbol>::new(1, obj);
+            builder_params.push(literal::msg_symbol().as_ref(), obj);
 
+            let params = builder_params.get().reach(obj);
             //matchを含んだClosureを作成する
-            let closure = closure::Closure::alloc(params_vec, &closure_body, obj);
+            let closure = closure::Closure::alloc(&params, &closure_body, obj);
             obj.receiver_closure = Some(closure);
         }
 
