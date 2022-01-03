@@ -3,7 +3,6 @@
 use crate::object::Object;
 use crate::value::*;
 use crate::ptr::*;
-use crate::object::context::{Context};
 use std::fmt::{self, Debug, Display};
 
 pub struct List {
@@ -432,10 +431,10 @@ static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
-pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("list?", Reachable::new_static(&FUNC_IS_LIST.value).cast_value());
-    ctx.define_value("list-len", Reachable::new_static(&FUNC_LIST_LEN.value).cast_value());
-    ctx.define_value("list-ref", Reachable::new_static(&FUNC_LIST_REF.value).cast_value());
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("list?", &FUNC_IS_LIST.value);
+    obj.define_global_value("list-len", &FUNC_LIST_LEN.value);
+    obj.define_global_value("list-ref", &FUNC_LIST_REF.value);
 }
 
 pub mod literal {

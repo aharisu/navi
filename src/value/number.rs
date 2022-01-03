@@ -2,7 +2,6 @@ use crate::ptr::*;
 use crate::value::*;
 use crate::value::func::*;
 use crate::object::Object;
-use crate::object::context::Context;
 use crate::object::mm::{GCAllocationStruct, get_typeinfo};
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -321,7 +320,7 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
-pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("+", Reachable::new_static(&FUNC_ADD.value).cast_value());
-    ctx.define_value("abs", Reachable::new_static(&FUNC_ABS.value).cast_value());
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("+", &FUNC_ADD.value);
+    obj.define_global_value("abs", &FUNC_ABS.value);
 }

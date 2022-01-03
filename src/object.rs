@@ -20,28 +20,32 @@ use self::mm::{GCAllocationStruct, Heap};
 
 pub struct Object {
     ctx: Context,
-    heap: RefCell<Heap>,
 
+    world: world::World,
+
+    heap: RefCell<Heap>,
     captures: FixedSizeAllocator<FPtr<Value>>,
+
     receiver_vec: Vec<(FPtr<Value>, FPtr<list::List>)>,
     receiver_closure: Option<FPtr<closure::Closure>>,
 }
 
 impl Object {
     pub fn new() -> Self {
-        let mut ctx = Context::new();
-        ctx.register_core_global();
+        let mut obj = Object {
+            ctx: Context::new(),
 
-        let heap = Heap::new();
+            world: world::World::new(),
 
-        Object {
-            ctx: ctx,
-            heap: RefCell::new(heap),
+            heap: RefCell::new(Heap::new()),
             captures: FixedSizeAllocator::new(),
 
             receiver_vec: Vec::new(),
             receiver_closure: None,
-        }
+        };
+        obj.register_core_global();
+
+        obj
     }
 
     pub fn add_receiver(&mut self, pattern: &Reachable<Value>, body: &Reachable<list::List>) {
@@ -113,6 +117,30 @@ impl Object {
         &mut self.ctx
     }
 
+
+    pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<FPtr<Value>> {
+        //ローカルフレーム上になければ、グローバルスペースから探す
+        if let Some(v) = self.world.get(symbol) {
+            Some(v.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn define_global_value<Key: AsRef<str>, V: NaviType>(&mut self, key: Key, v: &V) {
+        self.world.set(key, cast_value(v))
+    }
+
+    fn register_core_global(&mut self) {
+        object_ref::register_global(self);
+        number::register_global(self);
+        syntax::register_global(self);
+        crate::value::register_global(self);
+        tuple::register_global(self);
+        array::register_global(self);
+        list::register_global(self);
+    }
+
     pub fn alloc<T: NaviType>(&mut self) -> UIPtr<T> {
         self.heap.borrow_mut().alloc::<T>(self)
     }
@@ -148,17 +176,25 @@ impl Object {
     pub(crate) fn for_each_all_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
         self.ctx.for_each_all_alived_value(arg, callback);
 
+        //グローバルスペース内で保持している値
+        for v in self.world.get_all_values().iter() {
+            callback(v, arg);
+        }
+
+        //キャプチャーしているローカル変数
         unsafe {
             self.captures.for_each_used_value(|refer| {
                 callback(refer, arg);
             });
         }
 
+        //オブジェクトが持つメッセージレシーバーオブジェクト
         self.receiver_vec.iter().for_each(|(pat, body)| {
             callback(pat, arg);
             callback(body.cast_value(), arg);
         });
 
+        //レシーバークロージャ
         if let Some(closure) = self.receiver_closure.as_ref() {
             callback(closure.cast_value(), arg);
         }

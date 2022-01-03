@@ -42,7 +42,6 @@ pub mod tuple;
 pub mod object_ref;
 
 
-use crate::object::context::Context;
 use crate::object::Object;
 use crate::object::mm::{self, GCAllocationStruct};
 use crate::util::non_null_const::*;
@@ -297,8 +296,8 @@ static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
-pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("=", Reachable::new_static(&FUNC_EQUAL.value).cast_value());
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("=", &FUNC_EQUAL.value);
 }
 
 pub mod literal {

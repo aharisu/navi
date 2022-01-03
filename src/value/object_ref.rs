@@ -1,6 +1,5 @@
 use crate::value::*;
 use crate::object::Object;
-use crate::object::context::Context;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
 
@@ -143,9 +142,9 @@ static FUNC_SEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
-pub fn register_global(obj: &mut Context) {
-    obj.define_value("spawn", Reachable::new_static(&FUNC_SPAWN.value).cast_value());
-    obj.define_value("send", Reachable::new_static(&FUNC_SEND.value).cast_value());
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("spawn", &FUNC_SPAWN.value);
+    obj.define_global_value("send", &FUNC_SEND.value);
 }
 
 #[cfg(test)]

@@ -400,20 +400,20 @@ static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("or", 0, 0, true, syntax_or))
 });
 
-pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("if", Reachable::new_static(&SYNTAX_IF.value).cast_value());
-    ctx.define_value("begin", Reachable::new_static(&SYNTAX_BEGIN.value).cast_value());
-    ctx.define_value("cond", Reachable::new_static(&SYNTAX_COND.value).cast_value());
-    ctx.define_value("def", Reachable::new_static(&SYNTAX_DEF.value).cast_value());
-    ctx.define_value("def-recv", Reachable::new_static(&SYNTAX_DEF_RECV.value).cast_value());
-    ctx.define_value("fun", Reachable::new_static(&SYNTAX_FUN.value).cast_value());
-    ctx.define_value("let", Reachable::new_static(&SYNTAX_LET.value).cast_value());
-    ctx.define_value("quote", Reachable::new_static(&SYNTAX_QUOTE.value).cast_value());
-    ctx.define_value("unquote", Reachable::new_static(&SYNTAX_UNQUOTE.value).cast_value());
-    ctx.define_value("bind", Reachable::new_static(&SYNTAX_BIND.value).cast_value());
-    ctx.define_value("match", Reachable::new_static(&SYNTAX_MATCH.value).cast_value());
-    ctx.define_value("and", Reachable::new_static(&SYNTAX_AND.value).cast_value());
-    ctx.define_value("or", Reachable::new_static(&SYNTAX_OR.value).cast_value());
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("if", &SYNTAX_IF.value);
+    obj.define_global_value("begin", &SYNTAX_BEGIN.value);
+    obj.define_global_value("cond", &SYNTAX_COND.value);
+    obj.define_global_value("def", &SYNTAX_DEF.value);
+    obj.define_global_value("def-recv", &SYNTAX_DEF_RECV.value);
+    obj.define_global_value("fun", &SYNTAX_FUN.value);
+    obj.define_global_value("let", &SYNTAX_LET.value);
+    obj.define_global_value("quote", &SYNTAX_QUOTE.value);
+    obj.define_global_value("unquote", &SYNTAX_UNQUOTE.value);
+    obj.define_global_value("bind", &SYNTAX_BIND.value);
+    obj.define_global_value("match", &SYNTAX_MATCH.value);
+    obj.define_global_value("and", &SYNTAX_AND.value);
+    obj.define_global_value("or", &SYNTAX_OR.value);
 }
 
 pub mod literal {

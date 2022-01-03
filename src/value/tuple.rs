@@ -1,6 +1,5 @@
 use crate::value::*;
 use crate::ptr::*;
-use crate::object::context::Context;
 use std::fmt::{self, Debug};
 
 pub struct Tuple {
@@ -271,10 +270,10 @@ static FUNC_TUPLE_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
-pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("tuple?", Reachable::new_static(&FUNC_IS_TUPLE.value).cast_value());
-    ctx.define_value("tuple-len", Reachable::new_static(&FUNC_TUPLE_LEN.value).cast_value());
-    ctx.define_value("tuple-ref", Reachable::new_static(&FUNC_TUPLE_REF.value).cast_value());
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("tuple?", &FUNC_IS_TUPLE.value);
+    obj.define_global_value("tuple-len", &FUNC_TUPLE_LEN.value);
+    obj.define_global_value("tuple-ref", &FUNC_TUPLE_REF.value);
 }
 
 pub mod literal {

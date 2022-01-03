@@ -75,7 +75,9 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
         }
 
     } else if let Some(symbol) = sexp.try_cast::<symbol::Symbol>() {
-        if let Some(v) = obj.context().find_value(symbol) {
+        if let Some(v) = obj.context().find_local_value(symbol.as_ref()) {
+            v.clone()
+        } else if let Some(v) = obj.find_global_value(symbol.as_ref()) {
             v.clone()
         } else {
             panic!("{:?} is not found", symbol.as_ref())

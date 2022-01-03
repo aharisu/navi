@@ -1,6 +1,5 @@
 use crate::value::*;
 use crate::ptr::*;
-use crate::object::context::Context;
 use std::fmt::Display;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
@@ -328,10 +327,10 @@ static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
-pub fn register_global(ctx: &mut Context) {
-    ctx.define_value("array?", Reachable::new_static(&FUNC_IS_ARRAY.value).cast_value());
-    ctx.define_value("array-len", Reachable::new_static(&FUNC_ARRAY_LEN.value).cast_value());
-    ctx.define_value("array-ref", Reachable::new_static(&FUNC_ARRAY_REF.value).cast_value());
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("array?", &FUNC_IS_ARRAY.value);
+    obj.define_global_value("array-len", &FUNC_ARRAY_LEN.value);
+    obj.define_global_value("array-ref", &FUNC_ARRAY_REF.value);
 }
 
 pub mod literal {
