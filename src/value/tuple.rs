@@ -212,6 +212,38 @@ impl Debug for Tuple {
     }
 }
 
+pub struct TupleBuilder {
+    tuple: Cap<Tuple>,
+    index: usize,
+}
+
+impl TupleBuilder {
+    pub fn new(size: usize, obj: &mut Object) -> Self {
+        let mut tuple = Tuple::alloc(size, obj);
+
+        //pushが完了するまでにGCが動作する可能性があるため、あらかじめ全領域をダミーの値で初期化する
+        //ヌルポインタを使用しているがGCの動作に問題はない。
+        let dummy_value = bool::Bool::false_().into_value().as_ref();
+        for index in 0..size {
+            tuple.as_mut().set(dummy_value, index);
+        }
+
+        TupleBuilder {
+            tuple: tuple.capture(obj),
+            index: 0,
+        }
+    }
+
+    pub fn push(&mut self, v: &Value, _obj: &mut Object) {
+        self.tuple.as_mut().set(v, self.index);
+        self.index += 1;
+    }
+
+    pub fn get(self) -> FPtr<Tuple> {
+        self.tuple.take()
+    }
+}
+
 fn func_is_tuple(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
     let v = args.as_ref().get(0);
     if v.is_type(tuple::Tuple::typeinfo()) {
