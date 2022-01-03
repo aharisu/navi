@@ -63,7 +63,7 @@ impl <T: NaviType> Array<T> {
         }
     }
 
-    pub(crate) fn alloc(size: usize, obj: &mut Object) -> FPtr<Array<T>> {
+    fn alloc(size: usize, obj: &mut Object) -> FPtr<Array<T>> {
         let ptr = obj.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<FPtr<Value>>());
         unsafe {
             std::ptr::write(ptr.as_ptr(), Array { len: size, _type: PhantomData})
@@ -244,8 +244,17 @@ pub struct ArrayBuilder<T: NaviType> {
 
 impl <T: NaviType> ArrayBuilder<T> {
     pub fn new(size: usize, obj: &mut Object) -> Self {
+        let mut ary = Array::<T>::alloc(size, obj);
+
+        //pushが完了するまでにGCが動作する可能性があるため、あらかじめ全領域をダミーの値で初期化する
+        //ヌルポインタを使用しているがGCの動作に問題はない。
+        let dummy_value = FPtr::<T>::from_ptr(std::ptr::null_mut()).as_ref();
+        for index in 0..size {
+            ary.as_mut().set(dummy_value, index);
+        }
+
         ArrayBuilder {
-            ary:  Array::alloc(size, obj).capture(obj),
+            ary: ary.capture(obj),
             index: 0,
         }
     }
