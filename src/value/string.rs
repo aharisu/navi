@@ -8,7 +8,6 @@ type StringRef = std::mem::ManuallyDrop<String>;
 
 #[repr(C)]
 pub struct NString {
-    len: usize,
     len_inbytes: usize,
 }
 
@@ -56,7 +55,6 @@ impl NString {
 
         let nstring = unsafe { &mut *(ptr.as_ptr() as *mut NString) };
         nstring.len_inbytes = len_inbytes;
-        nstring.len = str.chars().count();
         unsafe {
             let ptr = (nstring as *mut NString).offset(1) as *mut u8;
             std::ptr::copy_nonoverlapping(str.as_bytes().as_ptr(), ptr, len_inbytes);
@@ -70,7 +68,7 @@ impl NString {
         let ptr = self as *const NString;
         let str = unsafe {
             let ptr = ptr.offset(1) as *mut u8;
-            String::from_raw_parts(ptr, self.len, self.len_inbytes)
+            String::from_raw_parts(ptr, self.len_inbytes, self.len_inbytes)
         };
 
         StringRef::new(str)
@@ -82,7 +80,7 @@ impl Eq for NString { }
 
 impl PartialEq for NString {
     fn eq(&self, other: &Self) -> bool {
-        if self.len != other.len {
+        if self.len_inbytes != other.len_inbytes {
             return false;
         } else {
             *self.as_string() == *other.as_string()
@@ -155,11 +153,9 @@ pub fn static_string<T: Into<String>>(str: T) -> StaticString {
     if str.len() > 10 {
         panic!("static string up to 10 bytes");
     }
-    let len = str.chars().count();
 
     let mut static_str = StaticString {
         v: NString {
-            len: len,
             len_inbytes: len_inbytes
         },
         buf: Default::default()
