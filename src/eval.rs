@@ -16,7 +16,10 @@ macro_rules! cap_eval {
 }
 
 pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
-    if let Some(sexp) = sexp.try_cast::<list::List>() {
+    if let Some(code) = sexp.try_cast::<compiled::Code>() {
+        crate::vm::execute(code, obj)
+
+    } else if let Some(sexp) = sexp.try_cast::<list::List>() {
         if sexp.as_ref().is_nil() {
             FPtr::new(sexp.as_ref()).into_value()
 
@@ -34,7 +37,7 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
                 }
 
                 let args = builder_args.get().reach(obj);
-                if let Some(args) = func.as_ref().process_arguments_descriptor(&args, obj) {
+                if let Some(args) = func.as_ref().process_arguments_descriptor(args.iter(obj), obj) {
                     let ary_ptr = array::Array::from_list(&args.reach(obj), None, obj);
                     func.as_ref().apply(&ary_ptr.reach(obj), obj)
 
@@ -61,13 +64,16 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
                 }
 
                 let args = builder_args.get().reach(obj);
-                if closure.as_ref().process_arguments_descriptor(&args, obj) {
+                if closure.as_ref().process_arguments_descriptor(args.iter(obj), obj) {
                     let args = array::Array::from_list(&args, None, obj).reach(obj);
                     closure.as_ref().apply(args.iter(), obj)
 
                 } else {
                     panic!("Invalid arguments: {:?} {:?}", closure.as_ref(), args.as_ref())
                 }
+            } else if let Some(closure) = head.try_cast::<compiled::Closure>() {
+                //TODO
+                unimplemented!()
 
             } else {
                 panic!("Not Applicable: {:?}", head.as_ref())
@@ -125,11 +131,27 @@ mod tests {
         let sexp = result.unwrap();
 
         let sexp = sexp.reach(obj);
-        let result = crate::eval::eval(&sexp, obj);
-        let result = result.try_cast::<T>();
-        assert!(result.is_some());
+        let result = {
+            let result = crate::eval::eval(&sexp, obj);
+            let result = result.try_cast::<T>();
+            assert!(result.is_some());
 
-        result.unwrap().clone()
+            result.unwrap().clone()
+        };
+        let result = result.reach(obj);
+
+        let result2 = {
+            let compiled = crate::compile::compile(&sexp, obj).into_value().reach(obj);
+
+            let result = crate::eval::eval(&compiled, obj);
+            let result = result.try_cast::<T>();
+            assert!(result.is_some());
+
+            result.unwrap().clone()
+        };
+        assert_eq!(result.as_ref(), result2.as_ref());
+
+        result.into_fptr()
     }
 
 

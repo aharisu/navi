@@ -13,6 +13,7 @@ use crate::ptr::*;
 
 use crate::value::array::ArrayBuilder;
 use crate::value::list::ListBuilder;
+use crate::vm::VMState;
 
 use self::context::Context;
 use self::fixed_size_alloc::FixedSizeAllocator;
@@ -20,6 +21,7 @@ use self::mm::{GCAllocationStruct, Heap};
 
 pub struct Object {
     ctx: Context,
+    vm_state: VMState,
 
     world: world::World,
 
@@ -34,6 +36,7 @@ impl Object {
     pub fn new() -> Self {
         let mut obj = Object {
             ctx: Context::new(),
+            vm_state: VMState::new(),
 
             world: world::World::new(),
 
@@ -117,6 +120,10 @@ impl Object {
         &mut self.ctx
     }
 
+    #[inline(always)]
+    pub fn vm_state(&mut self) -> &mut VMState {
+        &mut self.vm_state
+    }
 
     pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<FPtr<Value>> {
         //ローカルフレーム上になければ、グローバルスペースから探す
@@ -149,6 +156,10 @@ impl Object {
         self.heap.borrow_mut().alloc_with_additional_size::<T>(additional_size, self)
     }
 
+    pub fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
+        self.heap.borrow().is_in_heap_object(v)
+    }
+
     pub fn force_allocation_space(&mut self, size: usize) {
         self.heap.borrow_mut().force_allocation_space(size, self);
     }
@@ -175,6 +186,7 @@ impl Object {
 
     pub(crate) fn for_each_all_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
         self.ctx.for_each_all_alived_value(arg, callback);
+        self.vm_state.for_each_all_alived_value(arg, callback);
 
         //グローバルスペース内で保持している値
         for v in self.world.get_all_values().iter() {

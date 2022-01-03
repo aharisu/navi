@@ -1,12 +1,13 @@
 use crate::eval::eval;
-use crate::value::symbol::Symbol;
-use crate::value::list::List;
 use crate::cap_eval;
 use crate::value::*;
-use crate::value::list;
+use crate::value::list::{self, List};
+use crate::value::symbol::Symbol;
 use crate::ptr::*;
 use crate::object::mm::GCAllocationStruct;
-use crate::object::context::Context;
+use crate::compile;
+use crate::vm::is_true;
+
 use std::fmt::{Debug, Display};
 use std::panic;
 use once_cell::sync::Lazy;
@@ -20,7 +21,8 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&Reachable<list::List>, &mut Object) -> FPtr<Value>,
+    body: fn(&Reachable<List>, &mut Object) -> FPtr<Value>,
+    transform_body: fn(&Reachable<List>, &mut compile::CCtx, &mut Object) -> FPtr<crate::value::iform::IForm>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -52,6 +54,7 @@ impl Syntax {
 
     pub fn new<T: Into<String>>(name: T, require: usize, optional: usize, has_rest: bool
         , body: fn(&Reachable<list::List>, &mut Object) -> FPtr<Value>
+        , translate_body: fn(&Reachable<list::List>, &mut crate::compile::CCtx, &mut Object) -> FPtr<iform::IForm>,
     ) -> Self {
         Syntax {
             name: name.into(),
@@ -59,6 +62,7 @@ impl Syntax {
             optional: optional,
             has_rest: has_rest,
             body: body,
+            transform_body: translate_body,
         }
     }
 
@@ -80,6 +84,11 @@ impl Syntax {
     pub fn apply(&self, args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
         (self.body)(&args, obj)
     }
+
+    pub fn transform(&self, args: &Reachable<List>, ctx: &mut compile::CCtx, obj: &mut Object) -> FPtr<iform::IForm> {
+        (self.transform_body)(args, ctx, obj)
+    }
+
 }
 
 impl Eq for Syntax { }
@@ -99,15 +108,6 @@ impl Display for Syntax {
 impl Debug for Syntax {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)
-    }
-}
-
-fn is_true(v: &Value) -> bool {
-    //predの結果がfalse値の場合だけ、falseとして扱う。それ以外の値はすべてtrue
-    if let Some(v) = v.try_cast::<bool::Bool>() {
-        v.is_true()
-    } else {
-        true
     }
 }
 
@@ -188,7 +188,9 @@ fn syntax_def(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
         let value = args.as_ref().tail().as_ref().head().reach(obj);
         let value = eval(&value, obj).reach(obj);
 
-        obj.context().add_to_current_frame(symbol, &value);
+        if obj.context().add_to_current_frame(symbol, &value) == false {
+            obj.define_global_value(symbol.as_ref(), value.as_ref())
+        }
 
         value.into_fptr()
     } else {
@@ -349,55 +351,55 @@ fn syntax_match(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
 }
 
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("if", 2, 1, false, syntax_if))
+    GCAllocationStruct::new(Syntax::new("if", 2, 1, false, syntax_if, compile::syntax_if))
 });
 
 static SYNTAX_BEGIN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("begin", 0, 0, true, syntax_begin))
+    GCAllocationStruct::new(Syntax::new("begin", 0, 0, true, syntax_begin, compile::syntax_begin))
 });
 
 static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("cond", 0, 0, true, syntax_cond))
+    GCAllocationStruct::new(Syntax::new("cond", 0, 0, true, syntax_cond, compile::syntax_cond))
 });
 
 static SYNTAX_DEF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("def", 2, 0, false, syntax_def))
+    GCAllocationStruct::new(Syntax::new("def", 2, 0, false, syntax_def, compile::syntax_def))
 });
 
 static SYNTAX_DEF_RECV: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("def-recv", 1, 0, true, syntax_def_recv))
+    GCAllocationStruct::new(Syntax::new("def-recv", 1, 0, true, syntax_def_recv, compile::syntax_def_recv))
 });
 
 static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("fun", 1, 0, true, syntax_fun))
+    GCAllocationStruct::new(Syntax::new("fun", 1, 0, true, syntax_fun, compile::syntax_fun))
 });
 
 static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("let", 1, 0, true, syntax_let))
+    GCAllocationStruct::new(Syntax::new("let", 1, 0, true, syntax_let, compile::syntax_let))
 });
 
 static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("quote", 1, 0, false, syntax_quote))
+    GCAllocationStruct::new(Syntax::new("quote", 1, 0, false, syntax_quote, compile::syntax_quote))
 });
 
 static SYNTAX_UNQUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("unquote", 1, 0, false, syntax_unquote))
+    GCAllocationStruct::new(Syntax::new("unquote", 1, 0, false, syntax_unquote, compile::syntax_unquote))
 });
 
 static SYNTAX_BIND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("bind", 1, 0, false, syntax_bind))
+    GCAllocationStruct::new(Syntax::new("bind", 1, 0, false, syntax_bind, compile::syntax_bind))
 });
 
 static SYNTAX_MATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("match", 1, 0, true, syntax_match))
+    GCAllocationStruct::new(Syntax::new("match", 1, 0, true, syntax_match, compile::syntax_match))
 });
 
 static SYNTAX_AND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("and", 0, 0, true, syntax_and))
+    GCAllocationStruct::new(Syntax::new("and", 0, 0, true, syntax_and, compile::syntax_and))
 });
 
 static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("or", 0, 0, true, syntax_or))
+    GCAllocationStruct::new(Syntax::new("or", 0, 0, true, syntax_or, compile::syntax_or))
 });
 
 pub fn register_global(obj: &mut Object) {

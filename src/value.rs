@@ -31,6 +31,7 @@ macro_rules! new_typeinfo {
 pub mod array;
 pub mod bool;
 pub mod closure;
+pub mod compiled;
 pub mod list;
 pub mod number;
 pub mod string;
@@ -40,6 +41,7 @@ pub mod func;
 pub mod syntax;
 pub mod tuple;
 pub mod object_ref;
+pub mod iform;
 
 
 use crate::object::Object;
@@ -114,6 +116,32 @@ pub fn value_clone<T: NaviType>(v: &Reachable<T>, obj: &mut Object) -> FPtr<T> {
     NaviType::clone_inner(v.as_ref(), obj)
 }
 
+pub fn cast_value<T: NaviType>(v: &T) -> &Value {
+    //任意のNaviTypeの参照からValueへの参照への変換は安全なので無理やりキャスト
+    unsafe { std::mem::transmute(v) }
+}
+
+pub fn get_typeinfo<T: NaviType>(this: &T) -> NonNullConst<TypeInfo>{
+    let ptr = this as *const T;
+    match pointer_kind(ptr) {
+        PtrKind::Nil => {
+            crate::value::list::List::typeinfo()
+        }
+        PtrKind::True | PtrKind::False => {
+            crate::value::bool::Bool::typeinfo()
+        }
+        PtrKind::Unit => {
+            crate::value::tuple::Tuple::typeinfo()
+        }
+        PtrKind::MatchFail => {
+            crate::value::syntax::r#match::MatchFail::typeinfo()
+        }
+        PtrKind::Ptr => {
+            mm::get_typeinfo(ptr)
+        }
+    }
+}
+
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> NonNullConst<TypeInfo>;
     fn clone_inner(&self, obj: &mut Object) -> FPtr<Self>;
@@ -155,7 +183,7 @@ impl NaviType for Value {
 
     fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
         if value_is_pointer(self) {
-            let typeinfo = self.get_typeinfo();
+            let typeinfo = get_typeinfo(self);
            (unsafe { typeinfo.as_ref() }.clone_func)(self, obj)
 
         } else {
@@ -169,8 +197,8 @@ impl Eq for Value {}
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        let self_typeinfo = unsafe { self.get_typeinfo().as_ref() };
-        let other_typeinfo = unsafe { other.get_typeinfo().as_ref() };
+        let self_typeinfo = unsafe { get_typeinfo(self).as_ref() };
+        let other_typeinfo = unsafe { get_typeinfo(other).as_ref() };
 
         //比較可能な型同士かを確認する関数を持っている場合は、処理を委譲する。
         //持っていない場合は同じ型同士の時だけ比較可能にする。
@@ -189,7 +217,7 @@ impl PartialEq for Value {
 
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let self_typeinfo = self.get_typeinfo();
+        let self_typeinfo = get_typeinfo(self);
 
         (unsafe { self_typeinfo.as_ref() }.print_func)(self, f)
     }
@@ -197,37 +225,13 @@ impl std::fmt::Display for Value {
 
 impl std::fmt::Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let self_typeinfo = self.get_typeinfo();
+        let self_typeinfo = get_typeinfo(self);
 
         (unsafe { self_typeinfo.as_ref() }.print_func)(self, f)
     }
 }
 
 impl Value {
-
-
-
-    pub fn get_typeinfo(&self) -> NonNullConst<TypeInfo> {
-        let ptr = self as *const Value;
-        match pointer_kind(ptr) {
-            PtrKind::Nil => {
-                crate::value::list::List::typeinfo()
-            }
-            PtrKind::True | PtrKind::False => {
-                crate::value::bool::Bool::typeinfo()
-            }
-            PtrKind::Unit => {
-                crate::value::tuple::Tuple::typeinfo()
-            }
-            PtrKind::MatchFail => {
-                crate::value::syntax::r#match::MatchFail::typeinfo()
-            }
-            PtrKind::Ptr => {
-                mm::get_typeinfo(ptr)
-            }
-        }
-    }
-
     pub fn is<U: NaviType>(&self) -> bool {
         let other_typeinfo = U::typeinfo();
         self.is_type(other_typeinfo)
@@ -239,7 +243,7 @@ impl Value {
             true
 
         } else {
-            let self_typeinfo = self.get_typeinfo();
+            let self_typeinfo = get_typeinfo(self);
 
             (unsafe { self_typeinfo.as_ref() }.is_type_func)(unsafe { other_typeinfo.as_ref() })
         }
@@ -265,11 +269,6 @@ impl Value {
     fn _is_type(_other_typeinfo: &TypeInfo) -> bool {
         unreachable!()
     }
-
-    fn _child_traversal(&self, _callback: fn(&Value)) {
-        unreachable!()
-    }
-
 }
 
 fn func_equal(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
@@ -349,11 +348,28 @@ mod tests {
         let sexp = result.unwrap();
 
         let sexp = sexp.reach(obj);
-        let result = crate::eval::eval(&sexp, obj);
-        let result = result.try_cast::<T>();
-        assert!(result.is_some());
 
-        result.unwrap().clone()
+        let result = {
+            let result = crate::eval::eval(&sexp, obj);
+            let result = result.try_cast::<T>();
+            assert!(result.is_some());
+
+            result.unwrap().clone()
+        };
+        let result = result.reach(obj);
+
+        let result2 = {
+            let compiled = crate::compile::compile(&sexp, obj).into_value().reach(obj);
+
+            let result = crate::eval::eval(&compiled, obj);
+            let result = result.try_cast::<T>();
+            assert!(result.is_some());
+
+            result.unwrap().clone()
+        };
+        assert_eq!(result.as_ref(), result2.as_ref());
+
+        result.into_fptr()
     }
 
 

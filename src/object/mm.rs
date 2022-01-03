@@ -222,6 +222,14 @@ impl Heap {
         }
     }
 
+    pub fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
+        let v: &Value = unsafe { std::mem::transmute(v) };
+
+        //ポインタかつ、自分自身のヒープ内に存在するオブジェクトなら、有効な値。
+        value::value_is_pointer(v)
+            && Self::is_pointer_within_heap(v, self.pool_ptr, unsafe { self.pool_ptr.add(self.used) })
+    }
+
     pub fn calc_total_size(v: &Value) -> usize {
         if value::value_is_pointer(v) {
             let header = Self::get_gc_header(v);
@@ -766,6 +774,13 @@ pub fn ptr_to_usize<T>(ptr: *const T) -> usize {
         ptr: ptr as *const u8,
     };
     unsafe { u.v }
+}
+
+pub fn usize_to_ptr<T>(data: usize) -> *mut T {
+    let u = PtrToUsize {
+        v: data,
+    };
+    unsafe { u.ptr as *const T as *mut T}
 }
 
 #[cfg(test)]

@@ -70,10 +70,10 @@ impl Closure {
         ptr.into_fptr()
     }
 
-    pub fn process_arguments_descriptor(&self, args: &Reachable<list::List>, _obj: &mut Object) -> bool {
+    pub fn process_arguments_descriptor(&self, args_iter: impl Iterator<Item = FPtr<Value>>, _obj: &mut Object) -> bool {
         //TODO 各種パラメータ指定の処理(:option, :rest)
 
-        let count = args.as_ref().count();
+        let count = args_iter.count();
         if count < self.params.as_ref().len() {
             false
         } else {

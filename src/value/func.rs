@@ -78,14 +78,13 @@ impl Func {
     }
 
     //TODO 戻り値をboolからResultに変更。Errorには適切なエラー内容を含んだenum
-    pub fn process_arguments_descriptor(&self, args: &Reachable<list::List>, obj: &mut Object) -> Option<FPtr<list::List>> {
+    pub fn process_arguments_descriptor(&self, mut args_iter: impl Iterator<Item = FPtr<Value>>, obj: &mut Object) -> Option<FPtr<list::List>> {
         fn check_type(v: &FPtr<Value>, param: &Param) -> bool {
             v.is_type(param.typeinfo)
         }
 
         let mut builder = ListBuilder::new(obj);
 
-        let mut args_iter = args.iter(obj);
         for param in self.params.iter() {
             let arg = args_iter.next();
 

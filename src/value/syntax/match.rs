@@ -207,7 +207,7 @@ fn pattern_grouping(patterns: Vec<MatchClause>) -> Vec<(PatKind, Vec<MatchClause
             PatKind::Empty
 
         } else {
-            let tf = pat.last().unwrap().as_ref().get_typeinfo().as_ptr();
+            let tf = value::get_typeinfo(pat.last().unwrap().as_ref()).as_ptr();
             if std::ptr::eq(tf, list::List::typeinfo().as_ptr()) {
                 let list =  unsafe { pat.last().unwrap().cast_unchecked::<List>() };
                 //長さがちょうど２のリストで
@@ -568,7 +568,7 @@ fn syntax_fail_catch(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Val
 }
 
 static SYNTAX_FAIL_CATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(syntax::Syntax::new("fail-catch", 0, 0, true, syntax_fail_catch))
+    GCAllocationStruct::new(syntax::Syntax::new("fail-catch", 0, 0, true, syntax_fail_catch, crate::compile::syntax_fail_catch))
 });
 
 pub mod literal {
