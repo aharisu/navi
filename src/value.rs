@@ -47,7 +47,7 @@ pub mod iform;
 use crate::object::Object;
 use crate::object::mm::{self, GCAllocationStruct};
 use crate::util::non_null_const::*;
-use crate::ptr::*;
+use crate::{ptr::*, vm};
 
 use crate::value::func::*;
 use once_cell::sync::Lazy;
@@ -271,9 +271,9 @@ impl Value {
     }
 }
 
-fn func_equal(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
-    let left = args.as_ref().get(0);
-    let right = args.as_ref().get(1);
+fn func_equal(obj: &mut Object) -> FPtr<Value> {
+    let left = vm::refer_arg::<Value>(0, obj);
+    let right = vm::refer_arg::<Value>(1, obj);
 
     let result = left.as_ref().eq(right.as_ref());
 

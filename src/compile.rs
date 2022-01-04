@@ -511,7 +511,6 @@ pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FP
 
 mod codegen {
     use core::panic;
-    use std::io::Write;
 
     use crate::object::mm::ptr_to_usize;
     use crate::ptr::*;
@@ -520,6 +519,7 @@ mod codegen {
     use crate::value::{*, self};
     use crate::value::iform::*;
     use crate::value::symbol::Symbol;
+    use crate::vm::{write_u16, write_u8, write_usize};
 
     //
     // Code Generation Arg
@@ -963,23 +963,6 @@ mod codegen {
         }
 
         panic!("local variable not found {}", symbol);
-    }
-
-    fn write_u8<T: Write>(v: u8, buf: &mut T) {
-        buf.write_all(&v.to_le_bytes()).unwrap()
-    }
-
-    fn write_u16<T: Write>(v: u16, buf: &mut T) {
-        buf.write_all(&v.to_le_bytes()).unwrap()
-    }
-
-    #[allow(dead_code)]
-    fn write_u32<T: Write>(v: u32, buf: &mut T) {
-        buf.write_all(&v.to_le_bytes()).unwrap()
-    }
-
-    fn write_usize<T: Write>(v: usize, buf: &mut T) {
-        buf.write_all(&v.to_le_bytes()).unwrap()
     }
 
 }

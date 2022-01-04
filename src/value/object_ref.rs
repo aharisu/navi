@@ -1,4 +1,4 @@
-use crate::value::*;
+use crate::{value::*, vm};
 use crate::object::Object;
 use std::fmt::{self, Debug, Display};
 use std::rc::Rc;
@@ -112,14 +112,13 @@ impl Debug for ObjectRef {
     }
 }
 
-fn func_spawn(_args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
+fn func_spawn(obj: &mut Object) -> FPtr<Value> {
     ObjectRef::alloc(obj).into_value()
 }
 
-fn func_send(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
-    let target_obj = args.as_ref().get(0);
-    let target_obj = unsafe { target_obj.cast_unchecked::<ObjectRef>() };
-    let message = args.as_ref().get(1);
+fn func_send(obj: &mut Object) -> FPtr<Value> {
+    let target_obj = vm::refer_arg::<ObjectRef>(0, obj);
+    let message = vm::refer_arg::<Value>(1, obj);
 
     target_obj.as_ref().recv(&message.reach(obj))
 }

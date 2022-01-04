@@ -60,19 +60,22 @@ impl Code {
     pub fn alloc(program: Vec<u8>, constants: Vec<Cap<Value>>, obj: &mut Object) -> FPtr<Self> {
         let ptr = obj.alloc::<Code>();
 
+        unsafe {
+            std::ptr::write(ptr.as_ptr(), Self::new(program, constants))
+        }
+
+        ptr.into_fptr()
+    }
+
+    pub fn new(program: Vec<u8>, constants: Vec<Cap<Value>>) -> Self {
         let constants = constants.into_iter()
             .map(|c| c.take())
             .collect()
             ;
-
-        unsafe {
-            std::ptr::write(ptr.as_ptr(), Code {
-                program: program,
-                constants: constants,
-            })
+        Code {
+            program: program,
+            constants: constants,
         }
-
-        ptr.into_fptr()
     }
 
     pub fn program(&self) -> &[u8] {

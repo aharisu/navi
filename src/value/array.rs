@@ -1,5 +1,6 @@
 use crate::value::*;
 use crate::ptr::*;
+use crate::vm;
 use std::fmt::Display;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
@@ -268,8 +269,8 @@ impl <T: NaviType> ArrayBuilder<T> {
     }
 }
 
-fn func_is_array(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
+fn func_is_array(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<Value>(0, obj);
     if v.as_ref().is_type(array::Array::<Value>::typeinfo()) {
         v.clone()
     } else {
@@ -277,19 +278,15 @@ fn func_is_array(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FP
     }
 }
 
-fn func_array_len(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
-    let v = unsafe { v.cast_unchecked::<Array<Value>>() };
+fn func_array_len(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<Array<Value>>(0, obj);
 
     number::Integer::alloc(v.as_ref().len() as i64, obj).into_value()
 }
 
-fn func_array_ref(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
-    let v = unsafe { v.cast_unchecked::<Array<Value>>() };
-
-    let index = args.as_ref().get(1);
-    let index = unsafe { index.cast_unchecked::<number::Integer>() };
+fn func_array_ref(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<Array<Value>>(0, obj);
+    let index = vm::refer_arg::<number::Integer>(1, obj);
 
     let index = index.as_ref().get() as usize;
 

@@ -1,5 +1,6 @@
 use crate::value::*;
 use crate::ptr::*;
+use crate::vm;
 use std::fmt::{self, Debug};
 
 pub struct Tuple {
@@ -244,8 +245,8 @@ impl TupleBuilder {
     }
 }
 
-fn func_is_tuple(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
+fn func_is_tuple(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<Value>(0, obj);
     if v.is_type(tuple::Tuple::typeinfo()) {
         v.clone()
     } else {
@@ -253,19 +254,15 @@ fn func_is_tuple(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FP
     }
 }
 
-fn func_tuple_len(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
-    let v = unsafe { v.cast_unchecked::<tuple::Tuple>() };
+fn func_tuple_len(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<tuple::Tuple>(0, obj);
 
     number::Integer::alloc(v.as_ref().len as i64, obj).into_value()
 }
 
-fn func_tuple_ref(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
-    let tuple = args.as_ref().get(0);
-    let tuple = unsafe { tuple.cast_unchecked::<tuple::Tuple>() };
-
-    let index = args.as_ref().get(1);
-    let index = unsafe { index.cast_unchecked::<number::Integer>() };
+fn func_tuple_ref(obj: &mut Object) -> FPtr<Value> {
+    let tuple = vm::refer_arg::<tuple::Tuple>(0, obj);
+    let index = vm::refer_arg::<number::Integer>(1, obj);
 
     tuple.as_ref().get(index.as_ref().get() as usize)
         .clone()

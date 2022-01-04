@@ -3,6 +3,7 @@
 use crate::object::Object;
 use crate::value::*;
 use crate::ptr::*;
+use crate::vm;
 use std::fmt::{self, Debug, Display};
 
 pub struct List {
@@ -372,8 +373,8 @@ impl ListBuilder {
 
 }
 
-fn func_is_list(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
+fn func_is_list(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg(0, obj);
     if v.is_type(list::List::typeinfo()) {
         v.clone()
     } else {
@@ -381,19 +382,15 @@ fn func_is_list(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPt
     }
 }
 
-fn func_list_len(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
-    let v = unsafe { v.cast_unchecked::<List>() };
+fn func_list_len(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<List>(0, obj);
 
     number::Integer::alloc(v.as_ref().count() as i64, obj).into_value()
 }
 
-fn func_list_ref(args: &Reachable<array::Array<Value>>, _obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
-    let v = unsafe { v.cast_unchecked::<List>() };
-
-    let index = args.as_ref().get(1);
-    let index = unsafe { index.cast_unchecked::<number::Integer>() };
+fn func_list_ref(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<List>(0, obj);
+    let index = vm::refer_arg::<number::Integer>(1, obj);
 
     let index = index.as_ref().get() as usize;
 

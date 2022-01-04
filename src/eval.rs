@@ -4,6 +4,7 @@ use crate::value::*;
 use crate::ptr::*;
 use crate::value::array::ArrayBuilder;
 use crate::value::list::ListBuilder;
+use crate::vm;
 
 #[macro_export]
 macro_rules! cap_eval {
@@ -35,15 +36,10 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
                 for sexp in sexp.as_ref().tail().reach(obj).iter(obj) {
                     cap_append!(builder_args, cap_eval!(sexp, obj), obj);
                 }
-
                 let args = builder_args.get().reach(obj);
-                if let Some(args) = func.as_ref().process_arguments_descriptor(args.iter(obj), obj) {
-                    let ary_ptr = array::Array::from_list(&args.reach(obj), None, obj);
-                    func.as_ref().apply(&ary_ptr.reach(obj), obj)
 
-                } else {
-                    panic!("Invalid arguments: {:?} {:?}", func.as_ref(), args.as_ref())
-                }
+                //関数の呼び出し処理を実行
+                vm::func_call(func, &args, obj)
 
             } else if let Some(syntax) = head.try_cast::<syntax::Syntax>() {
                 //シンタックス適用
@@ -72,6 +68,7 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
                     panic!("Invalid arguments: {:?} {:?}", closure.as_ref(), args.as_ref())
                 }
             } else if let Some(closure) = head.try_cast::<compiled::Closure>() {
+
                 //TODO
                 unimplemented!()
 

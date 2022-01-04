@@ -3,6 +3,7 @@ use crate::value::*;
 use crate::value::func::*;
 use crate::object::Object;
 use crate::object::mm::{GCAllocationStruct, get_typeinfo};
+use crate::vm;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -252,16 +253,15 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
+fn func_add(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<Value>(0, obj);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
         Num::Int(num) => (Some(num), None),
         Num::Real(num) => (None, Some(num)),
     };
 
-    let rest = args.as_ref().get(1);
-    let rest = unsafe { rest.cast_unchecked::<list::List>() };
+    let rest = vm::refer_arg::<list::List>(1, obj);
 
     let iter =  unsafe { rest.as_ref().iter_gcunsafe() };
     for v in iter {
@@ -290,8 +290,8 @@ fn func_add(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Val
     }
 }
 
-fn func_abs(args: &Reachable<array::Array<Value>>, obj: &mut Object) -> FPtr<Value> {
-    let v = args.as_ref().get(0);
+fn func_abs(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg(0, obj);
 
     match number_to(v.as_ref()) {
         Num::Int(num) => number::Integer::alloc(num.abs(), obj).into_value(),

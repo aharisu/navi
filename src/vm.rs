@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
@@ -119,6 +120,12 @@ fn pop_from_size(stack: &mut VMStack, decriment: usize) {
     }
 }
 
+pub fn refer_arg<T: NaviType>(index: usize, obj: &mut Object) -> FPtr<T> {
+    let v = refer_local_var(obj.vm_state().env, index);
+    //Funcの引数はすべて型チェックされている前提なのでuncheckedでキャストする
+    unsafe { v.cast_unchecked::<T>().clone() }
+}
+
 fn refer_local_var(env: *const Environment, index: usize) -> FPtr<Value> {
     //目的の環境内にあるローカルフレームから値を取得
     unsafe {
@@ -193,7 +200,58 @@ impl VMState {
             }
         }
     }
+}
 
+pub fn func_call(func: &Reachable<func::Func>, args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+    //ContinuationとEnvironmentのフレームをプッシュ
+    {
+        let mut buf: Vec<u8> = Vec::with_capacity(3);
+
+        //push continuation
+        write_u8(tag::PUSH_CONT_FOR_FUNC_CALL, &mut buf);
+
+        //push env header
+        write_u8(tag::PUSH_ARG_PREPARE_ENV, &mut buf);
+        //pushされる引数の数
+        let num_args = args.as_ref().count();
+        debug_assert!(num_args < u8::MAX as usize);
+        write_u8(num_args as u8, &mut buf);
+
+        let code = compiled::Code::new(buf, Vec::new());
+        let code = Reachable::new_static(&code);
+
+        execute(&code, obj);
+    }
+
+    //全ての引数をプッシュ
+    {
+        //PUSHするだけのコードを作成
+        let mut buf: Vec<u8> = Vec::with_capacity(1);
+        write_u8(tag::PUSH, &mut buf);
+        let code = compiled::Code::new(buf, Vec::new());
+        let code = Reachable::new_static(&code);
+
+        for arg in args.iter(obj) {
+            //引数を順にaccに入れてPUSHを実行
+            obj.vm_state().acc = arg.clone();
+            execute(&code, obj);
+        }
+    }
+
+    //FuncをCALL命令で実行
+    {
+        //CALLするだけのコードを作成
+        let mut buf: Vec<u8> = Vec::with_capacity(1);
+        write_u8(tag::CALL, &mut buf);
+        let code = compiled::Code::new(buf, Vec::new());
+        let code = Reachable::new_static(&code);
+
+        //accにFuncオブジェクトを設定
+        obj.vm_state().acc = FPtr::new(func.cast_value().as_ref());
+
+        //CALLを実行。結果を返り値にする
+        execute(&code, obj)
+    }
 }
 
 pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value> {
@@ -237,6 +295,16 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
             }
             //完成したargpを現在環境に設定する
             obj.vm_state().env = argp;
+        };
+    }
+
+    macro_rules! let_local {
+        ($exp:expr) => {
+            push($exp, &mut obj.vm_state().stack);
+            //新しく追加した分、環境内のローカルフレームサイズを増やす
+            unsafe {
+                (*obj.vm_state().env).size += 1;
+            }
         };
     }
 
@@ -306,11 +374,7 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                 push(obj.vm_state().acc.clone(), &mut obj.vm_state().stack);
             }
             tag::DEF_LOCAL => {
-                push(obj.vm_state().acc.clone(), &mut obj.vm_state().stack);
-                //新しく追加した分、環境内のローカルフレームサイズを増やす
-                unsafe {
-                    (*obj.vm_state().env).size += 1;
-                }
+                let_local!(obj.vm_state().acc.clone());
             }
             tag::DEF_GLOBAL => {
                 let const_index = read_u16(&mut program);
@@ -413,27 +477,78 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
 
                 let acc = obj.vm_state().acc.clone();
                 if let Some(func) = acc.try_cast::<func::Func>() {
-                    //println!("func:{}", func.as_ref());
-
-                    let size = unsafe { (*obj.vm_state().env).size };
-                    let mut builder = array::ArrayBuilder::<Value>::new(size, obj);
-                    for index in 0..size {
-                        let arg = refer_local_var(obj.vm_state().env, index).as_ref();
-                        //println!("arg:{} {}", index, arg);
-                        builder.push(arg, obj);
+                    fn check_type(v: &FPtr<Value>, param: &func::Param) -> bool {
+                        v.is_type(param.typeinfo)
                     }
-                    let args = builder.get().reach(obj);
 
-                    if let Some(args) = func.as_ref().process_arguments_descriptor(args.iter(), obj) {
-                        let ary_ptr = array::Array::from_list(&args.reach(obj), None, obj);
-                        obj.vm_state().acc = func.as_ref().apply(&ary_ptr.reach(obj), obj);
+                    let env = obj.vm_state().env;
+                    //関数に渡そうとしている引数の数
+                    let num_args = unsafe { (*env).size };
+                    //関数に定義されているパラメータ指定配列
+                    let paramter = func.as_ref().get_paramter();
 
-                        //リターン処理を実行
-                        tag_return!();
+                    for (index, param) in paramter.iter().enumerate() {
+                        match param.kind {
+                            func::ParamKind::Require => {
+                                if index < num_args {
+                                    let arg = refer_local_var(env, index);
+                                    if check_type(&arg, param) == false {
+                                        //TODO 型チェックエラー
+                                        panic!("type error");
+                                    }
+                                } else {
+                                    //TODO 必須の引数が足らないエラー
+                                    panic!("Invalid argument. require {}, bot got {}", paramter.len(), num_args);
+                                }
+                            }
+                            func::ParamKind::Optional => {
+                                if index < num_args {
+                                    let arg = refer_local_var(env, index);
+                                    if check_type(&arg, param) == false {
+                                        //型チェックエラー
+                                        panic!("type error");
+                                    }
+                                } else {
+                                    //Optionalなパラメータに対応する引数がなければUnitをデフォルトとして追加
+                                    let_local!(FPtr::new(tuple::Tuple::unit().cast_value().as_ref()));
+                                }
+                            }
+                            func::ParamKind::Rest => {
+                                if index < num_args {
+                                    let rest_count = num_args - index;
 
-                    } else {
-                        panic!("Invalid arguments: {:?} {:?}", func.as_ref(), args.as_ref())
+                                    //以降すべての引数をリストにまとめる
+                                    let mut rest = list::ListBuilder::new(obj);
+                                    for index in index .. num_args {
+                                        let arg = refer_local_var(env, index);
+                                        if check_type(&arg, param) == false {
+                                            //TODO 型チェックエラー
+                                        panic!("type error");
+                                        }
+                                        rest.append(&arg.reach(obj), obj);
+                                    }
+
+                                    //リストに詰め込んだ分、ローカルフレーム内の引数を削除
+                                    unsafe { (*env).size -= rest_count; }
+                                    //併せてスタックポインタも下げる
+                                    pop_from_size(&mut obj.vm_state().stack, rest_count * size_of::<FPtr<Value>>());
+
+                                    //削除した代わりに、リストをローカルフレームに追加
+                                    let_local!(rest.get());
+
+                                } else {
+                                    //Optionalなパラメータに対応する引数がなければnilをデフォルトとして追加
+                                    let_local!(FPtr::new(list::List::nil().cast_value().as_ref()));
+                                }
+                            }
+                        }
                     }
+
+                    //関数本体を実行
+                    obj.vm_state().acc = func.as_ref().apply(obj);
+
+                    //リターン処理を実行
+                    tag_return!();
 
                 } else if let Some(closure) = acc.try_cast::<closure::Closure>() {
                     let size = unsafe { (*obj.vm_state().env).size };
@@ -529,6 +644,23 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
     }
 
     obj.vm_state().acc.clone()
+}
+
+pub fn write_u8<T: Write>(v: u8, buf: &mut T) {
+    buf.write_all(&v.to_le_bytes()).unwrap()
+}
+
+pub fn write_u16<T: Write>(v: u16, buf: &mut T) {
+    buf.write_all(&v.to_le_bytes()).unwrap()
+}
+
+#[allow(dead_code)]
+pub fn write_u32<T: Write>(v: u32, buf: &mut T) {
+    buf.write_all(&v.to_le_bytes()).unwrap()
+}
+
+pub fn write_usize<T: Write>(v: usize, buf: &mut T) {
+    buf.write_all(&v.to_le_bytes()).unwrap()
 }
 
 fn read_u8<T: Read>(buf: &mut T) -> u8 {
