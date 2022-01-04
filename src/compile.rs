@@ -531,10 +531,18 @@ mod codegen {
 
     impl <'a> CGCtx<'a> {
         pub fn add_constant(&mut self, v: FPtr<Value>, obj: &mut Object) -> usize {
-            let result = self.constants.len();
-            self.constants.push(v.capture(obj));
+            //同じ値が既に存在しているなら
+            if let Some((index, _)) = self.constants.iter().enumerate()
+                    .find(|(_index, constant)|  constant.as_ref() == v.as_ref()) {
+                //新しく追加はせずに既存の値のインデックスを返す
+                index
 
-            result
+            } else {
+                let result = self.constants.len();
+                self.constants.push(v.capture(obj));
+
+                result
+            }
         }
     }
 
