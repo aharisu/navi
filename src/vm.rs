@@ -450,7 +450,12 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     }
 
                 } else if let Some(closure) = acc.try_cast::<compiled::Closure>() {
-                    //TODO 引数の数などが正しいかを確認
+                    //引数の数などが正しいかを確認
+                    let num_require = closure.as_ref().arg_descriptor();
+                    let num_args = unsafe { (*obj.vm_state().env).size };
+                    if num_require != num_args {
+                        panic!("Invalid arguments. require:{} actual:{}", num_require, num_args)
+                    }
 
                     //実行するプログラムが保存されたバッファを切り替えるため
                     //現在実行中のプログラムをContinuationの中に保存する

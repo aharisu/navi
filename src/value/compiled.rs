@@ -178,6 +178,10 @@ impl Closure {
         ptr.into_fptr()
     }
 
+    pub fn arg_descriptor(&self) -> usize {
+        self.num_args
+    }
+
     pub fn code(&self) -> FPtr<Code> {
         //structの先頭にあるCodeフィールドの参照とselfの参照は(ポインタレベルでは)同一視できるはず。
         //Codeへの参照をReachableで確保することでClosure自体もGCされないようにする
