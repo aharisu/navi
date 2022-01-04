@@ -47,7 +47,6 @@ pub mod tag {
 struct Continuation {
     prev: *mut Continuation,
     pc: i64,
-    sp: usize, //TODO Continuationのアドレス自体をspにできるはずなのでこのフィールドは省略可能
     env: *mut Environment,
     argp: *mut Environment,
     code: Option<FPtr<compiled::Code>>,
@@ -67,8 +66,8 @@ struct Environment {
 #[derive(Debug)]
 struct VMStack {
     stack: *mut u8,
+    pos: *mut u8,
     stack_layout: std::alloc::Layout,
-    pos: usize,
 }
 
 impl VMStack {
@@ -78,8 +77,8 @@ impl VMStack {
 
         VMStack {
             stack: stack,
+            pos: stack,
             stack_layout: layout,
-            pos: 0,
         }
     }
 }
@@ -101,17 +100,23 @@ pub fn is_true(v: &Value) -> bool {
     }
 }
 
-fn push<'a, T>(v: T, stack: &'a mut VMStack) -> *mut T {
+fn push<T>(v: T, stack: &mut VMStack) -> *mut T {
     let t_ptr = unsafe {
-        let ptr = stack.stack.add(stack.pos);
-        let t_ptr = ptr as *mut T;
+        let t_ptr = stack.pos as *mut T;
+
+        stack.pos = stack.pos.add(size_of::<T>());
         t_ptr.write(v);
 
         t_ptr
     };
 
-    stack.pos += size_of::<T>();
     t_ptr
+}
+
+fn pop_from_size(stack: &mut VMStack, decriment: usize) {
+    unsafe {
+        stack.pos = stack.pos.sub(decriment);
+    }
 }
 
 fn refer_local_var(env: *const Environment, index: usize) -> FPtr<Value> {
@@ -205,7 +210,8 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
             //Continuationに保存されている状態を復元
             unsafe {
                 let state = obj.vm_state();
-                state.stack.pos = (*state.cont).sp;
+                //スタック内でContinuationの値があるアドレスをスタックポインタにする
+                state.stack.pos = state.cont as *mut u8;
                 state.env = (*state.cont).env;
                 state.argp = (*state.cont).argp;
 
@@ -325,7 +331,7 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     let local_frame_size = (*obj.vm_state().env).size;
                     //Envヘッダーとローカル変数のサイズ分、スタックポインタを下げる
                     let size = size_of::<Environment>() + (size_of::<FPtr<Value>>() * local_frame_size);
-                    obj.vm_state().stack.pos -= size;
+                    pop_from_size(&mut obj.vm_state().stack, size);
 
                     //現在のenvポインタを一つ上の環境に差し替える
                     obj.vm_state().env = (*obj.vm_state().env).up;
@@ -375,7 +381,6 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     prev: obj.vm_state().cont,
                     code: None, //実行コードはCursorが所有権を持っているので実際にCallされる直前に設定する
                     pc: (program.position() + cont_offset as u64) as i64,
-                    sp: obj.vm_state().stack.pos,
                     env: obj.vm_state().env,
                     argp: obj.vm_state().argp,
                 };
@@ -387,7 +392,6 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     prev: obj.vm_state().cont,
                     code: None, //実行コードはCursorが所有権を持っているので実際にCallされる直前に設定する
                     pc: -1, //Func呼び出しでは関数呼び出し後に続けてプログラムを読み込めばいいので、PCの保存は行わない
-                    sp: obj.vm_state().stack.pos,
                     env: obj.vm_state().env,
                     argp: obj.vm_state().argp,
                 };
