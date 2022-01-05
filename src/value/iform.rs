@@ -153,7 +153,7 @@ impl Reachable<IForm> {
 pub enum IFormKind {
     Def = 0,
     If,
-    Let,
+    Local,
     LRef,
     GRef,
     Fun,
@@ -168,7 +168,7 @@ pub enum IFormKind {
 const IFORM_KIND_ARY: [IFormKind; 12] = [
     IFormKind::Def,
     IFormKind::If,
-    IFormKind::Let,
+    IFormKind::Local,
     IFormKind::LRef,
     IFormKind::GRef,
     IFormKind::Fun,
@@ -208,17 +208,17 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         Some(IFormIf::child_traversal),
     ),
     new_typeinfo!(
-        IFormLet,
-        "IFormLet",
-        std::mem::size_of::<IFormLet>(),
+        IFormLocal,
+        "IFormLocal",
+        std::mem::size_of::<IFormLocal>(),
         None,
-        IFormLet::eq,
-        IFormLet::clone_inner,
+        IFormLocal::eq,
+        IFormLocal::clone_inner,
         Display::fmt,
-        IFormLet::is_type,
+        IFormLocal::is_type,
         None,
         None,
-        Some(IFormLet::child_traversal),
+        Some(IFormLocal::child_traversal),
     ),
     new_typeinfo!(
         IFormLRef,
@@ -503,48 +503,40 @@ impl Debug for IFormIf {
 
 impl AsIForm for IFormIf {}
 
-pub struct IFormLet {
-    symbols: FPtr<Array<Symbol>>,
-    vals: FPtr<Array<IForm>>,
+pub struct IFormLocal {
     body: FPtr<IForm>,
 }
 
 
-impl NaviType for IFormLet {
+impl NaviType for IFormLocal {
     fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Let as usize] as *const TypeInfo)
+        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Local as usize] as *const TypeInfo)
     }
 
     fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbols = Array::clone_inner(self.symbols.as_ref(), obj).into_reachable();
-            let vals = Array::clone_inner(self.vals.as_ref(), obj).into_reachable();
             let body = IForm::clone_inner(self.body.as_ref(), obj).into_reachable();
 
-            Self::alloc(&symbols, &vals, &body, obj)
+            Self::alloc(&body, obj)
         }
     }
 }
 
-impl IFormLet {
+impl IFormLocal {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Let as usize], other_typeinfo)
+        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Local as usize], other_typeinfo)
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
     fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, arg: *mut u8)) {
-        callback(&self.symbols.cast_value(), arg);
-        callback(self.vals.cast_value(), arg);
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc(symbols: &Reachable<Array<Symbol>>, vals: &Reachable<Array<IForm>>, body: &Reachable<IForm>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormLet>();
+    pub fn alloc(body: &Reachable<IForm>, obj: &mut Object) -> FPtr<Self> {
+        let ptr = obj.alloc::<IFormLocal>();
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormLet {
-                    symbols: FPtr::new(symbols.as_ref()),
-                    vals: FPtr::new(vals.as_ref()),
+            std::ptr::write(ptr.as_ptr(), IFormLocal {
                     body: FPtr::new(body.as_ref()),
                 });
         }
@@ -552,46 +544,34 @@ impl IFormLet {
         ptr.into_fptr()
     }
 
-    pub fn len_binders(&self) -> usize {
-        self.symbols.as_ref().len()
-    }
-
-    pub fn get_symbol(&self, index: usize) -> FPtr<Symbol> {
-        self.symbols.as_ref().get(index)
-    }
-
-    pub fn get_val(&self, index: usize) -> FPtr<IForm> {
-        self.vals.as_ref().get(index)
-    }
-
     pub fn body(&self) -> FPtr<IForm> {
         self.body.clone()
     }
 
     fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(IFLet {} {} {})", self.symbols.as_ref(), self.vals.as_ref(), self.body.as_ref())
+        write!(f, "(IFLocal {})", self.body.as_ref())
     }
 }
 
-impl PartialEq for IFormLet {
+impl PartialEq for IFormLocal {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
 
-impl Display for IFormLet {
+impl Display for IFormLocal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt(false, f)
     }
 }
 
-impl Debug for IFormLet {
+impl Debug for IFormLocal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt(true, f)
     }
 }
 
-impl AsIForm for IFormLet {}
+impl AsIForm for IFormLocal {}
 
 pub struct IFormLRef {
     symbol: FPtr<Symbol>,

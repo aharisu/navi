@@ -369,63 +369,19 @@ pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
 
 }
 
-pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
-    let binders = args.as_ref().head().reach(obj);
+pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    //ローカルフレームを作成する
+    let frame: Vec<LocalVar> = Vec::new();
 
-    if let Some(binders) = binders.try_cast::<List>() {
-        let count = binders.as_ref().count();
-        let mut builder_symbols = ArrayBuilder::new(count, obj);
-        let mut builder_vals = ArrayBuilder::new(count, obj);
+    //コンパイルコンテキストにローカルフレームをプッシュ
+    ctx.frames.push(frame);
 
-        for bind in binders.iter(obj) {
-            let bind = bind.reach(obj);
+    //ローカルフレームが積まれた状態でBody部分を変換
+    let body = transform_begin(&args, ctx, obj).reach(obj);
 
-            if let Some(bind) = bind.try_cast::<List>() {
-                if bind.as_ref().len_exactly(2) == false {
-                    panic!("The let bind part require 2 length list. But got {:?}", bind.as_ref())
-                }
+    ctx.frames.pop();
 
-                let symbol = bind.as_ref().head();
-                if let Some(symbol) = symbol.try_cast::<Symbol>() {
-                    builder_symbols.push(symbol.as_ref(), obj);
-
-                    let val = bind.as_ref().tail().as_ref().head().reach(obj);
-                    let val = pass_transform(&val, ctx, obj);
-
-                    builder_vals.push(val.as_ref(), obj);
-                }
-
-            } else {
-                panic!("The let bind part require list. But got {:?}", bind.as_ref())
-            }
-        }
-
-        let symbols = builder_symbols.get().reach(obj);
-        let vals = builder_vals.get().reach(obj);
-
-        //ローカルフレームを作成する
-        let frame: Vec<LocalVar> = symbols.iter().zip(vals.iter())
-            .map(|(symbol, val)| LocalVar {
-                name: symbol.capture(obj),
-                init_form: Some(val.capture(obj)),
-            })
-            .collect();
-
-        //コンパイルコンテキストにローカルフレームをプッシュ
-        ctx.frames.push(frame);
-
-        //ローカルフレームが積まれた状態でBody部分を変換
-        let body = args.as_ref().tail().reach(obj);
-        let body = transform_begin(&body, ctx, obj).reach(obj);
-
-        ctx.frames.pop();
-
-        IFormLet::alloc(&symbols, &vals, &body, obj).into_iform()
-
-    } else {
-        panic!("The let bind part require list. But got {:?}", binders.as_ref())
-    }
-
+    IFormLocal::alloc(&body, obj).into_iform()
 }
 
 pub fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
@@ -575,8 +531,8 @@ mod codegen {
             IFormKind::If => {
                 codegen_if(unsafe { iform.cast_unchecked::<IFormIf>() }, ctx, obj)
             },
-            IFormKind::Let => {
-                codegen_let(unsafe { iform.cast_unchecked::<IFormLet>() }, ctx, obj)
+            IFormKind::Local => {
+                codegen_local(unsafe { iform.cast_unchecked::<IFormLocal>() }, ctx, obj)
             },
             IFormKind::LRef => {
                 codegen_lref(unsafe { iform.cast_unchecked::<IFormLRef>() }, ctx, obj)
@@ -689,23 +645,12 @@ mod codegen {
         ctx.buf.extend(buf_else);
     }
 
-    fn codegen_let(iform: &Reachable<IFormLet>, ctx: &mut CGCtx, obj: &mut Object) {
+    fn codegen_local(iform: &Reachable<IFormLocal>, ctx: &mut CGCtx, obj: &mut Object) {
         //新しいフレームをpush
         write_u8(vm::tag::PUSH_EMPTY_ENV, &mut ctx.buf);
         ctx.frames.push(Vec::new());
 
-        //bindersの式を評価
-        let len = iform.as_ref().len_binders();
-        for index in 0..len {
-            let val = iform.as_ref().get_val(index).reach(obj);
-            pass_codegen(&val, ctx, obj);
-            //ローカルフレームに値を追加
-            write_u8(vm::tag::DEF_LOCAL, &mut ctx.buf);
-
-            //ローカルフレーム内に新しいシンボルを追加
-            let symbol = iform.as_ref().get_symbol(index).capture(obj);
-            ctx.frames.last_mut().unwrap().push(symbol);
-        }
+        //TODO letはlocal内のトップレベルコンテキストのみ許可される
 
         //bodの式を順に評価
         pass_codegen(&iform.as_ref().body().reach(obj), ctx, obj);

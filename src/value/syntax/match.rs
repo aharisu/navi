@@ -99,35 +99,33 @@ pub fn translate(args: &Reachable<List>, obj: &mut Object) -> FPtr<List> {
     };
 
 
-    let mut builder_let = ListBuilder::new(obj);
-    builder_let.append(syntax::literal::let_().cast_value(), obj);
+    let mut builder_local = ListBuilder::new(obj);
+    builder_local.append(syntax::literal::local().cast_value(), obj);
 
     //generate unique symbol
     let expr_tmp_symbol = symbol::Symbol::gensym("e", obj).into_value().reach(obj);
-    let binders = {
-        let bind = {
-            let mut builder_bind = ListBuilder::new(obj);
-            builder_bind.append(&expr_tmp_symbol, obj);
-            cap_append!(builder_bind, args.as_ref().head(), obj); //マッチ対象の値を一時変数に代入する
+    //(let e target_exp)
+    let let_ = {
+        let mut builder_let = ListBuilder::new(obj);
+        builder_let.append(syntax::literal::def().cast_value(), obj);
+        builder_let.append(&expr_tmp_symbol, obj);
+        cap_append!(builder_let, args.as_ref().head(), obj); //マッチ対象の値を一時変数に代入する
 
-            builder_bind.get().into_value()
-        };
-        let bind = bind.reach(obj);
-        list::List::alloc_tail(&bind, obj).into_value()
+        builder_let.get().into_value()
     };
-    //(let ((e target_exp))   )
-    cap_append!(builder_let, binders, obj);
+    //(local (let e e target_exp))
+    cap_append!(builder_local, let_, obj);
 
     let mut cond_vec: Vec<Reachable<Value>> = Vec::new();
     cond_vec.push(expr_tmp_symbol);
 
     let body = translate_inner(cond_vec, patterns, obj);
-    cap_append!(builder_let, body, obj);
+    cap_append!(builder_local, body, obj);
 
     //最後にmatchに失敗した値を捕まえてfalseを返すfail-catchを追加
     let mut builder_catch = ListBuilder::new(obj);
     builder_catch.append(literal::fail_catch().cast_value(), obj);
-    cap_append!(builder_catch, builder_let.get().into_value(), obj);
+    cap_append!(builder_catch, builder_local.get().into_value(), obj);
     builder_catch.append(bool::Bool::false_().cast_value(), obj);
 
     builder_catch.get()
@@ -289,26 +287,23 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Value>>, pattern
 
     // true clause
     let true_clause = {
-        let mut builder_let = ListBuilder::new(obj);
-        //(let)
-        builder_let.append(syntax::literal::let_().cast_value(), obj);
+        let mut builder_local = ListBuilder::new(obj);
+        //(local)
+        builder_local.append(syntax::literal::local().cast_value(), obj);
 
         //generate unique symbol
         let len_symbol = symbol::Symbol::gensym("len", obj).into_value().reach(obj);
-        let binders = {
-            //(len (???-len target))
-            let bind = {
-                let mut builder_bind = ListBuilder::new(obj);
-                builder_bind.append(&len_symbol, obj);
-                cap_append!(builder_bind, cons_list2(len_func.cast_value(), target_expr, obj), obj);
+        let let_ = {
+            //(let len (???-len target))
+            let mut builder_let = ListBuilder::new(obj);
+            builder_let.append(syntax::literal::def().cast_value(), obj);
+            builder_let.append(&len_symbol, obj);
+            cap_append!(builder_let, cons_list2(len_func.cast_value(), target_expr, obj), obj);
 
-                builder_bind.get().into_value()
-            };
-            //((len (???-len target)))
-            list::List::alloc_tail(&bind.reach(obj), obj).into_value()
+            builder_let.get().into_value()
         };
-        // (let ((len (???-len target))))
-        cap_append!(builder_let, binders, obj);
+        // (local (let len (???-len target)))
+        cap_append!(builder_local, let_, obj);
 
         //(cond ...)
         let cond = {
@@ -327,38 +322,33 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Value>>, pattern
                 //((equal? ???-len len))
                 cap_append!(builder_cond_clause, equal, obj);
 
-                //(let)
-                let mut builder_inner_let = ListBuilder::new(obj);
-                builder_inner_let.append(syntax::literal::let_().cast_value(), obj);
+                //(local)
+                let mut builder_inner_local = ListBuilder::new(obj);
+                builder_inner_local.append(syntax::literal::local().cast_value(), obj);
 
-                let mut builder_binders = ListBuilder::new(obj);
+                let mut exprs:Vec<Reachable<Value>> = clone_veccap(&exprs[0..exprs.len()-1], obj);
+
                 //後々の処理の都合上、降順でコンテナ内の値を取得する
+                //(local ... (let v1 (???-ref container 1)) (let v0 (???-ref container 0)))
                 for index in (0..container_len).rev() {
                     let mut builder_binder = ListBuilder::new(obj);
-                    //(v0)
-                    cap_append!(builder_binder, symbol::Symbol::gensym(String::from("v") + &index.to_string() , obj).into_value(), obj);
+                    //(let)
+                    builder_binder.append(syntax::literal::def().cast_value(), obj);
+                    //(let v0)
+                    let symbol = symbol::Symbol::gensym(String::from("v") + &index.to_string() , obj).into_value().reach(obj);
+                    builder_binder.append(&symbol, obj);
+                    exprs.push(symbol);
 
                     //(???-ref container index)
                     let container_ref = cons_list3(ref_func.cast_value(), target_expr
                         , &number::Integer::alloc(index as i64, obj).into_value().reach(obj)
                         , obj);
 
-                    //(v0 (???-ref container index))
+                    //(let v0 (???-ref container index))
                     cap_append!(builder_binder, container_ref, obj);
 
-                    //((v0 (???-ref container index)))
-                    cap_append!(builder_binders, builder_binder.get().into_value(), obj);
-                }
-
-                //(let (... (v1 (???-ref container 1)) (v0 (???-ref container 0)) ...))
-                let binders = builder_binders.get().reach(obj);
-                builder_inner_let.append(binders.cast_value(), obj);
-
-                let mut exprs:Vec<Reachable<Value>> = clone_veccap(&exprs[0..exprs.len()-1], obj);
-                for bind in binders.iter(obj) {
-                    let bind = unsafe { bind.cast_unchecked::<list::List>() };
-                    let sym = bind.as_ref().head();
-                    exprs.push(sym.reach(obj));
+                    //(local (let v0 (???-ref container index)) ...)
+                    cap_append!(builder_inner_local, builder_binder.get().into_value(), obj);
                 }
 
                 //各Clauseの先頭要素にあるコンテナを展開して、Pattern配列に追加する
@@ -370,18 +360,18 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Value>>, pattern
                     }
                 }
 
-                //(let (... (v1 (???-ref container 1)) (v0 (???-ref container 0)))
+                //(local ... (let v1 (???-ref container 1)) (let v0 (???-ref container 0))
                 //  inner matcher ...)
                 let matcher= translate_inner(exprs, clauses, obj);
-                cap_append!(builder_inner_let, matcher, obj);
+                cap_append!(builder_inner_local, matcher, obj);
 
                 //((equal? container-len len)
-                // (let ........))
-                cap_append!(builder_cond_clause, builder_inner_let.get().into_value(), obj);
+                // (local ........))
+                cap_append!(builder_cond_clause, builder_inner_local.get().into_value(), obj);
 
                 //(cond
                 //  ((equal? container-len len)
-                //      (let ........)))
+                //      (local ........)))
                 cap_append!(builder_cond, builder_cond_clause.get().into_value(), obj);
             }
             cap_append!(builder_cond, cons_cond_fail(obj), obj);
@@ -389,10 +379,10 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Value>>, pattern
             builder_cond.get()
         };
 
-        //(let ((len (container-len target)))
+        //(local (let len (container-len target))
         //  (cond ...))
-        cap_append!(builder_let, cond.into_value(), obj);
-        builder_let.get()
+        cap_append!(builder_local, cond.into_value(), obj);
+        builder_local.get()
     };
 
     cap_append!(builder_if, true_clause.into_value(), obj);
@@ -494,22 +484,27 @@ fn translate_bind(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, ob
                 cap_append!(builder_catch, matcher, obj);
 
             } else {
-                let mut builder_let = ListBuilder::new(obj);
-                builder_let.append(syntax::literal::let_().cast_value(), obj);
+                let mut builder_local = ListBuilder::new(obj);
+                builder_local.append(syntax::literal::local().cast_value(), obj);
 
-                //(x target) for let bind part
-                let binder = cons_list2(&val.reach(obj), &target, obj);
-                //((x target)) for let binders part
-                let binders = list::List::alloc_tail(&binder.reach(obj), obj).into_value();
-                //(let ((x target)))
-                cap_append!(builder_let, binders, obj);
+                //(let x target)
+                let let_ = {
+                    let mut builder_let = ListBuilder::new(obj);
+                    builder_let.append(syntax::literal::def().cast_value(), obj);
+                    builder_let.append(&val.reach(obj), obj);
+                    builder_let.append(&target, obj);
+                    builder_let.get().into_value()
+                };
+
+                //(local (let x target))
+                cap_append!(builder_local, let_, obj);
 
                 let mut patterns: Vec<MatchClause> = Vec::new();
                 patterns.push((pattern, body));
                 let matcher= translate_inner(exprs, patterns, obj);
-                cap_append!(builder_let, matcher, obj);
+                cap_append!(builder_local, matcher, obj);
 
-                cap_append!(builder_catch, builder_let.get().into_value(), obj);
+                cap_append!(builder_catch, builder_local.get().into_value(), obj);
             }
         } else {
             panic!("bind variable required symbol. but got {}", val.as_ref())

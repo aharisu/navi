@@ -243,58 +243,17 @@ pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> FPtr
     }
 }
 
-fn syntax_let(args: &Reachable<List>, obj: &mut Object) -> FPtr<Value> {
-
-    let mut symbol_vec: Vec<Reachable<Symbol>> = Vec::new();
-    let mut val_vec: Vec<Reachable<Value>> = Vec::new();
-
-    //局所変数指定の内容を解析
-    let binders = args.as_ref().head().reach(obj);
-    if let Some(binders) = binders.try_cast::<List>() {
-
-        for bind in binders.iter(obj) {
-            let bind = bind.reach(obj);
-
-            if let Some(bind) = bind.try_cast::<List>() {
-                if bind.as_ref().count() != 2 {
-                    panic!("The let bind part require 2 length list. But got {:?}", bind.as_ref())
-                }
-
-                let symbol = bind.as_ref().head();
-                if let Some(symbol) = symbol.try_cast::<symbol::Symbol>() {
-                    symbol_vec.push(symbol.clone().reach(obj));
-
-                    let val = bind.as_ref().tail().as_ref().head().reach(obj);
-                    let val = eval(&val, obj).reach(obj);
-
-                    val_vec.push(val);
-
-                } else {
-                    panic!("The let bind paramter require symbol. But got {:?}", symbol.as_ref())
-                }
-
-            } else {
-                panic!("The let bind part require list. But got {:?}", bind.as_ref())
-            }
-        }
-    } else {
-        panic!("The let bind part require list. But got {:?}", binders.as_ref())
-    }
-
-    let frame: Vec::<(&Symbol, &Value)> = symbol_vec.into_iter().zip(val_vec.into_iter())
-        .map(|(s, v)| (s.as_ref(), v.as_ref()))
-        .collect();
-
+fn syntax_local(args: &Reachable<List>, obj: &mut Object) -> FPtr<Value> {
+    //空のフレームを追加
+    let frame: Vec<(&Symbol, &Value)> = Vec::new();
     ////ローカルフレームを環境にプッシュ
     obj.context().push_local_frame(&frame);
 
     //Closure本体を実行
-    let body = args.as_ref().tail().reach(obj);
-    let result = syntax::do_begin(&body, obj);
+    let result = syntax::do_begin(&args, obj);
 
     //ローカルフレームを環境からポップ
     obj.context().pop_local_frame();
-
     result
 }
 
@@ -374,8 +333,8 @@ static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("fun", 1, 0, true, syntax_fun, compile::syntax_fun))
 });
 
-static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("let", 1, 0, true, syntax_let, compile::syntax_let))
+static SYNTAX_LOCAL: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("local", 1, 0, true, syntax_local, compile::syntax_local))
 });
 
 static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
@@ -409,7 +368,9 @@ pub fn register_global(obj: &mut Object) {
     obj.define_global_value("def", &SYNTAX_DEF.value);
     obj.define_global_value("def-recv", &SYNTAX_DEF_RECV.value);
     obj.define_global_value("fun", &SYNTAX_FUN.value);
-    obj.define_global_value("let", &SYNTAX_LET.value);
+
+    obj.define_global_value("local", &SYNTAX_LOCAL.value);
+
     obj.define_global_value("quote", &SYNTAX_QUOTE.value);
     obj.define_global_value("unquote", &SYNTAX_UNQUOTE.value);
     obj.define_global_value("bind", &SYNTAX_BIND.value);
@@ -438,8 +399,12 @@ pub mod literal {
         Reachable::new_static(&SYNTAX_FUN.value)
     }
 
-    pub fn let_() -> Reachable<Syntax> {
-        Reachable::new_static(&SYNTAX_LET.value)
+    pub fn local() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_LOCAL.value)
+    }
+
+    pub fn def() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_DEF.value)
     }
 
     pub fn if_() -> Reachable<Syntax> {

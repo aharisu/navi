@@ -285,12 +285,12 @@ mod tests {
             let ans = number::Integer::alloc(2, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let program = "(let ((a 3)) a)";
+            let program = "(local (def a 3) a)";
             let result = eval::<number::Integer>(program, obj).capture(obj);
             let ans = number::Integer::alloc(3, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let program = "(let ((a 3)) (def a 4) a)";
+            let program = "(local (def a 3) (def a 4) a)";
             let result = eval::<number::Integer>(program, obj).capture(obj);
             let ans = number::Integer::alloc(4, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
@@ -323,19 +323,19 @@ mod tests {
     }
 
     #[test]
-    fn syntax_let_test() {
+    fn syntax_local_test() {
         let mut obj = Object::new();
         let obj = &mut obj;
         let mut ans_obj = Object::new();
         let ans_obj = &mut ans_obj;
 
         {
-            let program = "(let ((a 1)) (+ 10 a))";
+            let program = "(local (def a 1) (+ 10 a))";
             let result = eval::<number::Integer>(program, obj).capture(obj);
             let ans = number::Integer::alloc(11, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let program = "(let ((a 100) (b 200)) (+ a b) (+ (let ((a b)) (+ a 10)) a))";
+            let program = "(local (def a 100) (def b 200) (+ a b) (+ (local (def a b) (+ a 10)) a))";
             let result = eval::<number::Integer>(program, obj).capture(obj);
             let ans = number::Integer::alloc(310, ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
