@@ -1,3 +1,5 @@
+use core::panic;
+
 use crate::ptr::*;
 use crate::object::Object;
 use crate::value::*;
@@ -14,13 +16,16 @@ struct LocalVar {
 
 ///
 /// Compile Context
-pub struct CCtx {
-    frames: Vec<Vec<LocalVar>>,
+pub struct CCtx<'a> {
+    frames: &'a mut Vec<Vec<LocalVar>>,
+    toplevel: bool,
 }
 
 pub fn compile(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<compiled::Code> {
+    let mut frames = Vec::new();
     let mut ctx = CCtx {
-        frames: Vec::new(),
+        frames: &mut frames,
+        toplevel: true,
     };
 
     let iform = pass_transform(sexp, &mut ctx, obj).reach(obj);
@@ -158,9 +163,13 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     }
 
     //Syntax以外の場合は関数呼び出しとして変換する
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: false,
+    };
 
     //適用される値を変換
-    let app =  pass_transform(&app.reach(obj), ctx, obj).reach(obj);
+    let app =  pass_transform(&app.reach(obj), &mut ctx, obj).reach(obj);
 
     //引数部分の値を変換
     let count = list.as_ref().tail().as_ref().count();
@@ -168,7 +177,7 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
 
     list.as_ref().tail().reach(obj).iter(obj)
         .for_each(|v| {
-            let iform = pass_transform(&v.reach(obj), ctx, obj);
+            let iform = pass_transform(&v.reach(obj), &mut ctx, obj);
             builder_args.push(iform.as_ref(), obj);
         });
     let args = builder_args.get().reach(obj);
@@ -178,11 +187,16 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
 }
 
 fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: false,
+    };
+
     let count = tuple.as_ref().len();
     let mut builder_args = ArrayBuilder::<IForm>::new(count, obj);
 
     for index in 0..count {
-        let iform = pass_transform(&tuple.as_ref().get(index).reach(obj), ctx, obj);
+        let iform = pass_transform(&tuple.as_ref().get(index).reach(obj), &mut ctx, obj);
         builder_args.push(iform.as_ref(), obj);
     }
 
@@ -193,11 +207,16 @@ fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Ob
 }
 
 fn transform_array(array: &Reachable<array::Array<Value>>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: false,
+    };
+
     let count = array.as_ref().len();
     let mut builder_args = ArrayBuilder::<IForm>::new(count, obj);
 
     for index in 0..count {
-        let iform = pass_transform(&array.as_ref().get(index).reach(obj), ctx, obj);
+        let iform = pass_transform(&array.as_ref().get(index).reach(obj), &mut ctx, obj);
         builder_args.push(iform.as_ref(), obj);
     }
 
@@ -217,7 +236,12 @@ fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mu
 }
 
 pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
-    let pred = pass_transform(&args.as_ref().head().reach(obj), ctx, obj).reach(obj);
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: false,
+    };
+
+    let pred = pass_transform(&args.as_ref().head().reach(obj), &mut ctx, obj).reach(obj);
 
     let args = args.as_ref().tail();
     let true_ = args.as_ref().head().reach(obj);
@@ -227,11 +251,11 @@ pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object
         IFormConst::alloc(&bool::Bool::false_().into_value(), obj).into_iform()
     } else {
         let false_ = args.as_ref().head().reach(obj);
-        pass_transform(&false_, ctx, obj)
+        pass_transform(&false_, &mut ctx, obj)
     };
 
     let false_ = false_.reach(obj);
-    let true_ = pass_transform(&true_, ctx, obj).reach(obj);
+    let true_ = pass_transform(&true_, &mut ctx, obj).reach(obj);
 
     IFormIf::alloc(&pred, &true_, &false_, obj).into_iform()
 }
@@ -278,11 +302,18 @@ pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Obje
         //無条件でfalseを返す
         IFormConst::alloc(&bool::Bool::false_().into_value(), obj).into_iform()
     } else {
-        cond_inner(args, ctx, obj)
+        let mut ctx = CCtx {
+            frames: ctx.frames,
+            toplevel: false,
+        };
+
+        cond_inner(args, &mut ctx, obj)
     }
 }
 
 fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    //Beginは現在のコンテキスト(トップレベルや末尾文脈)をそのまま引き継いで各式を評価します
+
     let size = body.as_ref().count();
     let mut builder = array::ArrayBuilder::new(size, obj);
 
@@ -334,10 +365,15 @@ pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
 
         //ローカルフレームを追加
         ctx.frames.push(local_frame);
+        //funのbodyは新しいトップレベルになる
+        let mut ctx = CCtx {
+            frames: ctx.frames,
+            toplevel: true,
+        };
 
         //ローカルフレーム内でBody部分を変換
         let body = args.as_ref().tail().reach(obj);
-        let body = transform_begin(&body, ctx, obj).reach(obj);
+        let body = transform_begin(&body, &mut ctx, obj).reach(obj);
 
         //ローカルフレーム削除
         ctx.frames.pop();
@@ -355,9 +391,14 @@ pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
 
     //コンパイルコンテキストにローカルフレームをプッシュ
     ctx.frames.push(frame);
+    //localは新しいトップレベルになる
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: true,
+    };
 
     //ローカルフレームが積まれた状態でBody部分を変換
-    let body = transform_begin(&args, ctx, obj).reach(obj);
+    let body = transform_begin(&args, &mut ctx, obj).reach(obj);
 
     ctx.frames.pop();
 
@@ -365,10 +406,19 @@ pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
 }
 
 pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    if ctx.toplevel == false {
+        panic!("The let syntax is allowed in top level context.");
+    }
+
     let symbol = args.as_ref().head().reach(obj);
     if let Some(symbol) = symbol.try_cast::<Symbol>() {
+        let mut ctx = CCtx {
+            frames: ctx.frames,
+            toplevel: false,
+        };
+
         let value = args.as_ref().tail().as_ref().head().reach(obj);
-        let iform = pass_transform(&value, ctx, obj).reach(obj);
+        let iform = pass_transform(&value, &mut ctx, obj).reach(obj);
 
         //現在のローカルフレームに新しく定義した変数を追加
         if let Some(cur_frame) = ctx.frames.last_mut() {
@@ -411,6 +461,11 @@ pub fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
 }
 
 pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: false,
+    };
+
     //fail-catchはmatch式の中でだけ使用される特殊な構文
     //引数の式を評価し、値がFAILでなければその値を返す。
     //引数全てFAILならFAILを返す。
@@ -422,7 +477,7 @@ pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Objec
     let mut builder = array::ArrayBuilder::new(size, obj);
 
     for sexp in args.iter(obj) {
-        let iform = pass_transform(&sexp.reach(obj), ctx, obj);
+        let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
         builder.push(iform.as_ref(), obj);
     }
 
@@ -430,6 +485,11 @@ pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Objec
 }
 
 pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: false,
+    };
+
     let size = args.as_ref().count();
     //(and)のように引数が一つもなければ
     if size == 0 {
@@ -439,7 +499,7 @@ pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
         let mut builder = array::ArrayBuilder::new(size, obj);
 
         for sexp in args.iter(obj) {
-            let iform = pass_transform(&sexp.reach(obj), ctx, obj);
+            let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
             builder.push(iform.as_ref(), obj);
         }
 
@@ -448,6 +508,11 @@ pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
 }
 
 pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: false,
+    };
+
     let size = args.as_ref().count();
     //(or)のように引数が一つもなければ
     if size == 0 {
@@ -457,7 +522,7 @@ pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FP
         let mut builder = array::ArrayBuilder::new(size, obj);
 
         for sexp in args.iter(obj) {
-            let iform = pass_transform(&sexp.reach(obj), ctx, obj);
+            let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
             builder.push(iform.as_ref(), obj);
         }
 
