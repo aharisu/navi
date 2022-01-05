@@ -23,8 +23,8 @@ pub mod tag {
     pub const CONST_STATIC: u8 = 5;
     pub const CONST_IMMIDIATE: u8 = 6;
     pub const PUSH: u8 = 7;
-    pub const DEF_LOCAL: u8 = 8;
-    pub const DEF_GLOBAL: u8 = 9;
+    pub const LET_LOCAL: u8 = 8;
+    pub const LET_GLOBAL: u8 = 9;
     pub const DEF_RECV:u8 = 10;
     pub const POP_ENV:u8 = 11;
     pub const PUSH_EMPTY_ENV:u8 = 12;
@@ -373,10 +373,10 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
             tag::PUSH => {
                 push(obj.vm_state().acc.clone(), &mut obj.vm_state().stack);
             }
-            tag::DEF_LOCAL => {
+            tag::LET_LOCAL => {
                 let_local!(obj.vm_state().acc.clone());
             }
-            tag::DEF_GLOBAL => {
+            tag::LET_GLOBAL => {
                 let const_index = read_u16(&mut program);
                 let symbol = obj.vm_state().code.as_ref().get_constant(const_index as usize);
                 let symbol = unsafe { symbol.cast_unchecked::<symbol::Symbol>() };

@@ -182,22 +182,6 @@ fn syntax_cond(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
     bool::Bool::false_().into_fptr().into_value()
 }
 
-fn syntax_def(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
-    let symbol = args.as_ref().head().reach(obj);
-    if let Some(symbol) = symbol.try_cast::<Symbol>() {
-        let value = args.as_ref().tail().as_ref().head().reach(obj);
-        let value = eval(&value, obj).reach(obj);
-
-        if obj.context().add_to_current_frame(symbol, &value) == false {
-            obj.define_global_value(symbol.as_ref(), value.as_ref())
-        }
-
-        value.into_fptr()
-    } else {
-        panic!("def variable require symbol. But got {}", symbol.as_ref());
-    }
-}
-
 fn syntax_def_recv(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
     if obj.context().is_toplevel() {
         let pat = args.as_ref().head().reach(obj);
@@ -255,6 +239,22 @@ fn syntax_local(args: &Reachable<List>, obj: &mut Object) -> FPtr<Value> {
     //ローカルフレームを環境からポップ
     obj.context().pop_local_frame();
     result
+}
+
+fn syntax_let(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+    let symbol = args.as_ref().head().reach(obj);
+    if let Some(symbol) = symbol.try_cast::<Symbol>() {
+        let value = args.as_ref().tail().as_ref().head().reach(obj);
+        let value = eval(&value, obj).reach(obj);
+
+        if obj.context().add_to_current_frame(symbol, &value) == false {
+            obj.define_global_value(symbol.as_ref(), value.as_ref())
+        }
+
+        value.into_fptr()
+    } else {
+        panic!("let variable require symbol. But got {}", symbol.as_ref());
+    }
 }
 
 fn syntax_quote(args: &Reachable<list::List>, _obj: &mut Object) -> FPtr<Value> {
@@ -321,10 +321,6 @@ static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("cond", 0, 0, true, syntax_cond, compile::syntax_cond))
 });
 
-static SYNTAX_DEF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("def", 2, 0, false, syntax_def, compile::syntax_def))
-});
-
 static SYNTAX_DEF_RECV: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("def-recv", 1, 0, true, syntax_def_recv, compile::syntax_def_recv))
 });
@@ -335,6 +331,10 @@ static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
 
 static SYNTAX_LOCAL: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("local", 1, 0, true, syntax_local, compile::syntax_local))
+});
+
+static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("let", 2, 0, false, syntax_let, compile::syntax_let))
 });
 
 static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
@@ -365,12 +365,10 @@ pub fn register_global(obj: &mut Object) {
     obj.define_global_value("if", &SYNTAX_IF.value);
     obj.define_global_value("begin", &SYNTAX_BEGIN.value);
     obj.define_global_value("cond", &SYNTAX_COND.value);
-    obj.define_global_value("def", &SYNTAX_DEF.value);
     obj.define_global_value("def-recv", &SYNTAX_DEF_RECV.value);
     obj.define_global_value("fun", &SYNTAX_FUN.value);
-
     obj.define_global_value("local", &SYNTAX_LOCAL.value);
-
+    obj.define_global_value("let", &SYNTAX_LET.value);
     obj.define_global_value("quote", &SYNTAX_QUOTE.value);
     obj.define_global_value("unquote", &SYNTAX_UNQUOTE.value);
     obj.define_global_value("bind", &SYNTAX_BIND.value);
@@ -403,8 +401,8 @@ pub mod literal {
         Reachable::new_static(&SYNTAX_LOCAL.value)
     }
 
-    pub fn def() -> Reachable<Syntax> {
-        Reachable::new_static(&SYNTAX_DEF.value)
+    pub fn let_() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_LET.value)
     }
 
     pub fn if_() -> Reachable<Syntax> {

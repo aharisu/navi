@@ -298,26 +298,6 @@ pub(crate) fn syntax_begin(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Obj
     transform_begin(args, ctx, obj)
 }
 
-pub fn syntax_def(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
-    let symbol = args.as_ref().head().reach(obj);
-    if let Some(symbol) = symbol.try_cast::<Symbol>() {
-        let value = args.as_ref().tail().as_ref().head().reach(obj);
-        let iform = pass_transform(&value, ctx, obj).reach(obj);
-
-        //現在のローカルフレームに新しく定義した変数を追加
-        if let Some(cur_frame) = ctx.frames.last_mut() {
-            cur_frame.push(LocalVar {
-                    name: FPtr::new(symbol.as_ref()).capture(obj),
-                    init_form: Some(FPtr::new(iform.as_ref()).capture(obj)),
-                });
-        }
-
-        IFormDef::alloc(&symbol, &iform, obj).into_iform()
-    } else {
-        panic!("def variable require symbol. But got {}", symbol.as_ref());
-    }
-}
-
 pub fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
     //def-recvはトップレベルのコンテキストで使用可能(letやfunで作成されたローカルフレーム内では使用不可能)
     if ctx.frames.is_empty() {
@@ -382,6 +362,26 @@ pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
     ctx.frames.pop();
 
     IFormLocal::alloc(&body, obj).into_iform()
+}
+
+pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    let symbol = args.as_ref().head().reach(obj);
+    if let Some(symbol) = symbol.try_cast::<Symbol>() {
+        let value = args.as_ref().tail().as_ref().head().reach(obj);
+        let iform = pass_transform(&value, ctx, obj).reach(obj);
+
+        //現在のローカルフレームに新しく定義した変数を追加
+        if let Some(cur_frame) = ctx.frames.last_mut() {
+            cur_frame.push(LocalVar {
+                    name: FPtr::new(symbol.as_ref()).capture(obj),
+                    init_form: Some(FPtr::new(iform.as_ref()).capture(obj)),
+                });
+        }
+
+        IFormLet::alloc(&symbol, &iform, obj).into_iform()
+    } else {
+        panic!("let variable require symbol. But got {}", symbol.as_ref());
+    }
 }
 
 pub fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
@@ -525,8 +525,8 @@ mod codegen {
 
     fn pass_codegen(iform: &Reachable<IForm>, ctx: &mut CGCtx, obj: &mut Object) {
         match iform.as_ref().kind() {
-            IFormKind::Def => {
-                codegen_def(unsafe { iform.cast_unchecked::<IFormDef>() }, ctx, obj)
+            IFormKind::Let => {
+                codegen_let(unsafe { iform.cast_unchecked::<IFormLet>() }, ctx, obj)
             },
             IFormKind::If => {
                 codegen_if(unsafe { iform.cast_unchecked::<IFormIf>() }, ctx, obj)
@@ -564,13 +564,13 @@ mod codegen {
         }
     }
 
-    fn codegen_def(iform: &Reachable<IFormDef>, ctx: &mut CGCtx, obj: &mut Object) {
+    fn codegen_let(iform: &Reachable<IFormLet>, ctx: &mut CGCtx, obj: &mut Object) {
         pass_codegen(&iform.as_ref().val().reach(obj), ctx, obj);
 
         //グローバル環境へのdefか？
         if ctx.frames.is_empty() {
             //タグ
-            write_u8(vm::tag::DEF_GLOBAL, &mut ctx.buf);
+            write_u8(vm::tag::LET_GLOBAL, &mut ctx.buf);
 
             //キャプチャを取得して、キャプチャが保持する移動しないオブジェクトへの参照のポインタを書き込む。
             let symbol = iform.as_ref().symbol();
@@ -586,7 +586,7 @@ mod codegen {
             //ifやand/orを実行するときは新しいフレームが必要になる可能性がある。
 
             //ローカルフレーム内へのdef
-            write_u8(vm::tag::DEF_LOCAL, &mut ctx.buf);
+            write_u8(vm::tag::LET_LOCAL, &mut ctx.buf);
 
             //ローカルフレーム内に新しいシンボルを追加
             let symbol = iform.as_ref().symbol();

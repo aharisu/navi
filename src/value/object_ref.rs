@@ -172,7 +172,7 @@ mod tests {
         let obj = &mut obj;
 
         {
-            let program = "(def obj (spawn))";
+            let program = "(let obj (spawn))";
             let new_obj_ref = eval::<ObjectRef>(program, obj).capture(obj);
 
             let new_obj = unsafe { new_obj_ref.as_ref().get() };

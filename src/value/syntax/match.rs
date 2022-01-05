@@ -107,7 +107,7 @@ pub fn translate(args: &Reachable<List>, obj: &mut Object) -> FPtr<List> {
     //(let e target_exp)
     let let_ = {
         let mut builder_let = ListBuilder::new(obj);
-        builder_let.append(syntax::literal::def().cast_value(), obj);
+        builder_let.append(syntax::literal::let_().cast_value(), obj);
         builder_let.append(&expr_tmp_symbol, obj);
         cap_append!(builder_let, args.as_ref().head(), obj); //マッチ対象の値を一時変数に代入する
 
@@ -296,7 +296,7 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Value>>, pattern
         let let_ = {
             //(let len (???-len target))
             let mut builder_let = ListBuilder::new(obj);
-            builder_let.append(syntax::literal::def().cast_value(), obj);
+            builder_let.append(syntax::literal::let_().cast_value(), obj);
             builder_let.append(&len_symbol, obj);
             cap_append!(builder_let, cons_list2(len_func.cast_value(), target_expr, obj), obj);
 
@@ -333,7 +333,7 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Value>>, pattern
                 for index in (0..container_len).rev() {
                     let mut builder_binder = ListBuilder::new(obj);
                     //(let)
-                    builder_binder.append(syntax::literal::def().cast_value(), obj);
+                    builder_binder.append(syntax::literal::let_().cast_value(), obj);
                     //(let v0)
                     let symbol = symbol::Symbol::gensym(String::from("v") + &index.to_string() , obj).into_value().reach(obj);
                     builder_binder.append(&symbol, obj);
@@ -490,7 +490,7 @@ fn translate_bind(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, ob
                 //(let x target)
                 let let_ = {
                     let mut builder_let = ListBuilder::new(obj);
-                    builder_let.append(syntax::literal::def().cast_value(), obj);
+                    builder_let.append(syntax::literal::let_().cast_value(), obj);
                     builder_let.append(&val.reach(obj), obj);
                     builder_let.append(&target, obj);
                     builder_let.get().into_value()

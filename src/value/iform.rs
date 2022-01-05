@@ -151,7 +151,7 @@ impl Reachable<IForm> {
 
 #[derive(Copy, Clone)]
 pub enum IFormKind {
-    Def = 0,
+    Let = 0,
     If,
     Local,
     LRef,
@@ -166,7 +166,7 @@ pub enum IFormKind {
 }
 
 const IFORM_KIND_ARY: [IFormKind; 12] = [
-    IFormKind::Def,
+    IFormKind::Let,
     IFormKind::If,
     IFormKind::Local,
     IFormKind::LRef,
@@ -182,17 +182,17 @@ const IFORM_KIND_ARY: [IFormKind; 12] = [
 
 static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
     new_typeinfo!(
-        IFormDef,
-        "IFormDef",
-        std::mem::size_of::<IFormDef>(),
+        IFormLet,
+        "IFormLet",
+        std::mem::size_of::<IFormLet>(),
         None,
-        IFormDef::eq,
-        IFormDef::clone_inner,
+        IFormLet::eq,
+        IFormLet::clone_inner,
         Display::fmt,
-        IFormDef::is_type,
+        IFormLet::is_type,
         None,
         None,
-        Some(IFormDef::child_traversal),
+        Some(IFormLet::child_traversal),
     ),
     new_typeinfo!(
         IFormIf,
@@ -340,14 +340,14 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
 ];
 
 
-pub struct IFormDef {
+pub struct IFormLet {
     symbol: FPtr<Symbol>,
     val: FPtr<IForm>,
 }
 
-impl NaviType for IFormDef {
+impl NaviType for IFormLet {
     fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Def as usize] as *const TypeInfo)
+        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Let as usize] as *const TypeInfo)
     }
 
     fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
@@ -361,9 +361,9 @@ impl NaviType for IFormDef {
     }
 }
 
-impl IFormDef {
+impl IFormLet {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Def as usize], other_typeinfo)
+        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Let as usize], other_typeinfo)
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
@@ -373,9 +373,9 @@ impl IFormDef {
     }
 
     pub fn alloc(symbol: &Reachable<Symbol>, val: &Reachable<IForm>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormDef>();
+        let ptr = obj.alloc::<IFormLet>();
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormDef {
+            std::ptr::write(ptr.as_ptr(), IFormLet {
                     symbol: FPtr::new(symbol.as_ref()),
                     val: FPtr::new(val.as_ref()),
                 });
@@ -393,29 +393,29 @@ impl IFormDef {
     }
 
     fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(IFDef {} {})", self.symbol.as_ref(), self.val.as_ref())
+        write!(f, "(IFLet {} {})", self.symbol.as_ref(), self.val.as_ref())
     }
 }
 
-impl PartialEq for IFormDef {
+impl PartialEq for IFormLet {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
 
-impl Display for IFormDef {
+impl Display for IFormLet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt(false, f)
     }
 }
 
-impl Debug for IFormDef {
+impl Debug for IFormLet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt(true, f)
     }
 }
 
-impl AsIForm for IFormDef {}
+impl AsIForm for IFormLet {}
 
 pub struct  IFormIf {
     test: FPtr<IForm>,
