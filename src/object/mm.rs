@@ -1,6 +1,5 @@
 use std::alloc;
 use std::mem;
-use crate::object::Object;
 use crate::ptr::*;
 use crate::value::{self, TypeInfo, NaviType, Value};
 use crate::util::non_null_const::*;
@@ -56,6 +55,11 @@ enum HeapSize {
     _8k,
     _16k,
     _32k,
+}
+
+
+pub trait GCRootValueHolder {
+    fn for_each_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8));
 }
 
 pub struct Heap {
@@ -166,11 +170,11 @@ impl Heap {
         alloc::Layout::from_size_align(size, VALUE_ALIGN).unwrap()
     }
 
-    pub fn alloc<T: NaviType>(&mut self, obj: &Object) -> UIPtr<T> {
-        self.alloc_with_additional_size::<T>(0, obj)
+    pub fn alloc<T: NaviType, R: GCRootValueHolder>(&mut self, root: &R) -> UIPtr<T> {
+        self.alloc_with_additional_size::<T, R>(0, root)
     }
 
-    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize, obj: &Object) -> UIPtr<T> {
+    pub fn alloc_with_additional_size<T: NaviType, R: GCRootValueHolder>(&mut self, additional_size: usize, root: &R) -> UIPtr<T> {
         //GCのバグを発見しやすいように、allocのたびにGCを実行する
         //self.debug_gc(obj);
 
@@ -203,11 +207,11 @@ impl Heap {
                     return UIPtr::new(obj_ptr);
                 }
             } else if try_count == 0 {
-                self.gc(obj);
+                self.gc(root);
                 try_count += 1;
 
             } else {
-                self.dump_heap(obj);
+                self.dump_heap();
 
                 panic!("oom");
             }
@@ -256,17 +260,17 @@ impl Heap {
         }
     }
 
-    pub fn force_allocation_space(&mut self, require_size: usize, obj: &Object) {
+    pub fn force_allocation_space<R: GCRootValueHolder>(&mut self, require_size: usize, root: &R) {
         let mut try_count = 0;
         loop {
             if self.used + require_size < self.page_layout.size() {
                 return //OK!!
             } else if try_count == 0 {
-                self.gc(obj);
+                self.gc(root);
                 try_count += 1;
 
             } else {
-                self.dump_heap(obj);
+                self.dump_heap();
 
                 panic!("oom");
             }
@@ -278,8 +282,8 @@ impl Heap {
     }
 
     #[allow(dead_code)]
-    fn debug_gc(&mut self, obj: &Object) {
-        self.gc(obj);
+    fn debug_gc<R: GCRootValueHolder>(&mut self, root: &R) {
+        self.gc(root);
 
         //ダングリングポインタを発見しやすくするために未使用の領域を全て0埋め
         unsafe {
@@ -300,7 +304,7 @@ impl Heap {
         println!("[info] offset:{:>4} {}", offset, v);
     }
 
-    pub fn dump_heap(&self, _obj: &Object) {
+    pub fn dump_heap(&self) {
         println!("[dump]------------------------------------");
 
         unsafe {
@@ -327,7 +331,7 @@ impl Heap {
         println!("[dump] **** end ****");
     }
 
-    pub fn dump_gc_heap(&self, flags: &[u16], _obj: &Object) {
+    pub fn dump_gc_heap(&self, flags: &[u16]) {
         println!("[dump]------------------------------------");
 
         unsafe {
@@ -358,8 +362,8 @@ impl Heap {
         println!("[dump] **** end ****");
     }
 
-    pub(crate) fn gc(&mut self, obj: &Object) {
-        //self.dump_heap(obj);
+    pub(crate) fn gc<R: GCRootValueHolder>(&mut self, root: &R) {
+        //self.dump_heap();
 
         match self.heap_size {
             HeapSize::_2k => self.gc_copying_nnk(HeapSize::_8k, obj),
@@ -368,7 +372,7 @@ impl Heap {
             HeapSize::_32k => self.gc_compaction_32k(obj),
         };
 
-        //self.dump_heap(obj);
+        //self.dump_heap();
     }
 
     fn is_valid_value(v: &Value, arg: &mut GCCopyingArg) -> bool {
@@ -431,13 +435,13 @@ impl Heap {
         }
     }
 
-    fn gc_copying_nnk(&mut self, next_heap_size: HeapSize, obj: &Object) {
-        //self.dump_heap(obj);
+    fn gc_copying<R: GCRootValueHolder>(&mut self, next_heap_size: HeapSize, root: &R) {
+        //self.dump_heap();
         //コピー先の新しいヒープを作成
         let new_layout = Self::get_alloc_layout(next_heap_size);
 
         println!("copying:{:?} {:?}", next_heap_size, new_layout);
-        //self.dump_heap(obj);
+        //self.dump_heap();
 
         let new_heap_ptr = unsafe { alloc::alloc(new_layout) };
 
@@ -449,7 +453,7 @@ impl Heap {
 
         //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
         //ルートから辿ることができるオブジェクトをすべて取得して、新しい領域へコピーする
-        obj.for_each_all_alived_value(arg.as_ptr(), |v, arg_ptr| {
+        root.for_each_alived_value(arg.as_ptr(), |v, arg_ptr| {
             let arg = unsafe { GCCopyingArg::from_ptr(arg_ptr) };
             let value = v.as_ref();
 
@@ -472,10 +476,10 @@ impl Heap {
 
         println!("{:?} ... {:?}", new_heap_ptr, unsafe { new_heap_ptr.add(new_layout.size()) });
 
-        //self.dump_heap(obj);
+        //self.dump_heap();
     }
 
-    fn gc_compaction_32k(&mut self, obj: &Object) {
+    fn gc_compaction_32k<R: GCRootValueHolder>(&mut self, root: &R) {
         println!("compaction: 32k");
 
         //32kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
@@ -483,12 +487,12 @@ impl Heap {
         //値の最低サイズは32bitOSなら8、64bitOSなら16なのでそれぞれの数字で割る。
         let mut flags = [0u16; 1024 * 32 >> SIZE_BIT_SHIFT];
 
-        self.gc_compaction_mark_phase(&mut flags, obj);
-        self.gc_compaction_setup_forwad_ptr(&mut flags, obj);
+        self.gc_compaction_mark_phase(&mut flags, root);
+        self.gc_compaction_setup_forwad_ptr(&mut flags);
         //self.dump_gc_heap(&flags, obj);
 
-        self.gc_compaction_update_reference(&mut flags, obj);
-        self.gc_compaction_move_object(&mut flags, obj);
+        self.gc_compaction_update_reference(&mut flags, root);
+        self.gc_compaction_move_object(&mut flags);
 
         self.heap_size = HeapSize::_32k;
     }
@@ -581,13 +585,13 @@ impl Heap {
         }
     }
 
-    fn gc_compaction_mark_phase(&mut self, flags: &mut [u16], obj: &Object) {
+    fn gc_compaction_mark_phase<R: GCRootValueHolder>(&mut self, flags: &mut [u16], root: &R) {
         let mut arg = unsafe {
             GCCompactionArg::new(self.pool_ptr, self.pool_ptr.add(self.used), flags)
         };
 
         //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
-        obj.for_each_all_alived_value(arg.as_ptr(), |v, arg_ptr| {
+        root.for_each_alived_value(arg.as_ptr(), |v, arg_ptr| {
             let arg = unsafe { GCCompactionArg::from_ptr(arg_ptr) };
 
             let v = v.as_ref();
@@ -597,7 +601,7 @@ impl Heap {
         });
     }
 
-    fn gc_compaction_setup_forwad_ptr(&self, flags: &mut [u16], _obj: &Object) {
+    fn gc_compaction_setup_forwad_ptr(&self, flags: &mut [u16]) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let end = self.pool_ptr.add(self.used);
@@ -629,7 +633,7 @@ impl Heap {
         }
     }
 
-    fn gc_compaction_update_reference(&mut self, flags: &mut [u16], obj: &Object) {
+    fn gc_compaction_update_reference<R: GCRootValueHolder>(&mut self, flags: &mut [u16], root: &R) {
         //生きているオブジェクトの内部で保持したままのアドレスを、
         //再配置後のアドレスで上書きする
 
@@ -663,7 +667,7 @@ impl Heap {
             let mut arg = GCCompactionArg::new(ptr, end, flags);
 
             //ルートオブジェクトとして保持されているオブジェクト内のポインタを更新
-            obj.for_each_all_alived_value(arg.as_ptr(), update_child_pointer);
+            root.for_each_alived_value(arg.as_ptr(), update_child_pointer);
 
             //ヒープ内のオブジェクト内のポインタを更新
             while ptr < end {
@@ -685,7 +689,7 @@ impl Heap {
         }
     }
 
-    fn gc_compaction_move_object(&mut self, flags: &[u16], _obj: &Object) {
+    fn gc_compaction_move_object(&mut self, flags: &[u16]) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let start = ptr;

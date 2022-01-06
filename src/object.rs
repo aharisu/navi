@@ -149,11 +149,11 @@ impl Object {
     }
 
     pub fn alloc<T: NaviType>(&mut self) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc::<T>(self)
+        self.heap.borrow_mut().alloc(self)
     }
 
     pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc_with_additional_size::<T>(additional_size, self)
+        self.heap.borrow_mut().alloc_with_additional_size(additional_size, self)
     }
 
     pub fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
@@ -176,40 +176,12 @@ impl Object {
 
     #[allow(dead_code)]
     pub(crate) fn dump_gc(&self) {
-        self.heap.borrow().dump_heap(self);
+        self.heap.borrow().dump_heap();
     }
 
     #[allow(dead_code)]
     pub(crate) fn value_info(&self, v: &Value) {
         self.heap.borrow().value_info(v);
-    }
-
-    pub(crate) fn for_each_all_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
-        self.ctx.for_each_all_alived_value(arg, callback);
-        self.vm_state.for_each_all_alived_value(arg, callback);
-
-        //グローバルスペース内で保持している値
-        for v in self.world.get_all_values().iter() {
-            callback(v, arg);
-        }
-
-        //キャプチャーしているローカル変数
-        unsafe {
-            self.captures.for_each_used_value(|refer| {
-                callback(refer, arg);
-            });
-        }
-
-        //オブジェクトが持つメッセージレシーバーオブジェクト
-        self.receiver_vec.iter().for_each(|(pat, body)| {
-            callback(pat, arg);
-            callback(body.cast_value(), arg);
-        });
-
-        //レシーバークロージャ
-        if let Some(closure) = self.receiver_closure.as_ref() {
-            callback(closure.cast_value(), arg);
-        }
     }
 
     pub fn capture<T: NaviType>(&mut self, v: FPtr<T>) -> Cap<T> {
@@ -242,6 +214,35 @@ impl PartialEq for Object {
     }
 }
 
+impl self::mm::GCRootValueHolder for Object {
+    fn for_each_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
+        self.ctx.for_each_all_alived_value(arg, callback);
+        self.vm_state.for_each_all_alived_value(arg, callback);
+
+        //グローバルスペース内で保持している値
+        for v in self.world.get_all_values().iter() {
+            callback(v, arg);
+        }
+
+        //キャプチャーしているローカル変数
+        unsafe {
+            self.captures.for_each_used_value(|refer| {
+                callback(refer, arg);
+            });
+        }
+
+        //オブジェクトが持つメッセージレシーバーオブジェクト
+        self.receiver_vec.iter().for_each(|(pat, body)| {
+            callback(pat, arg);
+            callback(body.cast_value(), arg);
+        });
+
+        //レシーバークロージャ
+        if let Some(closure) = self.receiver_closure.as_ref() {
+            callback(closure.cast_value(), arg);
+        }
+    }
+}
 
 static SYMBOL_MSG: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(|| {
     symbol::gensym_static("msg")
