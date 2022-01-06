@@ -44,7 +44,7 @@ impl NaviType for Syntax {
         NonNullConst::new_unchecked(&SYNTAX_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &AnyAllocator) -> FPtr<Self> {
         //Syntaxのインスタンスはヒープ上に作られることがないため、自分自身を返す
         FPtr::new(self)
     }

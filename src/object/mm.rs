@@ -51,12 +51,19 @@ const VALUE_ALIGN:usize = mem::size_of::<usize>();
 
 #[derive(Debug, Copy, Clone)]
 enum HeapSize {
+    _256,
+    _512,
+    _1k,
     _2k,
     _8k,
     _16k,
     _32k,
 }
 
+pub enum StartHeapSize {
+    Default,
+    Small,
+}
 
 pub trait GCRootValueHolder {
     fn for_each_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8));
@@ -144,8 +151,11 @@ impl CopiedValue {
 }
 
 impl Heap {
-    pub fn new() -> Self {
-        let heapsize = HeapSize::_2k;
+    pub fn new(startsize: StartHeapSize) -> Self {
+        let heapsize = match startsize {
+            StartHeapSize::Default => HeapSize::_2k,
+            StartHeapSize::Small => HeapSize::_256,
+        };
 
         let layout = Self::get_alloc_layout(heapsize);
         let ptr = unsafe { alloc::alloc(layout) };
@@ -161,6 +171,9 @@ impl Heap {
 
     fn get_alloc_layout(heapsize: HeapSize) -> alloc::Layout {
         let size = match heapsize {
+            HeapSize::_256 => 256usize,
+            HeapSize::_512 => 512usize,
+            HeapSize::_1k => 1024usize * 1,
             HeapSize::_2k => 1024usize * 2,
             HeapSize::_8k => 1024usize * 8,
             HeapSize::_16k => 1024usize * 16,
@@ -366,10 +379,13 @@ impl Heap {
         //self.dump_heap();
 
         match self.heap_size {
-            HeapSize::_2k => self.gc_copying_nnk(HeapSize::_8k, obj),
-            HeapSize::_8k => self.gc_copying_nnk(HeapSize::_16k, obj),
-            HeapSize::_16k => self.gc_copying_nnk(HeapSize::_32k, obj),
-            HeapSize::_32k => self.gc_compaction_32k(obj),
+            HeapSize::_256 => self.gc_copying(HeapSize::_512, root),
+            HeapSize::_512 => self.gc_copying(HeapSize::_1k, root),
+            HeapSize::_1k => self.gc_copying(HeapSize::_2k, root),
+            HeapSize::_2k => self.gc_copying(HeapSize::_8k, root),
+            HeapSize::_8k => self.gc_copying(HeapSize::_16k, root),
+            HeapSize::_16k => self.gc_copying(HeapSize::_32k, root),
+            HeapSize::_32k => self.gc_compaction_32k(root),
         };
 
         //self.dump_heap();

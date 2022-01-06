@@ -29,15 +29,15 @@ impl <T:NaviType> NaviType for Array<T> {
         NonNullConst::new_unchecked(&ARRAY_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         let size = self.len;
-        let mut array = Self::alloc(size, obj);
+        let mut array = Self::alloc(size, allocator);
 
         for index in 0..size {
             let child = self.get_inner(index);
             let child = child.cast_value();
             //clone_innerの文脈の中だけ、PtrをキャプチャせずにRPtrとして扱うことが許されている
-            let cloned = Value::clone_inner(child.as_ref(), obj);
+            let cloned = Value::clone_inner(child.as_ref(), allocator);
             let cloned = unsafe { cloned.cast_unchecked::<T>() };
 
             array.as_mut().set(cloned.as_ref(), index);
@@ -63,7 +63,7 @@ impl <T: NaviType> Array<T> {
         }
     }
 
-    fn alloc(size: usize, obj: &mut Object) -> FPtr<Array<T>> {
+    fn alloc<A: Allocator>(size: usize, obj: &A) -> FPtr<Array<T>> {
         let ptr = obj.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<FPtr<Value>>());
         unsafe {
             std::ptr::write(ptr.as_ptr(), Array { len: size, _type: PhantomData})

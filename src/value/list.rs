@@ -30,17 +30,17 @@ impl NaviType for List {
         NonNullConst::new_unchecked(&LIST_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         if self.is_nil() {
             //Nilの場合はImmidiate Valueなのでそのまま返す
             FPtr::new(self)
         } else {
             //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
             unsafe {
-                let v = crate::value::Value::clone_inner(self.v.as_ref(), obj).into_reachable();
-                let next = Self::clone_inner(self.next.as_ref(), obj).into_reachable();
+                let v = crate::value::Value::clone_inner(self.v.as_ref(), allocator).into_reachable();
+                let next = Self::clone_inner(self.next.as_ref(), allocator).into_reachable();
 
-                Self::alloc(&v, &next, obj)
+                Self::alloc(&v, &next, allocator)
             }
         }
     }
@@ -66,8 +66,8 @@ impl List {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc(v: &Reachable<Value>, next: &Reachable<List>, obj: &mut Object) -> FPtr<List> {
-        let ptr = obj.alloc::<List>();
+    pub fn alloc<A: Allocator>(v: &Reachable<Value>, next: &Reachable<List>, allocator: &A) -> FPtr<List> {
+        let ptr = allocator.alloc::<List>();
         unsafe {
             //確保したメモリ内に値を書き込む
             std::ptr::write(ptr.as_ptr(), List {

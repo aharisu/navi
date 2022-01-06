@@ -25,7 +25,7 @@ impl NaviType for MatchFail {
         NonNullConst::new_unchecked(&MATCHFAIL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &AnyAllocator) -> FPtr<Self> {
         //MatchFail型の値は常にImmidiate Valueなのでそのまま返す
         FPtr::new(self)
     }

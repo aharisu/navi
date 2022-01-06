@@ -27,16 +27,16 @@ impl NaviType for Code {
         NonNullConst::new_unchecked(&CODE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         unsafe {
             let program = self.program.clone();
             let constants = self.constants.iter()
-                .map(|c| Value::clone_inner(c.as_ref(), obj))
+                .map(|c| Value::clone_inner(c.as_ref(), allocator))
                 .collect()
                 ;
 
-            let ptr = obj.alloc::<Code>();
+            let ptr = allocator.alloc::<Code>();
             std::ptr::write(ptr.as_ptr(), Code {
                 program: program,
                 constants: constants,
@@ -57,8 +57,8 @@ impl Code {
         self.constants.iter().for_each(|v| callback(v, arg));
     }
 
-    pub fn alloc(program: Vec<u8>, constants: Vec<Cap<Value>>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<Code>();
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Value>>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<Code>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Self::new(program, constants))
@@ -138,15 +138,15 @@ impl NaviType for Closure {
         NonNullConst::new_unchecked(&CLOSURE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         let program = self.code.program.clone();
         let constants:Vec<FPtr<Value>> = self.code.constants.iter()
-            .map(|c| Value::clone_inner(c.as_ref(), obj))
+            .map(|c| Value::clone_inner(c.as_ref(), allocator))
             .collect()
             ;
 
-        Self::alloc(program, &constants, self.num_args, obj)
+        Self::alloc(program, &constants, self.num_args, allocator)
     }
 }
 
@@ -160,8 +160,8 @@ impl Closure {
         self.code.child_traversal(arg, callback);
     }
 
-    pub fn alloc(program: Vec<u8>, constants: &[FPtr<Value>], num_args: usize, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<Closure>();
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[FPtr<Value>], num_args: usize, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<Closure>();
 
         let constants = constants.into_iter()
             .map(|c| c.clone())

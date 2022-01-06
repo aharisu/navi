@@ -28,8 +28,8 @@ impl NaviType for Keyword {
         NonNullConst::new_unchecked(&KEYWORD_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(self.as_ref(), obj)
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+        Self::alloc(self.as_ref(), allocator)
     }
 }
 
@@ -42,8 +42,8 @@ impl Keyword {
         std::ptr::eq(&KEYWORD_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<T: Into<String>>(str: T, obj : &mut Object) -> FPtr<Keyword> {
-        string::NString::alloc_inner::<Keyword>(&str.into(), obj)
+    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &A) -> FPtr<Keyword> {
+        string::NString::alloc_inner::<Keyword, A>(&str.into(), allocator)
     }
 
 }

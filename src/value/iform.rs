@@ -2,7 +2,7 @@ use core::panic;
 use std::fmt::{Display, Debug};
 
 use crate::ptr::*;
-use crate::object::Object;
+use crate::object::{Object, AnyAllocator, Allocator};
 use crate::value::symbol;
 use crate::{util::non_null_const::NonNullConst};
 
@@ -43,11 +43,11 @@ impl NaviType for IForm {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         let value: &Value = cast_value(self);
 
         //IFormはインスタンス化されることがない型なので、自分自身に対してValue::clone_innerを無限ループにはならない。
-        let cloned = Value::clone_inner(value, obj);
+        let cloned = Value::clone_inner(value, allocator);
         unsafe { cloned.cast_unchecked::<IForm>() }.clone()
     }
 }
@@ -350,13 +350,13 @@ impl NaviType for IFormLet {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Let as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbol = Symbol::clone_inner(self.symbol.as_ref(), obj).into_reachable();
-            let val = IForm::clone_inner(self.val.as_ref(), obj).into_reachable();
+            let symbol = Symbol::clone_inner(self.symbol.as_ref(), allocator).into_reachable();
+            let val = IForm::clone_inner(self.val.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&symbol, &val, obj)
+            Self::alloc(&symbol, &val, allocator)
         }
     }
 }
@@ -372,8 +372,8 @@ impl IFormLet {
         callback(self.val.cast_value(), arg);
     }
 
-    pub fn alloc(symbol: &Reachable<Symbol>, val: &Reachable<IForm>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormLet>();
+    pub fn alloc<A: Allocator>(symbol: &Reachable<Symbol>, val: &Reachable<IForm>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormLet>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormLet {
                     symbol: FPtr::new(symbol.as_ref()),
@@ -428,14 +428,14 @@ impl NaviType for IFormIf {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::If as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let test = IForm::clone_inner(self.test.as_ref(), obj).into_reachable();
-            let then = IForm::clone_inner(self.then.as_ref(), obj).into_reachable();
-            let else_ = IForm::clone_inner(self.else_.as_ref(), obj).into_reachable();
+            let test = IForm::clone_inner(self.test.as_ref(), allocator).into_reachable();
+            let then = IForm::clone_inner(self.then.as_ref(), allocator).into_reachable();
+            let else_ = IForm::clone_inner(self.else_.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&test, &then, &else_, obj)
+            Self::alloc(&test, &then, &else_, allocator)
         }
     }
 }
@@ -452,8 +452,8 @@ impl IFormIf {
         callback(self.else_.cast_value(), arg);
     }
 
-    pub fn alloc(test: &Reachable<IForm>, true_: &Reachable<IForm>, false_: &Reachable<IForm>, obj: &mut Object) -> FPtr<IFormIf> {
-        let ptr = obj.alloc::<IFormIf>();
+    pub fn alloc<A: Allocator>(test: &Reachable<IForm>, true_: &Reachable<IForm>, false_: &Reachable<IForm>, allocator: &A) -> FPtr<IFormIf> {
+        let ptr = allocator.alloc::<IFormIf>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormIf {
                     test: FPtr::new(test.as_ref()),
@@ -513,12 +513,12 @@ impl NaviType for IFormLocal {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Local as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let body = IForm::clone_inner(self.body.as_ref(), obj).into_reachable();
+            let body = IForm::clone_inner(self.body.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&body, obj)
+            Self::alloc(&body, allocator)
         }
     }
 }
@@ -533,8 +533,8 @@ impl IFormLocal {
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc(body: &Reachable<IForm>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormLocal>();
+    pub fn alloc<A: Allocator>(body: &Reachable<IForm>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormLocal>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormLocal {
                     body: FPtr::new(body.as_ref()),
@@ -582,12 +582,12 @@ impl NaviType for IFormLRef {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::LRef as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), obj).into_reachable();
+            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&symbol, obj)
+            Self::alloc(&symbol, allocator)
         }
     }
 }
@@ -602,8 +602,8 @@ impl IFormLRef {
         callback(&self.symbol.cast_value(), arg);
     }
 
-    pub fn alloc(v: &Reachable<Symbol>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormLRef>();
+    pub fn alloc<A: Allocator>(v: &Reachable<Symbol>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormLRef>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormLRef {
                     symbol: FPtr::new(v.as_ref())
@@ -651,12 +651,12 @@ impl NaviType for IFormGRef {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::GRef as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), obj).into_reachable();
+            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&symbol, obj)
+            Self::alloc(&symbol, allocator)
         }
     }
 }
@@ -671,8 +671,8 @@ impl IFormGRef {
         callback(&self.symbol.cast_value(), arg);
     }
 
-    pub fn alloc(v: &Reachable<Symbol>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormGRef>();
+    pub fn alloc<A: Allocator>(v: &Reachable<Symbol>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormGRef>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormGRef {
                     symbol: FPtr::new(v.as_ref())
@@ -721,13 +721,13 @@ impl NaviType for IFormFun {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Fun as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let params = Array::clone_inner(self.params.as_ref(), obj).into_reachable();
-            let body = IForm::clone_inner(self.body.as_ref(), obj).into_reachable();
+            let params = Array::clone_inner(self.params.as_ref(), allocator).into_reachable();
+            let body = IForm::clone_inner(self.body.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&params, &body, obj)
+            Self::alloc(&params, &body, allocator)
         }
     }
 }
@@ -743,8 +743,8 @@ impl IFormFun {
         callback(&self.body.cast_value(), arg);
     }
 
-    pub fn alloc(params: &Reachable<Array<Symbol>>, body: &Reachable<IForm>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormFun>();
+    pub fn alloc<A: Allocator>(params: &Reachable<Array<Symbol>>, body: &Reachable<IForm>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormFun>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormFun {
                     params: FPtr::new(params.as_ref()),
@@ -801,12 +801,12 @@ impl NaviType for IFormSeq {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Seq as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let body = Array::clone_inner(self.body.as_ref(), obj).into_reachable();
+            let body = Array::clone_inner(self.body.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&body, obj)
+            Self::alloc(&body, allocator)
         }
     }
 }
@@ -821,8 +821,8 @@ impl IFormSeq {
         callback(&self.body.cast_value(), arg);
     }
 
-    pub fn alloc(body: &Reachable<Array<IForm>>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormSeq>();
+    pub fn alloc<A: Allocator>(body: &Reachable<Array<IForm>>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormSeq>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormSeq {
                     body: FPtr::new(body.as_ref()),
@@ -871,13 +871,13 @@ impl NaviType for IFormCall {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Call as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let app = IForm::clone_inner(self.app.as_ref(), obj).into_reachable();
-            let args = Array::clone_inner(self.args.as_ref(), obj).into_reachable();
+            let app = IForm::clone_inner(self.app.as_ref(), allocator).into_reachable();
+            let args = Array::clone_inner(self.args.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&app, &args, obj)
+            Self::alloc(&app, &args, allocator)
         }
     }
 }
@@ -893,8 +893,8 @@ impl IFormCall {
         callback(&self.args.cast_value(), arg);
     }
 
-    pub fn alloc(app: &Reachable<IForm>, args: &Reachable<Array<IForm>>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormCall>();
+    pub fn alloc<A: Allocator>(app: &Reachable<IForm>, args: &Reachable<Array<IForm>>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormCall>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormCall {
                     app: FPtr::new(app.as_ref()),
@@ -951,12 +951,12 @@ impl NaviType for IFormConst {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Const as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let value = Value::clone_inner(self.value.as_ref(), obj).into_reachable();
+            let value = Value::clone_inner(self.value.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&value, obj)
+            Self::alloc(&value, allocator)
         }
     }
 }
@@ -971,8 +971,8 @@ impl IFormConst {
         callback(&self.value.cast_value(), arg);
     }
 
-    pub fn alloc(v: &Reachable<Value>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormConst>();
+    pub fn alloc<A: Allocator>(v: &Reachable<Value>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormConst>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormConst {
                     value: FPtr::new(v.as_ref())
@@ -1028,12 +1028,12 @@ impl NaviType for IFormAndOr {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::AndOr as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let exprs = Array::clone_inner(self.exprs.as_ref(), obj).into_reachable();
+            let exprs = Array::clone_inner(self.exprs.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&exprs, self.kind, obj)
+            Self::alloc(&exprs, self.kind, allocator)
         }
     }
 }
@@ -1048,8 +1048,8 @@ impl IFormAndOr {
         callback(&self.exprs.cast_value(), arg);
     }
 
-    pub fn alloc(exprs: &Reachable<Array<IForm>>, kind: AndOrKind, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormAndOr>();
+    pub fn alloc<A: Allocator>(exprs: &Reachable<Array<IForm>>, kind: AndOrKind, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormAndOr>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormAndOr {
                     exprs: FPtr::new(exprs.as_ref()),
@@ -1115,12 +1115,12 @@ impl NaviType for IFormContainer {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Container as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let exprs = Array::clone_inner(self.exprs.as_ref(), obj).into_reachable();
+            let exprs = Array::clone_inner(self.exprs.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&exprs, self.kind, obj)
+            Self::alloc(&exprs, self.kind, allocator)
         }
     }
 }
@@ -1135,8 +1135,8 @@ impl IFormContainer {
         callback(&self.exprs.cast_value(), arg);
     }
 
-    pub fn alloc(exprs: &Reachable<Array<IForm>>, kind: ContainerKind, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormContainer>();
+    pub fn alloc<A: Allocator>(exprs: &Reachable<Array<IForm>>, kind: ContainerKind, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormContainer>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormContainer {
                     exprs: FPtr::new(exprs.as_ref()),
@@ -1194,13 +1194,13 @@ impl NaviType for IFormDefRecv {
         NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::DefRecv as usize] as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let pattern = Value::clone_inner(self.pattern.as_ref(), obj).into_reachable();
-            let body = super::list::List::clone_inner(self.body.as_ref(), obj).into_reachable();
+            let pattern = Value::clone_inner(self.pattern.as_ref(), allocator).into_reachable();
+            let body = super::list::List::clone_inner(self.body.as_ref(), allocator).into_reachable();
 
-            Self::alloc(&pattern, &body, obj)
+            Self::alloc(&pattern, &body, allocator)
         }
     }
 }
@@ -1216,8 +1216,8 @@ impl IFormDefRecv {
         callback(&self.body.cast_value(), arg);
     }
 
-    pub fn alloc(pattern: &Reachable<Value>, body: &Reachable<super::list::List>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<IFormDefRecv>();
+    pub fn alloc<A: Allocator>(pattern: &Reachable<Value>, body: &Reachable<super::list::List>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormDefRecv>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormDefRecv {
                     pattern: FPtr::new(pattern.as_ref()),

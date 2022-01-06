@@ -9,7 +9,7 @@ macro_rules! new_typeinfo {
                 None => None
             },
             eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Value, &Value) -> bool>($eq_func) },
-            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut Object) -> FPtr<$t>, fn(&Value, &mut Object) -> FPtr<Value>>($clone_func) },
+            clone_func: unsafe { std::mem::transmute::<fn(&$t, &crate::object::AnyAllocator) -> FPtr<$t>, fn(&Value, &crate::object::AnyAllocator) -> FPtr<Value>>($clone_func) },
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
             finalize: match $finalize_func {
@@ -44,7 +44,7 @@ pub mod object_ref;
 pub mod iform;
 
 
-use crate::object::Object;
+use crate::object::{Object, Allocator, AnyAllocator};
 use crate::object::mm::{self, GCAllocationStruct};
 use crate::util::non_null_const::*;
 use crate::{ptr::*, vm};
@@ -106,14 +106,14 @@ pub fn value_is_pointer(v: &Value) -> bool {
     pointer_kind(v as *const Value) == PtrKind::Ptr
 }
 
-pub fn value_clone<T: NaviType>(v: &Reachable<T>, obj: &mut Object) -> FPtr<T> {
+pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &AnyAllocator) -> FPtr<T> {
     //クローンを行う値のトータルのサイズを計測
     //リストや配列など内部に値を保持している場合は再帰的にすべての値のサイズも計測されている
     let total_size = mm::Heap::calc_total_size(v.cast_value().as_ref());
     //事前にクローンを行うために必要なメモリスペースを確保する
-    obj.force_allocation_space(total_size);
+    allocator.force_allocation_space(total_size);
 
-    NaviType::clone_inner(v.as_ref(), obj)
+    NaviType::clone_inner(v.as_ref(), allocator)
 }
 
 pub fn cast_value<T: NaviType>(v: &T) -> &Value {
@@ -144,7 +144,7 @@ pub fn get_typeinfo<T: NaviType>(this: &T) -> NonNullConst<TypeInfo>{
 
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> NonNullConst<TypeInfo>;
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self>;
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self>;
 }
 
 #[allow(dead_code)]
@@ -153,7 +153,7 @@ pub struct TypeInfo {
     pub fixed_size: usize,
     pub variable_size_func: Option<fn(&Value) -> usize>,
     pub eq_func: fn(&Value, &Value) -> bool,
-    pub clone_func: fn(&Value, &mut Object) -> FPtr<Value>,
+    pub clone_func: fn(&Value, &AnyAllocator) -> FPtr<Value>,
     pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: fn(&TypeInfo) -> bool,
     pub finalize: Option<fn(&mut Value)>,
@@ -181,10 +181,10 @@ impl NaviType for Value {
         NonNullConst::new_unchecked(&VALUE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         if value_is_pointer(self) {
             let typeinfo = get_typeinfo(self);
-           (unsafe { typeinfo.as_ref() }.clone_func)(self, obj)
+           (unsafe { typeinfo.as_ref() }.clone_func)(self, allocator)
 
         } else {
             //Immidiate Valueの場合はそのまま返す

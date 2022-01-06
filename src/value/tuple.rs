@@ -26,18 +26,18 @@ impl NaviType for Tuple {
         NonNullConst::new_unchecked(&TUPLE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         if self.is_unit() {
             //UnitはImmidiate Valueなのでそのまま返す
             FPtr::new(self)
         } else {
             let size = self.len();
-            let mut tuple = Self::alloc(size, obj);
+            let mut tuple = Self::alloc(size, allocator);
 
             for index in 0..size {
                 let child = self.get_inner(index);
                 //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
-                let cloned = Value::clone_inner(child.as_ref(), obj);
+                let cloned = Value::clone_inner(child.as_ref(), allocator);
 
                 tuple.as_mut().set(cloned.as_ref(), index);
             }
@@ -74,8 +74,8 @@ impl Tuple {
         std::ptr::eq(self as *const Self, IMMIDATE_UNIT as *const Self)
     }
 
-    fn alloc(size: usize, obj: &mut Object) -> FPtr<Tuple> {
-        let ptr = obj.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<FPtr<Value>>());
+    fn alloc<A: Allocator>(size: usize, allocator: &A) -> FPtr<Tuple> {
+        let ptr = allocator.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<FPtr<Value>>());
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Tuple {len: size});

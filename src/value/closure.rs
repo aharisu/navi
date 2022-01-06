@@ -28,13 +28,13 @@ impl NaviType for Closure {
         NonNullConst::new_unchecked(&CLOSURE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         unsafe {
-            let params = array::Array::<symbol::Symbol>::clone_inner(self.params.as_ref(), obj).into_reachable();
-            let body = list::List::clone_inner(self.body.as_ref(), obj).into_reachable();
+            let params = array::Array::<symbol::Symbol>::clone_inner(self.params.as_ref(), allocator).into_reachable();
+            let body = list::List::clone_inner(self.body.as_ref(), allocator).into_reachable();
 
-            let ptr = obj.alloc::<Closure>();
+            let ptr = allocator.alloc::<Closure>();
 
             std::ptr::write(ptr.as_ptr(), Closure {
                 params: FPtr::new(params.as_ref()),
@@ -57,8 +57,8 @@ impl Closure {
         callback(self.body.cast_value(), arg);
     }
 
-    pub fn alloc(params: &Reachable<array::Array<symbol::Symbol>>, body: &Reachable<list::List>, obj: &mut Object) -> FPtr<Self> {
-        let ptr = obj.alloc::<Closure>();
+    pub fn alloc<A: Allocator>(params: &Reachable<array::Array<symbol::Symbol>>, body: &Reachable<list::List>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<Closure>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Closure {

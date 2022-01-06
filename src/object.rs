@@ -19,6 +19,42 @@ use self::context::Context;
 use self::fixed_size_alloc::FixedSizeAllocator;
 use self::mm::{GCAllocationStruct, Heap};
 
+pub trait Allocator {
+    fn alloc<T: NaviType>(&self) -> UIPtr<T>;
+    fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T>;
+    fn force_allocation_space(&self, size: usize);
+}
+
+//型パラメータがどうしても使えない場所で使用するAllocatorを実装する値を内包したenum
+//TypeInfo内で保持されるclone_innerで使用している。
+pub enum AnyAllocator<'a> {
+    Object(&'a Object),
+    MailBox(&'a MailBox),
+}
+
+impl <'a> Allocator for AnyAllocator<'a> {
+    fn alloc<T: NaviType>(&self) -> UIPtr<T> {
+        match self {
+            AnyAllocator::Object(obj) => obj.alloc(),
+            AnyAllocator::MailBox(mailbox) => mailbox.alloc(),
+        }
+    }
+
+    fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T> {
+        match self {
+            AnyAllocator::Object(obj) => obj.alloc_with_additional_size(additional_size),
+            AnyAllocator::MailBox(mailbox) => mailbox.alloc_with_additional_size(additional_size),
+        }
+    }
+
+    fn force_allocation_space(&self, size: usize) {
+        match self {
+            AnyAllocator::Object(obj) => obj.force_allocation_space(size),
+            AnyAllocator::MailBox(mailbox) => mailbox.force_allocation_space(size),
+        }
+    }
+}
+
 pub struct Object {
     ctx: Context,
     vm_state: VMState,
@@ -40,7 +76,7 @@ impl Object {
 
             world: world::World::new(),
 
-            heap: RefCell::new(Heap::new()),
+            heap: RefCell::new(Heap::new(mm::StartHeapSize::Default)),
             captures: FixedSizeAllocator::new(),
 
             receiver_vec: Vec::new(),
@@ -62,13 +98,14 @@ impl Object {
 
     pub fn recv_message(&mut self, msg: &Reachable<Value>) -> FPtr<Value> {
         //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
-        let msg = crate::value::value_clone(msg, self).reach(self);
+        let allocator = AnyAllocator::Object(self);
+        let msg = crate::value::value_clone(msg, &allocator).reach(self);
 
         //メッセージをオブジェクトに対して適用
         self.apply_message(&msg)
     }
 
-    pub fn apply_message(&mut self, message: &Reachable<Value>) -> FPtr<Value> {
+    fn apply_message(&mut self, message: &Reachable<Value>) -> FPtr<Value> {
         let obj = self;
 
         //レシーバーのパターンマッチ式がまだ構築されていなければ
@@ -148,20 +185,8 @@ impl Object {
         list::register_global(self);
     }
 
-    pub fn alloc<T: NaviType>(&mut self) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc(self)
-    }
-
-    pub fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc_with_additional_size(additional_size, self)
-    }
-
     pub fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
         self.heap.borrow().is_in_heap_object(v)
-    }
-
-    pub fn force_allocation_space(&mut self, size: usize) {
-        self.heap.borrow_mut().force_allocation_space(size, self);
     }
 
     #[allow(dead_code)]
@@ -170,7 +195,7 @@ impl Object {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn do_gc(&mut self) {
+    pub(crate) fn do_gc(&self) {
         self.heap.borrow_mut().gc(self);
     }
 
@@ -214,7 +239,7 @@ impl PartialEq for Object {
     }
 }
 
-impl self::mm::GCRootValueHolder for Object {
+impl mm::GCRootValueHolder for Object {
     fn for_each_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
         self.ctx.for_each_all_alived_value(arg, callback);
         self.vm_state.for_each_all_alived_value(arg, callback);
@@ -244,6 +269,20 @@ impl self::mm::GCRootValueHolder for Object {
     }
 }
 
+impl Allocator for Object {
+    fn alloc<T: NaviType>(&self) -> UIPtr<T> {
+        self.heap.borrow_mut().alloc(self)
+    }
+
+    fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T> {
+        self.heap.borrow_mut().alloc_with_additional_size(additional_size, self)
+    }
+
+    fn force_allocation_space(&self, size: usize) {
+        self.heap.borrow_mut().force_allocation_space(size, self);
+    }
+}
+
 static SYMBOL_MSG: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(|| {
     symbol::gensym_static("msg")
 });
@@ -254,5 +293,59 @@ mod literal {
 
     pub fn msg_symbol() -> Reachable<symbol::Symbol> {
         Reachable::new_static(SYMBOL_MSG.value.as_ref())
+    }
+}
+
+pub struct MailBox {
+    obj: Object,
+    heap: RefCell<Heap>,
+}
+
+impl MailBox {
+    pub fn new(obj: Object) -> Self {
+        MailBox {
+            obj,
+            heap: RefCell::new(Heap::new(mm::StartHeapSize::Small)),
+        }
+    }
+
+    pub fn recv(&mut self, msg: &Reachable<Value>) -> FPtr<Value> {
+        //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
+        let allocator = AnyAllocator::MailBox(self);
+        let msg = crate::value::value_clone(msg, &allocator);
+        //TODO 受け取ったメッセージを内部バッファに保存する
+
+        //Objectへ渡す場合は絶対にGCが発生しないため無理やりReachableに変換する
+        let msg = unsafe { msg.into_reachable() };
+        self.obj.recv_message(&msg)
+    }
+
+}
+
+impl Eq for MailBox {}
+
+impl PartialEq for MailBox {
+    fn eq(&self, other: &Self) -> bool {
+        //同じオブジェクトを参照しているならイコール
+        self.obj == other.obj
+    }
+}
+
+impl mm::GCRootValueHolder for MailBox {
+    fn for_each_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
+    }
+}
+
+impl Allocator for MailBox {
+    fn alloc<T: NaviType>(&self) -> UIPtr<T> {
+        self.heap.borrow_mut().alloc(self)
+    }
+
+    fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T> {
+        self.heap.borrow_mut().alloc_with_additional_size(additional_size, self)
+    }
+
+    fn force_allocation_space(&self, size: usize) {
+        self.heap.borrow_mut().force_allocation_space(size, self);
     }
 }

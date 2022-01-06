@@ -34,8 +34,8 @@ impl NaviType for Integer {
         NonNullConst::new_unchecked(&INTEGER_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(self.num, obj)
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+        Self::alloc(self.num, allocator)
     }
 }
 
@@ -52,8 +52,8 @@ impl Integer {
         || std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(num: i64, obj : &mut Object) -> FPtr<Integer> {
-        let ptr = obj.alloc::<Integer>();
+    pub fn alloc<A: Allocator>(num: i64, allocator : &A) -> FPtr<Integer> {
+        let ptr = allocator.alloc::<Integer>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Integer { num: num });
@@ -131,8 +131,8 @@ impl NaviType for Real {
         NonNullConst::new_unchecked(&REAL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(self.num, obj)
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+        Self::alloc(self.num, allocator)
     }
 }
 
@@ -148,8 +148,8 @@ impl Real {
         || std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(num: f64, obj : &mut Object) -> FPtr<Real> {
-        let ptr = obj.alloc::<Real>();
+    pub fn alloc<A: Allocator>(num: f64, allocator : &A) -> FPtr<Real> {
+        let ptr = allocator.alloc::<Real>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Real { num: num });
@@ -220,7 +220,7 @@ impl NaviType for Number {
         NonNullConst::new_unchecked(&NUMBER_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _obj: &mut Object) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &AnyAllocator) -> FPtr<Self> {
         //Number型のインスタンスは存在しないため、cloneが呼ばれることはない。
         unreachable!()
     }

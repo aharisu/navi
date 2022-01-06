@@ -30,8 +30,8 @@ impl NaviType for NString {
         NonNullConst::new_unchecked(&STRING_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, obj: &mut Object) -> FPtr<Self> {
-        Self::alloc(&self.as_string(), obj)
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+        Self::alloc(&self.as_string(), allocator)
     }
 }
 
@@ -44,14 +44,14 @@ impl NString {
         std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc(str: &String, obj : &mut Object) -> FPtr<NString> {
-        Self::alloc_inner(str, obj)
+    pub fn alloc<A: Allocator>(str: &String, allocator : &A) -> FPtr<NString> {
+        Self::alloc_inner(str, allocator)
     }
 
     //NStringとSymbol,Keywordクラス共有のアロケーション用関数。TはNSTringもしくはSymbol、Keywordのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType>(str: &String, obj : &mut Object) -> FPtr<T> {
+    pub(crate) fn alloc_inner<T: NaviType, A: Allocator>(str: &String, allocator : &A) -> FPtr<T> {
         let len_inbytes = str.len();
-        let ptr = obj.alloc_with_additional_size::<T>(len_inbytes);
+        let ptr = allocator.alloc_with_additional_size::<T>(len_inbytes);
 
         let nstring = unsafe { &mut *(ptr.as_ptr() as *mut NString) };
         nstring.len_inbytes = len_inbytes;
