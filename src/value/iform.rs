@@ -2,7 +2,7 @@ use core::panic;
 use std::fmt::{Display, Debug};
 
 use crate::ptr::*;
-use crate::object::{Object, AnyAllocator, Allocator};
+use crate::object::{AnyAllocator, Allocator};
 use crate::value::symbol;
 use crate::{util::non_null_const::NonNullConst};
 
@@ -19,6 +19,7 @@ static IFORM_TYPEINFO : TypeInfo = new_typeinfo!(
     IForm::clone_inner,
     IForm::_fmt,
     IForm::_is_type,
+    None,
     None,
     None,
     None,
@@ -193,6 +194,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormLet::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormIf,
@@ -206,6 +208,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormIf::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormLocal,
@@ -219,6 +222,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormLocal::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormLRef,
@@ -232,6 +236,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormLRef::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormGRef,
@@ -245,6 +250,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormGRef::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormFun,
@@ -258,6 +264,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormFun::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormSeq,
@@ -271,6 +278,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormSeq::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormCall,
@@ -284,6 +292,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormCall::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormConst,
@@ -297,6 +306,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormConst::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormAndOr,
@@ -310,6 +320,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormAndOr::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormContainer,
@@ -323,6 +334,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormContainer::child_traversal),
+        None,
     ),
     new_typeinfo!(
         IFormDefRecv,
@@ -336,6 +348,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormDefRecv::child_traversal),
+        None,
     ),
 ];
 

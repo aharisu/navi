@@ -1,7 +1,7 @@
 #![allow(unused_unsafe)]
 
 use crate::object::Object;
-use crate::value::*;
+use crate::value::{*, self};
 use crate::ptr::*;
 use crate::vm;
 use std::fmt::{self, Debug, Display};
@@ -23,6 +23,7 @@ static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     None,
     Some(List::child_traversal),
+    Some(List::check_reply),
 );
 
 impl NaviType for List {
@@ -56,6 +57,36 @@ impl List {
     fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, arg: *mut u8)) {
         callback(&self.v, arg);
         callback(self.next.cast_value(), arg);
+    }
+
+    fn check_reply(cap: &mut Cap<List>, obj: &mut Object) -> bool {
+        if cap.as_ref().is_nil() {
+            true
+        } else {
+            //headにReplyを含んだ値がないかチェック
+            let mut head = cap.as_ref().head().capture(obj);
+
+            //headがReply自身か？
+            if let Some(reply) = head.try_cast_mut::<reply::Reply>() {
+                //Replyから返信を取得
+                if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
+                    //返信の値でheadを上書き
+                    cap.as_mut().v = result.clone();
+
+                } else {
+                    //Replyがまだ返信を受け取っていなかったのでfalseを返す
+                    return false;
+                }
+            } else {
+                //headがReply以外の値の場合、値の中にReplyを含んでいないかチェック
+                if value::call_check_reply(&mut head, obj) == false {
+                    return false;
+                }
+            }
+
+            //Tailリストの中にReplyが含まれていないかを再帰的にチェック
+            Self::check_reply(&mut cap.as_ref().tail().capture(obj), obj)
+        }
     }
 
     pub fn nil() -> Reachable<List> {
@@ -458,10 +489,10 @@ mod tests {
 
     #[test]
     fn test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {

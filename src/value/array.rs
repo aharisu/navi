@@ -1,4 +1,4 @@
-use crate::value::*;
+use crate::value::{*, self};
 use crate::ptr::*;
 use crate::vm;
 use std::fmt::Display;
@@ -22,6 +22,7 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     None,
     Some(Array::<Value>::child_traversal),
+    Some(Array::<Value>::check_reply),
 );
 
 impl <T:NaviType> NaviType for Array<T> {
@@ -63,6 +64,30 @@ impl <T: NaviType> Array<T> {
         }
     }
 
+    fn check_reply(cap: &mut Cap<Array<Value>>, obj: &mut Object) -> bool {
+        for index in 0.. cap.as_ref().len {
+            let mut child_v = cap.as_ref().get(index).capture(obj);
+
+            if let Some(reply) = child_v.try_cast_mut::<reply::Reply>() {
+                if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
+                    cap.as_mut().set(result.as_ref(), index);
+                } else {
+
+                    //Replyがまだ返信を受け取っていなかったのでfalseを返す
+                    return false;
+                }
+
+            } else {
+                //子要素にReplyを含む値が残っている場合は、全体をfalseにする
+                if value::call_check_reply(&mut child_v, obj) == false {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
     fn alloc<A: Allocator>(size: usize, obj: &A) -> FPtr<Array<T>> {
         let ptr = obj.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<FPtr<Value>>());
         unsafe {
@@ -95,7 +120,7 @@ impl <T: NaviType> Array<T> {
         self.get_inner(index).clone()
     }
 
-    fn get_inner<'a>(&'a self, index: usize) -> &'a FPtr<T> {
+    fn get_inner<'a>(&'a self, index: usize) -> &'a mut FPtr<T> {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -109,7 +134,7 @@ impl <T: NaviType> Array<T> {
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
 
-            &*(storage_ptr)
+            &mut *(storage_ptr)
         }
     }
 
@@ -355,10 +380,10 @@ mod tests {
 
     #[test]
     fn test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {

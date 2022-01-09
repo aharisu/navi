@@ -18,7 +18,7 @@ macro_rules! cap_eval {
 
 pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
     if let Some(code) = sexp.try_cast::<compiled::Code>() {
-        crate::vm::execute(code, obj)
+        vm::code_execute(code, vm::WorkTimeLimit::Inf, obj).unwrap()
 
     } else if let Some(sexp) = sexp.try_cast::<list::List>() {
         if sexp.as_ref().is_nil() {
@@ -39,7 +39,7 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
                 let args = builder_args.get().reach(obj);
 
                 //関数の呼び出し処理を実行
-                vm::func_call(func, &args, obj)
+                vm::func_call(func, args.iter(obj), vm::WorkTimeLimit::Inf, obj).unwrap()
 
             } else if let Some(syntax) = head.try_cast::<syntax::Syntax>() {
                 //シンタックス適用
@@ -69,7 +69,7 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
                 }
             } else if let Some(closure) = head.try_cast::<compiled::Closure>() {
 
-                //TODO
+                //TODO vm::closure_call
                 unimplemented!()
 
             } else {
@@ -154,9 +154,9 @@ mod tests {
 
     #[test]
     fn func_test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -204,9 +204,9 @@ mod tests {
 
     #[test]
     fn syntax_if_test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -229,9 +229,9 @@ mod tests {
 
     #[test]
     fn syntax_cond_test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -262,9 +262,9 @@ mod tests {
 
     #[test]
     fn syntax_let_test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -304,9 +304,9 @@ mod tests {
 
     #[test]
     fn syntax_fun_test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -324,9 +324,9 @@ mod tests {
 
     #[test]
     fn syntax_local_test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn syntax_and_or() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
         {
@@ -373,9 +373,9 @@ mod tests {
 
     #[test]
     fn syntax_match() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {

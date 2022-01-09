@@ -42,7 +42,14 @@ pub mod tag {
     pub const TUPLE:u8 = 22;
     pub const ARRAY:u8 = 23;
 
-    //next number 23
+    //next number 25
+}
+
+#[derive(Debug)]
+pub enum ExecError {
+    TimeLimit,
+    WaitReply,
+    Exception,
 }
 
 #[derive(Debug)]
@@ -140,7 +147,9 @@ fn refer_local_var(env: *const Environment, index: usize) -> FPtr<Value> {
 
 #[derive(Debug)]
 pub struct VMState {
+    reductions: usize,
     code: FPtr<compiled::Code>,
+    suspend_pc: usize, //途中終了時のプログラムカウンタ
     acc: FPtr<Value>,
     stack: VMStack,
     cont: *mut Continuation,
@@ -151,13 +160,20 @@ pub struct VMState {
 impl VMState {
     pub fn new() -> Self {
         VMState {
+            reductions: 0,
             code: FPtr::from_ptr(std::ptr::null_mut()), //ダミーのためにヌルポインターで初期化
+            suspend_pc: 0,
             acc: bool::Bool::false_().into_value().into_fptr(),
             stack: VMStack::new(1024 * 3),
             cont: std::ptr::null_mut(),
             env: std::ptr::null_mut(),
             argp: std::ptr::null_mut(),
         }
+    }
+
+    #[inline(always)]
+    pub fn remain_reductions(&self) -> usize {
+        self.reductions
     }
 
     pub fn for_each_all_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
@@ -204,7 +220,24 @@ impl VMState {
     }
 }
 
-pub fn func_call(func: &Reachable<func::Func>, args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+#[derive(Debug, PartialEq)]
+pub enum WorkTimeLimit {
+    Inf,
+    Reductions(usize),
+}
+
+pub fn func_call(func: &Reachable<func::Func>, args_iter: impl Iterator<Item=FPtr<Value>>
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
+    app_call(func.cast_value(), args_iter, limit, obj)
+}
+
+pub fn closure_call(closure: &Reachable<compiled::Closure>, args_iter: impl Iterator<Item=FPtr<Value>>
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
+    app_call(closure.cast_value(), args_iter, limit, obj)
+}
+
+fn app_call(app: &Reachable<Value>, args_iter: impl Iterator<Item=FPtr<Value>>
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
     //ContinuationとEnvironmentのフレームをプッシュ
     {
         let mut buf: Vec<u8> = Vec::with_capacity(3);
@@ -218,6 +251,9 @@ pub fn func_call(func: &Reachable<func::Func>, args: &Reachable<list::List>, obj
         let code = compiled::Code::new(buf, Vec::new());
         let code = Reachable::new_static(&code);
 
+        //関数呼び出しの準備段階の実行は、実行時間に制限を設けない
+        code_execute(&code,  WorkTimeLimit::Inf, obj).unwrap();
+    }
 
     //APPをプッシュ
     {
@@ -240,10 +276,12 @@ pub fn func_call(func: &Reachable<func::Func>, args: &Reachable<list::List>, obj
         let code = compiled::Code::new(buf, Vec::new());
         let code = Reachable::new_static(&code);
 
-        for arg in args.iter(obj) {
+        for arg in args_iter {
             //引数を順にaccに入れてPUSHを実行
             obj.vm_state().acc = arg.clone();
-            execute(&code, obj);
+
+            //関数呼び出しの準備段階の実行は、実行時間に制限を設けない
+            code_execute(&code, WorkTimeLimit::Inf, obj).unwrap();
         }
     }
 
@@ -256,20 +294,61 @@ pub fn func_call(func: &Reachable<func::Func>, args: &Reachable<list::List>, obj
         let code = Reachable::new_static(&code);
 
         //コードを実行
-
-        //CALLを実行。結果を返り値にする
-        execute(&code, obj)
+        code_execute(&code, limit, obj)
     }
 }
 
-pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value> {
+pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
+    //実行対象のコードを設定
     obj.vm_state().code = FPtr::new(code.as_ref());
-    let mut program = Cursor::new(code.as_ref().program());
+    obj.vm_state().suspend_pc = 0;
 
-    //これ以降、code変数は使用しない。
-    //間違えて参照してしまわないように、適当な型の値でShadowingしておく。
-    #[allow(unused_variables)]
-    let code :std::marker::PhantomData<bool> = std::marker::PhantomData;
+    loop {
+        //直接executを実行する場合は最大最後まで実行できるようにするためにのワークサイズを設定する
+        obj.vm_state().reductions = match limit {
+            WorkTimeLimit::Inf => usize::MAX,
+            WorkTimeLimit::Reductions(reductions) => reductions,
+         };
+
+        //CALLを実行。結果を返り値にする
+        match execute(obj) {
+            Ok(result) => {
+                return Ok(result);
+            }
+            Err(err_kind) => {
+                //実行時間に制限があるときだけ、エラーを返す
+                if limit != WorkTimeLimit::Inf {
+                    return Err(err_kind);
+                }
+
+                match err_kind {
+                    ExecError::TimeLimit => {
+                        //実行時間がInfの場合はloopを継続して終了まで実行させる
+                        //loopを継続させるためにここでは何もしない
+                    }
+                    ExecError::WaitReply => {
+                        //他スレッドの処理が終わるまで時スレッドの処理をブロックして待つ。
+                        //適当に3ミリ秒待つ。3ミリ秒という数字に理由はない。
+                        std::thread::sleep(std::time::Duration::from_millis(3));
+                    }
+                    ExecError::Exception => {
+                        //TODO
+                        panic!("Exception");
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn resume(reductions: usize, obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
+    obj.vm_state().reductions = reductions;
+    execute(obj)
+}
+
+fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
+    let mut program = Cursor::new(obj.vm_state().code.as_ref().program());
+    program.seek(SeekFrom::Start(obj.vm_state().suspend_pc as u64)).unwrap();
 
     macro_rules! tag_return {
         () => {
@@ -326,6 +405,29 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
         };
     }
 
+    let mut acc_reduce: usize = 0;
+
+    macro_rules! reduce {
+        ($exp:expr) => {
+            acc_reduce += $exp;
+        };
+    }
+
+    macro_rules! reduce_with_check_timelimit {
+        ($exp:expr) => {
+            reduce!($exp);
+            let remain = obj.vm_state().reductions.saturating_sub(acc_reduce);
+            if remain == 0 {
+                //続きから実行できるように、PCを設定
+                obj.vm_state().suspend_pc = program.position() as usize;
+
+                return Err(ExecError::TimeLimit);
+            } else {
+                acc_reduce = 0;
+                obj.vm_state().reductions = remain;
+            }
+        };
+    }
 
     loop {
         let tag = {
@@ -352,6 +454,8 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     let offset = read_u16(&mut program);
                     program.seek(SeekFrom::Current(offset as i64)).unwrap();
                 }
+
+                reduce!(1);
             }
             tag::REF_LOCAL => {
                 let mut frame_offset = read_u16(&mut program);
@@ -377,6 +481,8 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                 } else {
                     panic!("global variable not found. {}", symbol.as_ref());
                 }
+
+                reduce!(2);
             }
             tag::CONST_CAPTURE => {
                 let const_index = read_u16(&mut program);
@@ -395,6 +501,21 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                 //引数準備中フレームからappを取得
                 let app = refer_local_var(argp_env, 0);
                 if let Some(func) = app.try_cast::<func::Func>() {
+                    // reply check
+                    //スタック領域内のFPtrをCapとして扱わせる
+                    let mut cap = Cap::new(&mut arg as *mut FPtr<Value>);
+                    //値にReply待ちがないかを確認
+                    let ok = crate::value::check_reply(&mut cap, obj);
+                    //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
+                    std::mem::forget(cap);
+                    if  ok == false {
+                        //もう一度、PUSH_ARGが実行できるように現在位置-1をresume後のPCとする
+                        obj.vm_state().suspend_pc = (program.position() - 1) as usize;
+
+                        //引数の値にReply待ちを含んでいるため、返信を待つ
+                        return Err(ExecError::WaitReply);
+                    }
+
                     // type check
                     let index = unsafe { (*argp_env).size - 1 };
                     let parameter = func.as_ref().get_paramter();
@@ -446,11 +567,15 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
 
                 let acc = obj.vm_state().acc.as_ref();
                 obj.define_global_value(symbol.as_ref(), acc);
+
+                reduce!(5);
             }
             tag::DEF_RECV => {
                 //TODO
                 let _pattern_index = read_u16(&mut program);
                 let _body_index = read_u16(&mut program);
+
+                reduce!(5);
             }
             tag::POP_ENV => {
                 debug_assert!(!obj.vm_state().env.is_null());
@@ -495,6 +620,8 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                 program.seek(SeekFrom::Current(body_size as i64)).unwrap();
 
                 obj.vm_state().acc = compiled::Closure::alloc(closure_body, constants, num_args, obj).into_value();
+
+                reduce!(5);
             }
             tag::RETURN => {
                 //Continuationに保存されている状態を復元
@@ -537,7 +664,7 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                 //引数構築の完了処理を行う。
                 complete_arg!();
 
-                    let env = obj.vm_state().env;
+                let env = obj.vm_state().env;
                 //ローカルフレームの0番目にappが入っているので取得
                 let app = refer_local_var(env, 0);
 
@@ -547,17 +674,17 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     let mut num_args_remain = num_args;
 
                     if num_args_remain < func.as_ref().num_require() {
-                                    //TODO 必須の引数が足らないエラー
+                        //TODO 必須の引数が足らないエラー
                         panic!("Illegal number of argument. require:{}, optional:{}, rest:{}, bot got {} arguments.", func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args);
-                                }
+                    }
                     num_args_remain -= func.as_ref().num_require();
 
                     if num_args_remain < func.as_ref().num_optional() {
                         //Optionalに対応する引数がない場合は、足りない分だけUnitをデフォルト値として追加する
                         for _ in 0..(func.as_ref().num_optional() - num_args_remain) {
-                                    let_local!(FPtr::new(tuple::Tuple::unit().cast_value().as_ref()));
-                                }
-                            }
+                            let_local!(FPtr::new(tuple::Tuple::unit().cast_value().as_ref()));
+                        }
+                    }
                     num_args_remain = num_args_remain.saturating_sub(func.as_ref().num_optional());
 
                     if num_args_remain == 0 {
@@ -569,24 +696,24 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     } else {
                         if func.as_ref().has_rest() {
                             //残りの引数をスタックからPopしてリストに構築しなおして、再度スタックに積む
-                                    //以降すべての引数をリストにまとめる
-                                    let mut rest = list::ListBuilder::new(obj);
+                            //以降すべての引数をリストにまとめる
+                            let mut rest = list::ListBuilder::new(obj);
 
                             for index in (num_args - num_args_remain) .. num_args {
                                 //0番目にはapp自体が入っていて引数はインデックス1から始まっているため+1をして引数を取得
                                 let arg = refer_local_var(env, index + 1);
-                                        rest.append(&arg.reach(obj), obj);
-                                    }
+                                rest.append(&arg.reach(obj), obj);
+                            }
 
-                                    //リストに詰め込んだ分、ローカルフレーム内の引数を削除
+                                //リストに詰め込んだ分、ローカルフレーム内の引数を削除
                             unsafe { (*env).size -= num_args_remain; }
-                                    //併せてスタックポインタも下げる
+                            //併せてスタックポインタも下げる
                             pop_from_size(&mut obj.vm_state().stack, num_args_remain * size_of::<FPtr<Value>>());
 
-                                    //削除した代わりに、リストをローカルフレームに追加
-                                    let_local!(rest.get());
+                            //削除した代わりに、リストをローカルフレームに追加
+                            let_local!(rest.get());
 
-                                } else {
+                        } else {
                             //TODO 引数の数が多すぎるエラー
                             panic!("Illegal number of argument. require:{}, optional:{}, rest:{}, bot got {} arguments.", func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args);
                         }
@@ -597,6 +724,7 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
 
                     //リターン処理を実行
                     tag_return!();
+                    reduce_with_check_timelimit!(10);
 
                 } else if let Some(closure) = app.try_cast::<closure::Closure>() {
                     let size = unsafe { (*obj.vm_state().env).size } - 1;
@@ -611,6 +739,7 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
 
                         //リターン処理を実行
                         tag_return!();
+                        reduce_with_check_timelimit!(20);
 
                     } else {
                         panic!("Invalid arguments: {:?} {:?}", closure.as_ref(), args.as_ref())
@@ -635,6 +764,8 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     //カーソルをクロージャ本体の実行コードに切り替え
                     program = Cursor::new(code.as_ref().program());
                     obj.vm_state().code = code;
+
+                    reduce_with_check_timelimit!(5);
                 }
             }
             tag::AND => {
@@ -664,6 +795,8 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
 
                 //リターン処理を実行
                 tag_return!();
+
+                reduce!(5);
             }
             tag::ARRAY => {
                 //引数構築の完了処理を行う。
@@ -680,6 +813,8 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
 
                 //リターン処理を実行
                 tag_return!();
+
+                reduce!(5);
             }
             tag::MATCH_SUCCESS => {
                 let offset = read_u16(&mut program);
@@ -691,7 +826,7 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
         }
     }
 
-    obj.vm_state().acc.clone()
+    Ok(obj.vm_state().acc.clone())
 }
 
 pub fn write_u8<T: Write>(v: u8, buf: &mut T) {

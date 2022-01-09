@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! new_typeinfo {
-    ($t:ty, $name:expr, $fixed_size:expr, $variable_size_func:expr, $eq_func:expr, $clone_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, ) => {
+    ($t:ty, $name:expr, $fixed_size:expr, $variable_size_func:expr, $eq_func:expr, $clone_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, $check_reply_func:expr, ) => {
         TypeInfo {
             name: $name,
             fixed_size: $fixed_size,
@@ -24,6 +24,10 @@ macro_rules! new_typeinfo {
                 Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, *mut u8, fn(&FPtr<Value>, *mut u8)), fn(&Value, *mut u8, fn(&FPtr<Value>, *mut u8))>(func) }),
                 None => None
              },
+            check_reply_func: match $check_reply_func {
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut Cap<$t>, &mut crate::object::Object) -> bool, fn(&mut Cap<Value>, &mut crate::object::Object) -> bool>(func) }),
+                None => None
+             },
         }
     };
 }
@@ -42,6 +46,7 @@ pub mod syntax;
 pub mod tuple;
 pub mod object_ref;
 pub mod iform;
+pub mod reply;
 
 
 use crate::object::{Object, Allocator, AnyAllocator};
@@ -142,6 +147,34 @@ pub fn get_typeinfo<T: NaviType>(this: &T) -> NonNullConst<TypeInfo>{
     }
 }
 
+pub fn check_reply(cap: &mut Cap<Value>, obj: &mut Object) -> bool {
+
+    if let Some(reply) = cap.try_cast_mut::<reply::Reply>() {
+        if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
+            //Replyオブジェクトを指していたポインタを、返信の結果を指すように上書きする
+            cap.update_pointer(result);
+
+            // OK!!
+            true
+
+        } else {
+            //Replyがまだ返信を受け取っていなかったのでfalseを返す
+            false
+        }
+    } else {
+        call_check_reply(cap, obj)
+    }
+}
+
+pub(in crate::value) fn call_check_reply(cap: &mut Cap<Value>, obj: &mut Object) -> bool {
+    let typeinfo = get_typeinfo(cap.as_ref());
+    let typeinfo = unsafe { typeinfo.as_ref() };
+    match typeinfo.check_reply_func {
+        Some(func) => func(cap, obj),
+        None => true,
+    }
+}
+
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> NonNullConst<TypeInfo>;
     fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self>;
@@ -159,6 +192,7 @@ pub struct TypeInfo {
     pub finalize: Option<fn(&mut Value)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
     pub child_traversal_func: Option<fn(&Value, *mut u8, fn(&FPtr<Value>, *mut u8))>,
+    pub check_reply_func: Option<fn(&mut Cap<Value>, &mut Object) -> bool>,
 }
 
 pub struct Value { }
@@ -171,6 +205,7 @@ static VALUE_TYPEINFO : TypeInfo = new_typeinfo!(
     Value::clone_inner,
     Value::_fmt,
     Value::_is_type,
+    None,
     None,
     None,
     None,
@@ -314,7 +349,7 @@ mod tests {
 
     #[test]
     fn is_type() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
         //int
@@ -375,7 +410,7 @@ mod tests {
 
     #[test]
     fn equal() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
         {

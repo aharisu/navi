@@ -104,7 +104,20 @@ impl FPtr<Value> {
         }
     }
 
+    pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut FPtr<U>> {
+        if self.as_ref().is::<U>() {
+            Some( unsafe { self.cast_unchecked_mut() } )
+
+        } else {
+            None
+        }
+    }
+
     pub unsafe fn cast_unchecked<U: NaviType>(&self) -> &FPtr<U> {
+        std::mem::transmute(self)
+    }
+
+    pub unsafe fn cast_unchecked_mut<U: NaviType>(&mut self) -> &mut FPtr<U> {
         std::mem::transmute(self)
     }
 
@@ -200,7 +213,20 @@ impl Cap<Value> {
         }
     }
 
+    pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut Cap<U>> {
+        if self.as_ref().is::<U>() {
+            Some( unsafe { self.cast_unchecked_mut() } )
+
+        } else {
+            None
+        }
+    }
+
     pub unsafe fn cast_unchecked<U: NaviType>(&self) -> &Cap<U> {
+        std::mem::transmute(self)
+    }
+
+    pub unsafe fn cast_unchecked_mut<U: NaviType>(&mut self) -> &mut Cap<U> {
         std::mem::transmute(self)
     }
 
@@ -323,7 +349,20 @@ impl Reachable<Value> {
         }
     }
 
+    pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut Reachable<U>> {
+        if self.as_ref().is::<U>() {
+            Some( unsafe { self.cast_unchecked_mut() } )
+
+        } else {
+            None
+        }
+    }
+
     pub unsafe fn cast_unchecked<U: NaviType>(&self) -> &Reachable<U> {
+        std::mem::transmute(self)
+    }
+
+    pub unsafe fn cast_unchecked_mut<U: NaviType>(&mut self) -> &mut Reachable<U> {
         std::mem::transmute(self)
     }
 

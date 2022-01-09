@@ -27,6 +27,7 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     Some(Integer::is_comparable),
     None,
+    None,
 );
 
 impl NaviType for Integer {
@@ -124,6 +125,7 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     Some(Real::is_comparable),
     None,
+    None,
 );
 
 impl NaviType for Real {
@@ -210,6 +212,7 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number::clone_inner,
     Display::fmt,
     Number::is_type,
+    None,
     None,
     None,
     None,

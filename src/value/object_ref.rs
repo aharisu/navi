@@ -1,12 +1,14 @@
-use crate::{value::*, vm};
-use crate::object::{Object, MailBox};
-use std::cell::{RefCell, RefMut};
+use crate::value::*;
+use crate::vm;
+use crate::object::{self, Object};
+use crate::object::mailbox::{MailBox, ReplyToken};
 use std::fmt::{self, Debug, Display};
-use std::rc::Rc;
+use std::sync::{Mutex, Arc};
 
 
 pub struct ObjectRef {
-    handle: Rc<RefCell<MailBox>>,
+    object_id: usize,
+    mailbox: Arc<Mutex<MailBox>>,
 }
 
 static OBJECT_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -21,6 +23,7 @@ static OBJECT_TYPEINFO : TypeInfo = new_typeinfo!(
     Some(ObjectRef::finalize),
     None,
     None,
+    None,
 );
 
 impl NaviType for ObjectRef {
@@ -29,9 +32,8 @@ impl NaviType for ObjectRef {
     }
 
     fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
-        //コンテキスト自体はクローンせずに同じ実体を持つRcをクローンする。
-        let handle = self.handle.clone();
-        Self::alloc_inner(handle, allocator)
+        let mailbox = self.mailbox.clone();
+        Self::alloc_inner(self.object_id, mailbox, allocator)
     }
 }
 
@@ -42,16 +44,16 @@ impl ObjectRef {
     }
 
     pub fn alloc<A: Allocator>(allocator: &A) -> FPtr<ObjectRef> {
-        let new_obj =  Object::new();
-        let mailbox = MailBox::new(new_obj);
+        let (object_id, mailbox) = object::new_object();
 
-        Self::alloc_inner(Rc::new(RefCell::new(mailbox)), allocator)
+        Self::alloc_inner(object_id, mailbox, allocator)
     }
 
-    fn alloc_inner<A: Allocator>(handle: Rc<RefCell<MailBox>>, allocator: &A) -> FPtr<ObjectRef> {
+    fn alloc_inner<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &A) -> FPtr<ObjectRef> {
         let ptr = allocator.alloc::<ObjectRef>();
         let obj = ObjectRef {
-            handle: handle,
+            object_id,
+            mailbox,
         };
         unsafe {
             std::ptr::write(ptr.as_ptr(), obj);
@@ -60,35 +62,9 @@ impl ObjectRef {
         ptr.into_fptr()
     }
 
-    /*
-    pub unsafe fn get<'a>(&'a self) -> RefMut<'a, MailBox> {
-
-
-        //かなり行儀が悪いコードだが現在の実装の都合上、直接ポインタを取得して参照を返す
-        //Objectシステムをちゃんと作るときにまともな実装を行う。
-        //※そもそもObjectをRcで管理しない。
-        //オブジェクトはJobスケジューラが管理されて、オブジェクトの実体(所有権)はすべてJobスケジューラが持つ。
-        //オブジェクト間で共有されるのはメッセージ送受信のための郵便ポスト(mailbox)のみ。
-        let ptr = Rc::as_ptr(&self.handle);
-        &mut *(ptr as *mut MailBox)
-    }
-    */
-
-    pub fn recv(&self, msg: &Reachable<Value>) -> FPtr<Value> {
-        //let mut obj = (*self.handle).borrow_mut();
-        let mut mailbox = (*self.handle).borrow_mut();
-        mailbox.recv(msg)
-
-        /*
-        //TODO 自分から自分へのsendの場合はクローンする必要がないので場合分けしたい
-
-        //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
-        let msg = crate::value::value_clone(msg, obj);
-        let_cap!(msg, msg, obj);
-
-        //メッセージをオブジェクトに対して適用
-        obj.apply_message(&msg)
-        */
+    pub fn recv_message(&self, msg: &Reachable<Value>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
+        let mut mailbox = self.mailbox.lock().unwrap();
+        mailbox.recv_message(msg, reply_to_mailbox)
     }
 
     fn finalize(&mut self) {
@@ -103,7 +79,7 @@ impl Eq for ObjectRef {}
 
 impl PartialEq for ObjectRef {
     fn eq(&self, other: &Self) -> bool {
-        self.handle == other.handle
+        self.object_id == other.object_id
     }
 }
 
@@ -124,10 +100,10 @@ fn func_spawn(obj: &mut Object) -> FPtr<Value> {
 }
 
 fn func_send(obj: &mut Object) -> FPtr<Value> {
-    let target_obj = vm::refer_arg::<ObjectRef>(0, obj);
-    let message = vm::refer_arg::<Value>(1, obj);
+    let target_obj = vm::refer_arg::<ObjectRef>(0, obj).reach(obj);
+    let message = vm::refer_arg::<Value>(1, obj).reach(obj);
 
-    target_obj.as_ref().recv(&message.reach(obj))
+    obj.send_message(&target_obj, &message)
 }
 
 static FUNC_SPAWN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
@@ -175,7 +151,7 @@ mod tests {
 
     #[test]
     fn test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
         {

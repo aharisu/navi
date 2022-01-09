@@ -806,12 +806,12 @@ pub fn usize_to_ptr<T>(data: usize) -> *mut T {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::Object;
+    use crate::object::{Object, Allocator};
     use crate::value::*;
 
     #[test]
     fn gc_test() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
         {

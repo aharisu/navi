@@ -1,4 +1,4 @@
-use crate::value::*;
+use crate::value::{*, self};
 use crate::ptr::*;
 use crate::vm;
 use std::fmt::{self, Debug};
@@ -19,6 +19,7 @@ static TUPLE_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     None,
     Some(Tuple::child_traversal),
+    Some(Tuple::check_reply),
 );
 
 impl NaviType for Tuple {
@@ -64,6 +65,36 @@ impl Tuple {
         }
     }
 
+    fn check_reply(cap: &mut Cap<Tuple>, obj: &mut Object) -> bool {
+        if cap.as_ref().is_unit() {
+            true
+
+        } else {
+            for index in 0.. cap.as_ref().len {
+                let mut child_v = cap.as_ref().get(index).capture(obj);
+
+                if let Some(reply) = child_v.try_cast_mut::<reply::Reply>() {
+                    if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
+                        cap.as_mut().set(result.as_ref(), index);
+                    } else {
+
+                        //Replyがまだ返信を受け取っていなかったのでfalseを返す
+                        return false;
+                    }
+
+                } else {
+                    //子要素にReplyを含む値が残っている場合は、全体をfalseにする
+                    if value::call_check_reply(&mut child_v, obj) == false {
+                        return false;
+                    }
+                }
+            }
+
+            true
+        }
+    }
+
+
     #[inline(always)]
     pub fn unit() -> Reachable<Tuple> {
         Reachable::<Tuple>::new_immidiate(IMMIDATE_UNIT)
@@ -106,7 +137,7 @@ impl Tuple {
         self.get_inner(index).clone()
     }
 
-    fn get_inner<'a>(&'a self, index: usize) -> &'a FPtr<Value> {
+    fn get_inner<'a>(&'a self, index: usize) -> &'a mut FPtr<Value> {
         if self.len() <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -120,7 +151,7 @@ impl Tuple {
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
 
-            &*(storage_ptr)
+            &mut *(storage_ptr)
         }
     }
 

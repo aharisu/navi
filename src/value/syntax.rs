@@ -37,6 +37,7 @@ static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     None,
     None,
+    None,
 );
 
 impl NaviType for Syntax {
@@ -403,6 +404,10 @@ pub mod literal {
 
     pub fn let_() -> Reachable<Syntax> {
         Reachable::new_static(&SYNTAX_LET.value)
+    }
+
+    pub fn match_() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_MATCH.value)
     }
 
     pub fn if_() -> Reachable<Syntax> {

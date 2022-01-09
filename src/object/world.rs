@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn set_get() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
         {

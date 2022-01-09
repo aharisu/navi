@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn read_empty() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
         let program = r#"
@@ -316,9 +316,9 @@ mod tests {
 
     #[test]
     fn read_string() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -352,9 +352,9 @@ mod tests {
 
     #[test]
     fn read_int() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -384,9 +384,9 @@ mod tests {
 
     #[test]
     fn read_float() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -432,9 +432,9 @@ mod tests {
 
     #[test]
     fn read_symbol() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -508,9 +508,9 @@ mod tests {
 
     #[test]
     fn read_keyword() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -524,9 +524,9 @@ mod tests {
 
     #[test]
     fn read_array() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -580,9 +580,9 @@ mod tests {
 
     #[test]
     fn read_list() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -625,9 +625,9 @@ mod tests {
 
     #[test]
     fn read_tuple() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {
@@ -673,9 +673,9 @@ mod tests {
 
     #[test]
     fn read_quote() {
-        let mut obj = Object::new();
+        let mut obj = Object::new_for_test();
         let obj = &mut obj;
-        let mut ans_obj = Object::new();
+        let mut ans_obj = Object::new_for_test();
         let ans_obj = &mut ans_obj;
 
         {

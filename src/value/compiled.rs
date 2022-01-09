@@ -1,4 +1,3 @@
-use crate::object::Object;
 use crate::value::*;
 use crate::ptr::*;
 use std::fmt::{Debug, Display};
@@ -20,6 +19,7 @@ static CODE_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     None,
     Some(Code::child_traversal),
+    None,
 );
 
 impl NaviType for Code {
@@ -131,6 +131,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     None,
     Some(Closure::child_traversal),
+    None,
 );
 
 impl NaviType for Closure {
