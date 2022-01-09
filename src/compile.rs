@@ -1,5 +1,8 @@
 use core::panic;
 
+use once_cell::sync::Lazy;
+
+use crate::object::mm::GCAllocationStruct;
 use crate::ptr::*;
 use crate::object::Object;
 use crate::value::*;
@@ -534,6 +537,7 @@ pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FP
 mod codegen {
     use core::panic;
 
+    use crate::object::Allocator;
     use crate::object::mm::ptr_to_usize;
     use crate::ptr::*;
     use crate::vm;
@@ -758,6 +762,9 @@ mod codegen {
         write_u8(iform.as_ref().len_params() as u8, &mut ctx.buf);
 
         let mut new_frame: Vec<Cap<Symbol>> = Vec::new();
+        //クロージャフレームの最初にはクロージャ自身が入っているためダミーのシンボルを先頭に追加
+        new_frame.push(FPtr::new(crate::compile::literal::app_symbol().as_ref()).capture(obj));
+
         for index in 0 ..  iform.as_ref().len_params() {
             new_frame.push(iform.as_ref().get_param(index).capture(obj));
         }
@@ -820,19 +827,18 @@ mod codegen {
 
             //push env header
             write_u8(vm::tag::PUSH_ARG_PREPARE_ENV, &mut ctx.buf);
-            //pushされる引数の数
-            let num_args = iform.as_ref().len_args();
-            write_u8(num_args as u8, &mut ctx.buf);
-
-            //eval and push argument
-            for index in 0..num_args {
-                let arg = iform.as_ref().get_arg(index).reach(obj);
-                pass_codegen(&arg, &mut ctx, obj);
-                write_u8(vm::tag::PUSH, &mut ctx.buf);
-            }
 
             //eval app
             pass_codegen(&iform.as_ref().app().reach(obj), &mut ctx, obj);
+            write_u8(vm::tag::PUSH_APP, &mut ctx.buf);
+
+            //eval and push argument
+            let num_args = iform.as_ref().len_args();
+            for index in 0..num_args {
+                let arg = iform.as_ref().get_arg(index).reach(obj);
+                pass_codegen(&arg, &mut ctx, obj);
+                write_u8(vm::tag::PUSH_ARG, &mut ctx.buf);
+            }
 
             //apply
             write_u8(vm::tag::CALL, &mut ctx.buf);
@@ -927,15 +933,13 @@ mod codegen {
 
         //push env header
         write_u8(vm::tag::PUSH_ARG_PREPARE_ENV, &mut ctx.buf);
-        //pushされる引数の数
-        let num_args = iform.as_ref().len_exprs();
-        write_u8(num_args as u8, &mut ctx.buf);
 
         //eval and push argument
+        let num_args = iform.as_ref().len_exprs();
         for index in 0..num_args {
             let arg = iform.as_ref().get_expr(index).reach(obj);
             pass_codegen(&arg, ctx, obj);
-            write_u8(vm::tag::PUSH, &mut ctx.buf);
+            write_u8(vm::tag::PUSH_ARG_UNCHECK, &mut ctx.buf);
         }
 
         //call
@@ -976,4 +980,17 @@ mod codegen {
         panic!("local variable not found {}", symbol);
     }
 
+}
+
+static SYMBOL_APP: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(|| {
+    symbol::gensym_static("app")
+});
+
+mod literal {
+    use crate::ptr::*;
+    use super::*;
+
+    pub fn app_symbol() -> Reachable<symbol::Symbol> {
+        Reachable::new_static(SYMBOL_APP.value.as_ref())
+    }
 }

@@ -22,7 +22,9 @@ pub mod tag {
     pub const CONST_CAPTURE: u8 = 4;
     pub const CONST_STATIC: u8 = 5;
     pub const CONST_IMMIDIATE: u8 = 6;
-    pub const PUSH: u8 = 7;
+    pub const PUSH_ARG: u8 = 7;
+    pub const PUSH_ARG_UNCHECK: u8 = 24;
+    pub const PUSH_APP: u8 = 25;
     pub const LET_LOCAL: u8 = 8;
     pub const LET_GLOBAL: u8 = 9;
     pub const DEF_RECV:u8 = 10;
@@ -121,7 +123,7 @@ fn pop_from_size(stack: &mut VMStack, decriment: usize) {
 }
 
 pub fn refer_arg<T: NaviType>(index: usize, obj: &mut Object) -> FPtr<T> {
-    let v = refer_local_var(obj.vm_state().env, index);
+    let v = refer_local_var(obj.vm_state().env, index + 1);
     //Funcの引数はすべて型チェックされている前提なのでuncheckedでキャストする
     unsafe { v.cast_unchecked::<T>().clone() }
 }
@@ -212,22 +214,29 @@ pub fn func_call(func: &Reachable<func::Func>, args: &Reachable<list::List>, obj
 
         //push env header
         write_u8(tag::PUSH_ARG_PREPARE_ENV, &mut buf);
-        //pushされる引数の数
-        let num_args = args.as_ref().count();
-        debug_assert!(num_args < u8::MAX as usize);
-        write_u8(num_args as u8, &mut buf);
 
         let code = compiled::Code::new(buf, Vec::new());
         let code = Reachable::new_static(&code);
 
-        execute(&code, obj);
+
+    //APPをプッシュ
+    {
+        let mut buf: Vec<u8> = Vec::with_capacity(1);
+        write_u8(tag::PUSH_APP, &mut buf);
+        let code = compiled::Code::new(buf, Vec::new());
+        let code = Reachable::new_static(&code);
+
+        //accにFuncオブジェクトを設定
+        obj.vm_state().acc = FPtr::new(app.as_ref());
+        //関数呼び出しの準備段階の実行は、実行時間に制限を設けない
+        code_execute(&code, WorkTimeLimit::Inf, obj).unwrap();
     }
 
     //全ての引数をプッシュ
     {
         //PUSHするだけのコードを作成
         let mut buf: Vec<u8> = Vec::with_capacity(1);
-        write_u8(tag::PUSH, &mut buf);
+        write_u8(tag::PUSH_ARG, &mut buf);
         let code = compiled::Code::new(buf, Vec::new());
         let code = Reachable::new_static(&code);
 
@@ -246,8 +255,7 @@ pub fn func_call(func: &Reachable<func::Func>, args: &Reachable<list::List>, obj
         let code = compiled::Code::new(buf, Vec::new());
         let code = Reachable::new_static(&code);
 
-        //accにFuncオブジェクトを設定
-        obj.vm_state().acc = FPtr::new(func.cast_value().as_ref());
+        //コードを実行
 
         //CALLを実行。結果を返り値にする
         execute(&code, obj)
@@ -304,6 +312,16 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
             //新しく追加した分、環境内のローカルフレームサイズを増やす
             unsafe {
                 (*obj.vm_state().env).size += 1;
+            }
+        };
+    }
+
+    macro_rules! push_arg {
+        ($exp:expr) => {
+            push($exp, &mut obj.vm_state().stack);
+            //新しく追加した分、環境内のローカルフレームサイズを増やす
+            unsafe {
+                (*obj.vm_state().argp).size += 1;
             }
         };
     }
@@ -370,8 +388,53 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                 let ptr = usize_to_ptr::<Value>(data);
                 obj.vm_state().acc = FPtr::from_ptr(ptr);
             }
-            tag::PUSH => {
-                push(obj.vm_state().acc.clone(), &mut obj.vm_state().stack);
+            tag::PUSH_ARG => {
+                let mut arg = obj.vm_state().acc.clone();
+
+                let argp_env = obj.vm_state().argp;
+                //引数準備中フレームからappを取得
+                let app = refer_local_var(argp_env, 0);
+                if let Some(func) = app.try_cast::<func::Func>() {
+                    // type check
+                    let index = unsafe { (*argp_env).size - 1 };
+                    let parameter = func.as_ref().get_paramter();
+
+                    let param = if parameter.is_empty() {
+                            None
+                        } else if index < parameter.len() {
+                            Some(&parameter[index])
+                        } else if parameter[parameter.len() - 1].kind == func::ParamKind::Rest {
+                            Some(&parameter[parameter.len() - 1])
+                        } else {
+                            None
+                        };
+
+                    if let Some(param) = param {
+                        if arg.is_type(param.typeinfo) == false {
+                            //TODO 型チェックエラー
+                            panic!("type error");
+                        }
+                    }
+
+                    push_arg!(arg);
+
+                } else {
+                    push_arg!(obj.vm_state().acc.clone());
+                }
+
+            }
+            tag::PUSH_ARG_UNCHECK => {
+                push_arg!(obj.vm_state().acc.clone());
+            }
+            tag::PUSH_APP => {
+                let app = obj.vm_state().acc.clone();
+                if app.is::<func::Func>() || app.is::<compiled::Closure>() || app.is::<closure::Closure>() {
+                    // OK!!  do nothing
+                } else {
+                    panic!("Not Applicable: {}", app.as_ref())
+                }
+
+                push_arg!(app);
             }
             tag::LET_LOCAL => {
                 let_local!(obj.vm_state().acc.clone());
@@ -463,10 +526,9 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                 obj.vm_state().cont = push(new_cont, &mut obj.vm_state().stack);
             }
             tag::PUSH_ARG_PREPARE_ENV => {
-                let size = read_u8(&mut program);
                 let new_env = Environment {
                     up: std::ptr::null_mut(), //準備段階ではupポインタはNULLにする
-                    size: size as usize,
+                    size: 0,
                 };
                 //argpポインタを新しく追加したポインタに差し替える
                 obj.vm_state().argp = push(new_env, &mut obj.vm_state().stack);
@@ -475,72 +537,58 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                 //引数構築の完了処理を行う。
                 complete_arg!();
 
-                let acc = obj.vm_state().acc.clone();
-                if let Some(func) = acc.try_cast::<func::Func>() {
-                    fn check_type(v: &FPtr<Value>, param: &func::Param) -> bool {
-                        v.is_type(param.typeinfo)
-                    }
-
                     let env = obj.vm_state().env;
-                    //関数に渡そうとしている引数の数
-                    let num_args = unsafe { (*env).size };
-                    //関数に定義されているパラメータ指定配列
-                    let paramter = func.as_ref().get_paramter();
+                //ローカルフレームの0番目にappが入っているので取得
+                let app = refer_local_var(env, 0);
 
-                    for (index, param) in paramter.iter().enumerate() {
-                        match param.kind {
-                            func::ParamKind::Require => {
-                                if index < num_args {
-                                    let arg = refer_local_var(env, index);
-                                    if check_type(&arg, param) == false {
-                                        //TODO 型チェックエラー
-                                        panic!("type error");
-                                    }
-                                } else {
+                if let Some(func) = app.try_cast::<func::Func>() {
+                    //関数に渡そうとしている引数の数(先頭に必ずfunc自身が入っているので-1する)
+                    let num_args = unsafe { (*env).size } - 1;
+                    let mut num_args_remain = num_args;
+
+                    if num_args_remain < func.as_ref().num_require() {
                                     //TODO 必須の引数が足らないエラー
-                                    panic!("Invalid argument. require {}, bot got {}", paramter.len(), num_args);
+                        panic!("Illegal number of argument. require:{}, optional:{}, rest:{}, bot got {} arguments.", func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args);
                                 }
-                            }
-                            func::ParamKind::Optional => {
-                                if index < num_args {
-                                    let arg = refer_local_var(env, index);
-                                    if check_type(&arg, param) == false {
-                                        //型チェックエラー
-                                        panic!("type error");
-                                    }
-                                } else {
-                                    //Optionalなパラメータに対応する引数がなければUnitをデフォルトとして追加
+                    num_args_remain -= func.as_ref().num_require();
+
+                    if num_args_remain < func.as_ref().num_optional() {
+                        //Optionalに対応する引数がない場合は、足りない分だけUnitをデフォルト値として追加する
+                        for _ in 0..(func.as_ref().num_optional() - num_args_remain) {
                                     let_local!(FPtr::new(tuple::Tuple::unit().cast_value().as_ref()));
                                 }
                             }
-                            func::ParamKind::Rest => {
-                                if index < num_args {
-                                    let rest_count = num_args - index;
+                    num_args_remain = num_args_remain.saturating_sub(func.as_ref().num_optional());
 
+                    if num_args_remain == 0 {
+                        if func.as_ref().has_rest() {
+                            //restなパラメータに対応する引数がなければnilをデフォルトとして追加
+                            let_local!(FPtr::new(list::List::nil().cast_value().as_ref()));
+                        }
+
+                    } else {
+                        if func.as_ref().has_rest() {
+                            //残りの引数をスタックからPopしてリストに構築しなおして、再度スタックに積む
                                     //以降すべての引数をリストにまとめる
                                     let mut rest = list::ListBuilder::new(obj);
-                                    for index in index .. num_args {
-                                        let arg = refer_local_var(env, index);
-                                        if check_type(&arg, param) == false {
-                                            //TODO 型チェックエラー
-                                        panic!("type error");
-                                        }
+
+                            for index in (num_args - num_args_remain) .. num_args {
+                                //0番目にはapp自体が入っていて引数はインデックス1から始まっているため+1をして引数を取得
+                                let arg = refer_local_var(env, index + 1);
                                         rest.append(&arg.reach(obj), obj);
                                     }
 
                                     //リストに詰め込んだ分、ローカルフレーム内の引数を削除
-                                    unsafe { (*env).size -= rest_count; }
+                            unsafe { (*env).size -= num_args_remain; }
                                     //併せてスタックポインタも下げる
-                                    pop_from_size(&mut obj.vm_state().stack, rest_count * size_of::<FPtr<Value>>());
+                            pop_from_size(&mut obj.vm_state().stack, num_args_remain * size_of::<FPtr<Value>>());
 
                                     //削除した代わりに、リストをローカルフレームに追加
                                     let_local!(rest.get());
 
                                 } else {
-                                    //Optionalなパラメータに対応する引数がなければnilをデフォルトとして追加
-                                    let_local!(FPtr::new(list::List::nil().cast_value().as_ref()));
-                                }
-                            }
+                            //TODO 引数の数が多すぎるエラー
+                            panic!("Illegal number of argument. require:{}, optional:{}, rest:{}, bot got {} arguments.", func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args);
                         }
                     }
 
@@ -550,8 +598,8 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                     //リターン処理を実行
                     tag_return!();
 
-                } else if let Some(closure) = acc.try_cast::<closure::Closure>() {
-                    let size = unsafe { (*obj.vm_state().env).size };
+                } else if let Some(closure) = app.try_cast::<closure::Closure>() {
+                    let size = unsafe { (*obj.vm_state().env).size } - 1;
                     let mut builder = array::ArrayBuilder::<Value>::new(size, obj);
                     for index in 0..size {
                         builder.push(refer_local_var(obj.vm_state().env, index).as_ref(), obj);
@@ -568,10 +616,10 @@ pub fn execute(code: &Reachable<compiled::Code>, obj: &mut Object) -> FPtr<Value
                         panic!("Invalid arguments: {:?} {:?}", closure.as_ref(), args.as_ref())
                     }
 
-                } else if let Some(closure) = acc.try_cast::<compiled::Closure>() {
+                } else if let Some(closure) = app.try_cast::<compiled::Closure>() {
                     //引数の数などが正しいかを確認
                     let num_require = closure.as_ref().arg_descriptor();
-                    let num_args = unsafe { (*obj.vm_state().env).size };
+                    let num_args = unsafe { (*obj.vm_state().env).size } - 1;
                     if num_require != num_args {
                         panic!("Invalid arguments. require:{} actual:{}", num_require, num_args)
                     }

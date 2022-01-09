@@ -7,6 +7,9 @@ pub struct Func {
     name: String,
     params: Vec<Param>,
     body:  fn(&mut Object) -> FPtr<Value>,
+    num_require: u8,
+    num_optional: u8,
+    has_rest: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -62,10 +65,24 @@ impl NaviType for Func {
 impl Func {
 
     pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&mut Object) -> FPtr<Value>) -> Func {
+        let mut num_require = 0;
+        let mut num_optional = 0;
+        let mut has_rest = false;
+        params.iter().for_each(|p| {
+            match p.kind {
+                func::ParamKind::Require => num_require += 1,
+                func::ParamKind::Optional => num_optional += 1,
+                func::ParamKind::Rest => has_rest = true,
+            }
+        });
+
         Func {
             name: name.into(),
             params: params.to_vec(),
             body: body,
+            num_require,
+            num_optional,
+            has_rest,
         }
     }
 
@@ -75,6 +92,21 @@ impl Func {
 
     pub fn get_paramter(&self) -> &[Param] {
         &self.params
+    }
+
+    #[inline]
+    pub fn num_require(&self) -> usize {
+        self.num_require as usize
+    }
+
+    #[inline]
+    pub fn num_optional(&self) -> usize {
+        self.num_optional as usize
+    }
+
+    #[inline]
+    pub fn has_rest(&self) -> bool {
+        self.has_rest
     }
 
     pub fn apply(&self, obj: &mut Object) -> FPtr<Value> {
