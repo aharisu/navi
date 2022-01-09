@@ -277,10 +277,11 @@ pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Obje
                 }
             }
 
+            let then_clause = clause.as_ref().tail().reach(obj);
             //TEST部分を変換
             let test_iform = pass_transform(&test, ctx, obj).reach(obj);
             //TESTの結果がtrueだったときに実行する式を変換
-            let exprs_iform = transform_begin(&clause.as_ref().tail().reach(obj), ctx, obj).reach(obj);
+            let exprs_iform = transform_begin(&then_clause, ctx, obj).reach(obj);
             //TESTの結果がfalseだったときの次の節を変換
             let next_iform = if is_last {
                 //最後の節ならfalseを返すようにする
