@@ -310,6 +310,14 @@ fn syntax_match(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
     }
 }
 
+fn syntax_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> FPtr<Value> {
+    unimplemented!()
+}
+
+fn syntax_return_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> FPtr<Value> {
+    unimplemented!()
+}
+
 static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("if", 2, 1, false, syntax_if, compile::syntax_if))
 });
@@ -362,6 +370,14 @@ static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("or", 0, 0, true, syntax_or, compile::syntax_or))
 });
 
+static SYNTAX_OBJECT_SWITCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("object-switch", 1, 0, false, syntax_object_switch, compile::syntax_object_switch))
+});
+
+static SYNTAX_RETURN_OBJECT_SWITCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("return-object-switch", 0, 0, false, syntax_return_object_switch, compile::syntax_return_object_switch))
+});
+
 pub fn register_global(obj: &mut Object) {
     obj.define_global_value("if", &SYNTAX_IF.value);
     obj.define_global_value("begin", &SYNTAX_BEGIN.value);
@@ -376,6 +392,8 @@ pub fn register_global(obj: &mut Object) {
     obj.define_global_value("match", &SYNTAX_MATCH.value);
     obj.define_global_value("and", &SYNTAX_AND.value);
     obj.define_global_value("or", &SYNTAX_OR.value);
+    obj.define_global_value("object-switch", &SYNTAX_OBJECT_SWITCH.value);
+    obj.define_global_value("return-object-switch", &SYNTAX_RETURN_OBJECT_SWITCH.value);
 }
 
 pub mod literal {

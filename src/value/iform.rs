@@ -164,9 +164,10 @@ pub enum IFormKind {
     AndOr,
     Container,
     DefRecv,
+    ObjectSwitch,
 }
 
-const IFORM_KIND_ARY: [IFormKind; 12] = [
+const IFORM_KIND_ARY: [IFormKind; 13] = [
     IFormKind::Let,
     IFormKind::If,
     IFormKind::Local,
@@ -179,9 +180,10 @@ const IFORM_KIND_ARY: [IFormKind; 12] = [
     IFormKind::AndOr,
     IFormKind::Container,
     IFormKind::DefRecv,
+    IFormKind::ObjectSwitch,
 ];
 
-static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
+static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
     new_typeinfo!(
         IFormLet,
         "IFormLet",
@@ -348,6 +350,20 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormDefRecv::child_traversal),
+        None,
+    ),
+    new_typeinfo!(
+        IFormObjectSwitch,
+        "IFormObjectSwitch",
+        std::mem::size_of::<IFormObjectSwitch>(),
+        None,
+        IFormObjectSwitch::eq,
+        IFormObjectSwitch::clone_inner,
+        Display::fmt,
+        IFormObjectSwitch::is_type,
+        None,
+        None,
+        Some(IFormObjectSwitch::child_traversal),
         None,
     ),
 ];
@@ -1273,3 +1289,84 @@ impl Debug for IFormDefRecv {
 }
 
 impl AsIForm for IFormDefRecv {}
+
+pub struct IFormObjectSwitch {
+    target_obj: Option<FPtr<IForm>>,
+}
+
+impl NaviType for IFormObjectSwitch {
+    fn typeinfo() -> NonNullConst<TypeInfo> {
+        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::ObjectSwitch as usize] as *const TypeInfo)
+    }
+
+    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+        //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
+        unsafe {
+            if let Some(target_obj) = self.target_obj.as_ref() {
+                let target_obj = target_obj.clone().into_reachable();
+                Self::alloc(Some(&target_obj), allocator)
+
+            } else {
+                Self::alloc(None, allocator)
+            }
+        }
+    }
+}
+
+impl IFormObjectSwitch {
+    fn is_type(other_typeinfo: &TypeInfo) -> bool {
+        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::ObjectSwitch as usize], other_typeinfo)
+        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+    }
+
+    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, arg: *mut u8)) {
+        if let Some(obj) = self.target_obj.as_ref() {
+            callback(obj.cast_value(), arg);
+        }
+    }
+
+    pub fn alloc<A: Allocator>(target_obj: Option<&Reachable<IForm>>, allocator: &A) -> FPtr<Self> {
+        let ptr = allocator.alloc::<IFormObjectSwitch>();
+
+        let target_obj = target_obj.map(|v| FPtr::new(v.as_ref()));
+        unsafe {
+            std::ptr::write(ptr.as_ptr(), IFormObjectSwitch {
+                    target_obj,
+                });
+        }
+
+        ptr.into_fptr()
+    }
+
+    pub fn target_obj(&self) -> Option<FPtr<IForm>> {
+        self.target_obj.clone()
+    }
+
+    fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(obj) = self.target_obj.as_ref() {
+            write!(f, "(IFObjectSwitch {})", obj.as_ref())
+        } else {
+            write!(f, "(IFReturnObjectSwitch)")
+        }
+    }
+}
+
+impl PartialEq for IFormObjectSwitch {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl Display for IFormObjectSwitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt(false, f)
+    }
+}
+
+impl Debug for IFormObjectSwitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt(true, f)
+    }
+}
+
+impl AsIForm for IFormObjectSwitch {}

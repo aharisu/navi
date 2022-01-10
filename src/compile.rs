@@ -534,6 +534,36 @@ pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FP
     }
 }
 
+pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
+    //TODO 末尾文脈でのみ許可するようにしたい
+
+    //object-switchはトップレベルのコンテキストで使用可能(localやfunで作成されたローカルフレーム内では使用不可能)
+    if ctx.frames.is_empty() {
+
+        let target_obj = args.as_ref().head().reach(obj);
+        let iform = pass_transform(&target_obj, ctx, obj);
+        let iform = iform.reach(obj);
+
+        IFormObjectSwitch::alloc(Some(&iform), obj).into_iform()
+    } else {
+        panic!("object-switch allow only top-level context")
+    }
+}
+
+pub fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+    //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
+    //TODO 末尾文脈でのみ許可するようにしたい
+
+    //object-switchはトップレベルのコンテキストで使用可能(localやfunで作成されたローカルフレーム内では使用不可能)
+    if ctx.frames.is_empty() {
+        IFormObjectSwitch::alloc(None, obj).into_iform()
+    } else {
+        panic!("return-object-switch allow only top-level context")
+    }
+}
+
+
 mod codegen {
     use core::panic;
 
@@ -630,6 +660,9 @@ mod codegen {
             },
             IFormKind::DefRecv => {
                 codegen_defrecv(unsafe { iform.cast_unchecked::<IFormDefRecv>() }, ctx, obj)
+            },
+            IFormKind::ObjectSwitch => {
+                codegen_object_switch(unsafe { iform.cast_unchecked::<IFormObjectSwitch>() }, ctx, obj)
             },
         }
     }
@@ -817,23 +850,23 @@ mod codegen {
         //push continuation
         write_u8(vm::tag::PUSH_CONT, &mut ctx.buf);
 
-            //push env header
-            write_u8(vm::tag::PUSH_ARG_PREPARE_ENV, &mut ctx.buf);
+        //push env header
+        write_u8(vm::tag::PUSH_ARG_PREPARE_ENV, &mut ctx.buf);
 
-            //eval app
+        //eval app
         pass_codegen(&iform.as_ref().app().reach(obj), ctx, obj);
-            write_u8(vm::tag::PUSH_APP, &mut ctx.buf);
+        write_u8(vm::tag::PUSH_APP, &mut ctx.buf);
 
-            //eval and push argument
-            let num_args = iform.as_ref().len_args();
-            for index in 0..num_args {
-                let arg = iform.as_ref().get_arg(index).reach(obj);
+        //eval and push argument
+        let num_args = iform.as_ref().len_args();
+        for index in 0..num_args {
+            let arg = iform.as_ref().get_arg(index).reach(obj);
             pass_codegen(&arg, ctx, obj);
-                write_u8(vm::tag::PUSH_ARG, &mut ctx.buf);
-            }
+            write_u8(vm::tag::PUSH_ARG, &mut ctx.buf);
+        }
 
-            //apply
-            write_u8(vm::tag::CALL, &mut ctx.buf);
+        //apply
+        write_u8(vm::tag::CALL, &mut ctx.buf);
     }
 
     fn codegen_const(iform: &Reachable<IFormConst>, ctx: &mut CGCtx, obj: &mut Object) {
@@ -941,6 +974,17 @@ mod codegen {
 
         let index = ctx.add_constant(iform.as_ref().body().cast_value().clone(), obj);
         write_u16(index as u16, &mut ctx.buf);
+    }
+
+    fn codegen_object_switch(iform: &Reachable<IFormObjectSwitch>, ctx: &mut CGCtx, obj: &mut Object) {
+        if let Some(target_obj) =  iform.as_ref().target_obj() {
+            let target_obj = target_obj.reach(obj);
+            pass_codegen(&target_obj, ctx, obj);
+
+            write_u8(vm::tag::OBJECT_SWITCH, &mut ctx.buf);
+        } else {
+            write_u8(vm::tag::RETURN_OBJECT_SWITCH, &mut ctx.buf);
+        }
     }
 
     fn lookup_local_refer(symbol: &Symbol, ctx: &CGCtx) -> (usize, usize) {

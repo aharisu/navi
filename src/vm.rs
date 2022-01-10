@@ -7,6 +7,7 @@ use std::io::Write;
 use std::mem::size_of;
 use std::panic;
 
+use crate::object::StandaloneObject;
 use crate::object::mm::usize_to_ptr;
 use crate::ptr::Reachable;
 
@@ -28,6 +29,8 @@ pub mod tag {
     pub const LET_LOCAL: u8 = 8;
     pub const LET_GLOBAL: u8 = 9;
     pub const DEF_RECV:u8 = 10;
+    pub const OBJECT_SWITCH:u8 = 16;
+    pub const RETURN_OBJECT_SWITCH:u8 = 26;
     pub const POP_ENV:u8 = 11;
     pub const PUSH_EMPTY_ENV:u8 = 12;
     pub const CLOSURE:u8 = 13;
@@ -41,13 +44,14 @@ pub mod tag {
     pub const TUPLE:u8 = 22;
     pub const ARRAY:u8 = 23;
 
-    //next number 25
+    //next number 26
 }
 
 #[derive(Debug)]
 pub enum ExecError {
     TimeLimit,
     WaitReply,
+    ObjectSwitch(StandaloneObject),
     Exception,
 }
 
@@ -311,30 +315,29 @@ pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj:
 
         //CALLを実行。結果を返り値にする
         match execute(obj) {
-            Ok(result) => {
-                return Ok(result);
+            //特定のエラーは補足して処理を継続する
+            Err(ExecError::TimeLimit) => {
+                if limit == WorkTimeLimit::Inf {
+                    //実行時間がInfの場合はloopを継続して終了まで実行させる
+                    //loopを継続させるためにここでは何もしない
+                } else {
+                    //実行時間に制限があるときだけ、エラーを返す
+                    return Err(ExecError::TimeLimit);
+                }
             }
-            Err(err_kind) => {
-                //実行時間に制限があるときだけ、エラーを返す
-                if limit != WorkTimeLimit::Inf {
-                    return Err(err_kind);
+            Err(ExecError::WaitReply) => {
+                if limit == WorkTimeLimit::Inf {
+                    //他スレッドの処理が終わるまで時スレッドの処理をブロックして待つ。
+                    //3ミリ秒という数字に理由はない。
+                    std::thread::sleep(std::time::Duration::from_millis(3));
+                } else {
+                    //実行時間に制限があるときだけ、エラーを返す
+                    return Err(ExecError::WaitReply);
                 }
-
-                match err_kind {
-                    ExecError::TimeLimit => {
-                        //実行時間がInfの場合はloopを継続して終了まで実行させる
-                        //loopを継続させるためにここでは何もしない
-                    }
-                    ExecError::WaitReply => {
-                        //他スレッドの処理が終わるまで時スレッドの処理をブロックして待つ。
-                        //適当に3ミリ秒待つ。3ミリ秒という数字に理由はない。
-                        std::thread::sleep(std::time::Duration::from_millis(3));
-                    }
-                    ExecError::Exception => {
-                        //TODO
-                        panic!("Exception");
-                    }
-                }
+            }
+            other => {
+                //その他の戻り値はそのまま返す
+                return other;
             }
         }
     }
@@ -568,11 +571,48 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                 reduce!(5);
             }
             tag::DEF_RECV => {
-                //TODO
-                let _pattern_index = read_u16(&mut program);
-                let _body_index = read_u16(&mut program);
+                let pattern_index = read_u16(&mut program);
+                let body_index = read_u16(&mut program);
 
-                reduce!(5);
+                let code = obj.vm_state().code.as_ref();
+                let pattern = code.get_constant(pattern_index as usize).reach(obj);
+                let body = unsafe { code.get_constant(body_index as usize).cast_unchecked::<list::List>() }.clone().reach(obj);
+
+                //現在のオブジェクトにレシーバーを追加する
+                obj.add_receiver(&pattern, &body);
+
+                obj.vm_state().acc = bool::Bool::true_().into_fptr().into_value();
+            }
+            tag::OBJECT_SWITCH => {
+                let target_obj = obj.vm_state().acc.clone();
+                if let Some(target_obj) = target_obj.try_cast::<object_ref::ObjectRef>() {
+                    //ObjectRefからObjectを取得(この時点でスケジューラからは切り離されている)
+                    let mailbox = target_obj.as_ref().mailbox();
+                    let mut standalone = Object::unregister_scheduler(mailbox);
+
+                    //現在のオブジェクトに対応するObjectRefを作成
+                    //※このObjectRefはSwitch先のオブジェクトのヒープに作成される
+                    let prev_object = obj.make_object_ref(standalone.object()).unwrap();
+                    //return-object-switchでもどれるようにするために移行元のオブジェクトを保存
+                    standalone.mut_object().set_prev_object(&prev_object);
+
+                    //object-siwtchはグローバル環境でしか現れない
+                    return Err(ExecError::ObjectSwitch(standalone));
+                } else {
+                    panic!("Not Object {}", target_obj.as_ref())
+                }
+            }
+            tag::RETURN_OBJECT_SWITCH => {
+                if let Some(prev_obj) = obj.take_prev_object() {
+                    //ObjectRefからObjectを取得(この時点でスケジューラからは切り離されている)
+                    let mailbox = prev_obj.as_ref().mailbox();
+                    let standalone = Object::unregister_scheduler(mailbox);
+
+                    //object-siwtchはグローバル環境でしか現れない
+                    return Err(ExecError::ObjectSwitch(standalone));
+                } else {
+                    panic!("No return Object")
+                }
             }
             tag::POP_ENV => {
                 debug_assert!(!obj.vm_state().env.is_null());
