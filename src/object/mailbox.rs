@@ -28,12 +28,13 @@ pub struct MessageData {
 }
 
 // 実装メモ
+// ※ Objectがスケジューラに割り当てられている時の参照図
 //
 //        Strong Refer
 //MailBox ============> Object
 //         Weak Refer
 //MailBox <------------ Object
-// ***     Weak Refer
+//         Weak Refer
 //Scheduler ----------> Object
 //
 //Objectの所有者はMailBox(唯一の強参照)。
@@ -43,8 +44,9 @@ pub struct MessageData {
 //Objectへの参照が競合してしまうことはないため、Arc<Mutex<Object>>ではなく、Arc<RefCell<Object>>で持つ。
 
 pub struct MailBox {
-    //TODO 検証。RefCellではなくUnsafeCellでもいい？
-    obj: Arc<RefCell<Object>>,
+    //関連しているObjectがスケジューラに紐づけられている時に値が設定される。
+    //Objectの初期化時やスケジューラから切り離されている時はNoneになる。
+    obj: Option<Arc<RefCell<Object>>>,
     heap: RefCell<Heap>,
 
     inbox: Vec<MessageData>,
@@ -53,9 +55,9 @@ pub struct MailBox {
 }
 
 impl MailBox {
-    pub(super) fn new(obj: Arc<RefCell<Object>>) -> Self {
+    pub(super) fn new() -> Self {
         MailBox {
-            obj,
+            obj:None,
             heap: RefCell::new(Heap::new(mm::StartHeapSize::Small)),
 
             reply_token: ReplyToken::new(),
@@ -103,6 +105,15 @@ impl MailBox {
                 result
             })
     }
+
+    pub(super) fn give_object_ownership(&mut self, obj: Arc<RefCell<Object>>) {
+        self.obj = Some(obj);
+    }
+
+    pub(super) fn take_object_ownership(&mut self) -> Arc<RefCell<Object>> {
+        self.obj.take().unwrap()
+    }
+
 }
 
 impl Eq for MailBox {}

@@ -77,7 +77,7 @@ fn scheduler_main() -> (mpsc::Sender<Envelope>, thread::JoinHandle<()>) {
             }
 
             //TODO 1ループの実行時間を計測し、短すぎる場合は適当なスリープを入れる
-            thread::sleep(std::time::Duration::from_millis(0));
+            thread::sleep(std::time::Duration::from_millis(2));
         }
     });
 

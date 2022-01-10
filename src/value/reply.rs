@@ -113,3 +113,22 @@ impl Debug for Reply {
         display(self, f)
     }
 }
+
+fn func_force(obj: &mut Object) -> FPtr<Value> {
+    //関数にわたってきている時点でReplyから実際の値になっているので引数の値をそのまま返す
+    vm::refer_arg::<Value>(0, obj)
+}
+
+static FUNC_FORCE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("force",
+            &[
+            Param::new("v", ParamKind::Require, Value::typeinfo()),
+            ],
+            func_force)
+    )
+});
+
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("force", &FUNC_FORCE.value);
+}

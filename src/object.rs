@@ -7,7 +7,7 @@ mod schedule;
 pub mod mailbox;
 
 
-use std::mem::MaybeUninit;
+use std::fmt::Debug;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Weak, Mutex};
 use std::cell::RefCell;
@@ -88,11 +88,16 @@ impl <'a> Allocator for AnyAllocator<'a> {
 }
 
 pub struct Object {
+    id: usize,
+
     //MailBoxへの弱参照。
-    //ObjectはMailBoxから強参照されているため、この弱参照は必ず有効。
+    //ObjectはMailBoxから強参照されている、相互参照の関係。
     //MailBoxがDropされるとき、Objectも同時にDropされる。
     mailbox: Weak<Mutex<MailBox>>,
     suspend_state: Option<(Arc<Mutex<MailBox>>, ReplyToken)>,
+
+    //object-switchで切り替えた時の、切り替え前オブジェクト。
+    prev_object:Option<FPtr<ObjectRef>>,
 
     ctx: Context,
     vm_state: VMState,
@@ -107,10 +112,13 @@ pub struct Object {
 }
 
 impl Object {
-    fn new(mailbox: Weak<Mutex<MailBox>>) -> Self {
+    fn new(id: usize, mailbox: Weak<Mutex<MailBox>>) -> Self {
         let mut obj = Object {
+            id,
             mailbox: mailbox,
             suspend_state: None,
+
+            prev_object: None,
 
             ctx: Context::new(),
             vm_state: VMState::new(),
@@ -130,21 +138,73 @@ impl Object {
 
     #[cfg(test)]
     pub(crate) fn new_for_test() -> Self {
+        new_object().object
+    }
 
-        //テスト用の、無効なメールボックスを持つオブジェクトを作成する
-        #![allow(invalid_value)]
-        let invalid_mailbox = unsafe { MaybeUninit::<MailBox>::uninit().assume_init() };
-        let invalid_mailbox = Arc::new(Mutex::new(invalid_mailbox));
+    #[inline]
+    pub fn id(&self) -> usize {
+        self.id
+    }
 
-        //Objectへ渡すための弱参照
-        let refer = Arc::downgrade(&invalid_mailbox);
-        let obj = Self::new(refer);
+    pub fn make_object_ref<A: Allocator>(&self, allocator: &A) -> Option<FPtr<ObjectRef>> {
+        self.mailbox.upgrade()
+            .map(|mailbox| {
+                object_ref::ObjectRef::alloc(self.id,  mailbox, allocator)
+            })
+    }
 
-        //不正なMailBox内のデータのDropが実行されてしまうためforgetする。
-       // ArcとMutexがメモリリークするけど、テスト用途の関数なので今のところは気にしない
-        std::mem::forget(invalid_mailbox);
+    pub fn set_prev_object(&mut self, prev_object: &FPtr<ObjectRef>) {
+        self.prev_object = Some(prev_object.clone());
+    }
 
-        obj
+    pub fn take_prev_object(&mut self) -> Option<FPtr<ObjectRef>> {
+        self.prev_object.take()
+    }
+
+    pub fn register_scheduler(standalone: StandaloneObject) -> Arc<Mutex<MailBox>> {
+        //MailBoxとスケジューラ間でObjectを共有するためのArcを作成
+        //MutexではなくRefCellで内部状態を持つ理由は、MailBox構造体定義上のコメントを参照してください。
+        let obj = Arc::new(RefCell::new(standalone.object));
+
+        //MailBoxへObjectの所有権を渡す
+        let mailbox = standalone.mailbox;
+        {
+            let mut mailbox = mailbox.lock().unwrap();
+            mailbox.give_object_ownership(Arc::clone(&obj));
+        }
+
+        //objをバランサーに渡して、スケジューラに割り当ててもらう。
+        //スケジューラは渡したオブジェクトの弱参照を内部で保持する。
+        crate::object::balance::add_object(obj);
+
+        mailbox
+    }
+
+    pub fn unregister_scheduler(mailbox: Arc<Mutex<MailBox>>) -> StandaloneObject {
+        //MailBoxからObjectの所有権を奪う
+        let mut obj = {
+            let mut mailbox = mailbox.lock().unwrap();
+            mailbox.take_object_ownership()
+        };
+
+        //スケジューラーと共有しているArcからObjectの所有権を取得する
+        loop {
+            //スケジューラがObjectを実行中の場合、強参照が二つになっているので取得に失敗する。
+            match Arc::try_unwrap(obj) {
+                Ok(inner) => {
+                    //Objectの所有権を得た場合は、StandaloneObjectとして返す。
+                    return StandaloneObject {
+                        object: inner.into_inner(),
+                        mailbox: mailbox,
+                    };
+                }
+                Err(ret) => {
+                    //取得に失敗した場合は、適当な時間待ってからもう一度取得を試みる
+                    obj = ret;
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+        }
     }
 
     pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: &Reachable<Value>) -> FPtr<Value> {
@@ -264,7 +324,8 @@ impl Object {
             builder_fun.append(&match_.into_value().reach(obj), obj);
 
             //メッセージレシーバ用のクロージャをコンパイル
-            let message_receiver_gen = crate::compile::compile(&builder_fun.get().into_value().reach(obj), obj);
+            let receiver = builder_fun.get();
+            let message_receiver_gen = crate::compile::compile(&receiver.into_value().reach(obj), obj);
 
             //クロージャを生成するコードを実行
             let message_receiver = crate::eval::eval(&message_receiver_gen.into_value().reach(obj), obj);
@@ -318,6 +379,10 @@ impl Object {
                 //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
                 self.suspend_state = Some((reply_to_mailbox, reply_token));
             }
+            Err(vm::ExecError::ObjectSwitch(_)) => {
+                //Objectの切り替えはグローバル環境のトップレベルでのみ許可されているため、ここでは絶対に発生しない。
+                unreachable!()
+            }
             Err(vm::ExecError::Exception) => {
                 panic!("TODO");
             },
@@ -354,6 +419,7 @@ impl Object {
         tuple::register_global(self);
         array::register_global(self);
         list::register_global(self);
+        reply::register_global(self);
     }
 
     pub fn capture<T: NaviType>(&mut self, v: FPtr<T>) -> Cap<T> {
@@ -455,46 +521,73 @@ mod literal {
     }
 }
 
+pub struct StandaloneObject {
+    object: Object,
+    mailbox: Arc<Mutex<MailBox>>,
+}
+
+impl StandaloneObject {
+    #[inline]
+    pub fn object(&self) -> &Object {
+        &self.object
+    }
+
+    #[inline]
+    pub fn mut_object(&mut self) -> &mut Object {
+        &mut self.object
+    }
+}
+
+impl Debug for StandaloneObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StandaloneObject:{}", self.object.id())
+    }
+}
+
 static OBJECT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-pub fn new_object() -> (usize, Arc<Mutex<MailBox>>) {
-    //相互参照しているオブジェクトを初期化するため、実体のないMailBoxを作成して無理やりArcを先に作成する。
-    #![allow(invalid_value)]
-    let invalid_mailbox = unsafe { MaybeUninit::<MailBox>::uninit().assume_init() };
-    let invalid_mailbox = Arc::new(Mutex::new(invalid_mailbox));
-
-    //Objectへ渡すための弱参照
-    let weak_mailbox = Arc::downgrade(&invalid_mailbox);
-    let obj = Object::new(weak_mailbox);
-
-    //Objectへの参照を作成(相互参照のArcは別のインスタンス)
-    //RefCellで内部状態を持つ理由は、MailBox構造体定義上のコメントを参照してください。
-    let obj = Arc::new(RefCell::new(obj));
-
-    let mailbox = unsafe {
-        //正しい値を持つmailboxの実体を作成
-        let valid_mailbox = MailBox::new(Arc::clone(&obj));
-
-        //本来は取得できないArcの内部データに対するmut参照を得るために、ポインタを経由して無理やり変換する
-        let mutex_ptr = Arc::as_ptr(&invalid_mailbox);
-        let mutex_refer = &mut *(mutex_ptr as *mut Mutex<MailBox>);
-
-        //Mutexのmut参照から、MailBoxのmut参照を得る。
-        let invalid_mailbox_refer = mutex_refer.get_mut().unwrap();
-
-        //MailBoxのmut参照をもとに、初期化していなかったMailBox内に正しい値を書き込む
-        std::ptr::write(invalid_mailbox_refer,valid_mailbox);
-
-        //この時点でArc<Mutex<MailBox>>はすべて正しい値になっている。
-        invalid_mailbox
-    };
-
-    //objをバランサーに渡して、スケジューラに割り当ててもらう。
-    //スケジューラは渡したオブジェクトの弱参照を内部で保持する。
-    balance::add_object(obj);
+pub fn new_object() -> StandaloneObject {
+    let mailbox = Arc::new(Mutex::new(MailBox::new()));
 
     //オブジェクトを識別するためのIDを生成
     let object_id = OBJECT_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-    (object_id, mailbox)
+    //ObjectはMailBoxを常に弱参照で保持する
+    let obj = Object::new(object_id, Arc::downgrade(&mailbox));
+
+    StandaloneObject {
+        object: obj,
+        mailbox: mailbox
+    }
+}
+
+pub fn object_switch(cur_object: StandaloneObject, target_object: &ObjectRef) -> StandaloneObject {
+    object_switch_inner(cur_object, target_object, true)
+}
+
+pub fn return_object_switch(mut cur_object: StandaloneObject) -> Option<StandaloneObject> {
+    cur_object.object.take_prev_object()
+        .map(|target_object| {
+            object_switch_inner(cur_object, target_object.as_ref(), false)
+        })
+}
+
+fn object_switch_inner(cur_object: StandaloneObject, target_object: &ObjectRef, is_register_prev_object: bool) -> StandaloneObject {
+    //TODO VM内のコードと重複が多いのでどうにかしたい。最後のObject::register_schedulerをVMの中では呼べないところだけ異なる。
+    let mailbox = target_object.mailbox();
+    //ObjectRefからObjectを取得(この時点でスケジューラからは切り離されている)
+    let mut standalone = Object::unregister_scheduler(mailbox);
+
+    if is_register_prev_object {
+        //現在のオブジェクトに対応するObjectRefを作成
+        //※このObjectRefはSwitch先のオブジェクトのヒープに作成される
+        let prev_object = cur_object.object().make_object_ref(&standalone.object).unwrap();
+        //return-object-switchでもどれるようにするために移行元のオブジェクトを保存
+        standalone.object.set_prev_object(&prev_object);
+    }
+
+    //現在のオブジェクトをスケジューラに登録
+    Object::register_scheduler(cur_object);
+
+    standalone
 }

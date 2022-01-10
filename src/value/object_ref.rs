@@ -33,7 +33,7 @@ impl NaviType for ObjectRef {
 
     fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
         let mailbox = self.mailbox.clone();
-        Self::alloc_inner(self.object_id, mailbox, allocator)
+        Self::alloc(self.object_id, mailbox, allocator)
     }
 }
 
@@ -43,13 +43,7 @@ impl ObjectRef {
         std::ptr::eq(&OBJECT_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<A: Allocator>(allocator: &A) -> FPtr<ObjectRef> {
-        let (object_id, mailbox) = object::new_object();
-
-        Self::alloc_inner(object_id, mailbox, allocator)
-    }
-
-    fn alloc_inner<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &A) -> FPtr<ObjectRef> {
+    pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &A) -> FPtr<ObjectRef> {
         let ptr = allocator.alloc::<ObjectRef>();
         let obj = ObjectRef {
             object_id,
@@ -60,6 +54,10 @@ impl ObjectRef {
         }
 
         ptr.into_fptr()
+    }
+
+    pub fn mailbox(&self) -> Arc<Mutex<MailBox>> {
+        Arc::clone(&self.mailbox)
     }
 
     pub fn recv_message(&self, msg: &Reachable<Value>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
@@ -96,7 +94,15 @@ impl Debug for ObjectRef {
 }
 
 fn func_spawn(obj: &mut Object) -> FPtr<Value> {
-    ObjectRef::alloc(obj).into_value()
+    let standalone = object::new_object();
+
+    let id = standalone.object().id();
+
+    //Objectの所有権と実行権をスケジューラに譲る。
+    //Objectとやり取りするためのMailBoxを取得
+    let mailbox = object::Object::register_scheduler(standalone);
+
+    ObjectRef::alloc(id, mailbox, obj).into_value()
 }
 
 fn func_send(obj: &mut Object) -> FPtr<Value> {
@@ -124,6 +130,7 @@ static FUNC_SEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
+
 pub fn register_global(obj: &mut Object) {
     obj.define_global_value("spawn", &FUNC_SPAWN.value);
     obj.define_global_value("send", &FUNC_SEND.value);
@@ -140,52 +147,73 @@ mod tests {
         let result = crate::read::read(&mut reader, obj);
         assert!(result.is_ok());
         let sexp = result.unwrap();
-
         let sexp = sexp.reach(obj);
-        let result = crate::eval::eval(&sexp, obj);
+
+        let code = crate::compile::compile(&sexp, obj).reach(obj);
+        let result = vm::code_execute(&code, vm::WorkTimeLimit::Inf, obj).unwrap();
+
         let result = result.try_cast::<T>();
         assert!(result.is_some());
 
         result.unwrap().clone()
     }
 
+    fn get_reply_value(reply: &mut Cap<reply::Reply>, obj: &mut Object) -> FPtr<Value> {
+        loop {
+            if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
+                return result
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+    }
+
     #[test]
     fn test() {
-        let mut obj = Object::new_for_test();
-        let obj = &mut obj;
+        let mut standalone = object::new_object();
 
         {
-            /*
             let program = "(let obj (spawn))";
-            let new_obj_ref = eval::<ObjectRef>(program, obj).capture(obj);
+            let new_obj_ref = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
 
-            let new_obj = unsafe { new_obj_ref.as_ref().get() };
+            //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
+            standalone = object::object_switch(standalone, new_obj_ref.as_ref());
 
             let program = "(def-recv 1 10)";
-            eval::<Value>(program, new_obj);
+            eval::<Value>(program, standalone.mut_object());
 
             let program = "(def-recv 2 20)";
-            eval::<Value>(program, new_obj);
+            eval::<Value>(program, standalone.mut_object());
 
             let program = "(def-recv 3 30)";
-            eval::<Value>(program, new_obj);
+            eval::<Value>(program, standalone.mut_object());
+
+            //操作対象のオブジェクトを最初のオブジェクトに戻す
+            standalone = object::return_object_switch(standalone).unwrap();
 
             let program = "(send obj 1)";
-            let ans = eval::<number::Integer>(program, obj);
-            assert_eq!(ans.as_ref().get(), 10);
+            let mut ans = eval::<reply::Reply>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let ans = get_reply_value(&mut ans, standalone.mut_object());
+            assert!(ans.is::<number::Integer>());
+            assert_eq!(unsafe { ans.cast_unchecked::<number::Integer>().as_ref().get() }, 10);
 
-            let program = "(send obj 2)";
-            let ans = eval::<number::Integer>(program, obj);
+            let program = "(let a (send obj 2))";
+            let ans = eval::<Value>(program, standalone.mut_object());
+            assert!( ans.is::<reply::Reply>());
+
+            let program = "(force a)";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
             assert_eq!(ans.as_ref().get(), 20);
 
-            let program = "(send obj 3)";
-            let ans = eval::<number::Integer>(program, obj);
-            assert_eq!(ans.as_ref().get(), 30);
+            let program = "(+ (send obj 3) 1)";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 31);
 
-            let program = "(send obj 4)";
-            let ans = eval::<bool::Bool>(program, obj);
-            assert!(ans.as_ref().is_false());
-            */
+            //TODO
+            //let program = "(send obj 4)";
+            //let ans = eval::<Value>(program, &mut standalone.object);
+            //assert!(ans.as_ref().is_false());
+
         }
     }
 }
