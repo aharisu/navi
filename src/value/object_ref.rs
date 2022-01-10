@@ -188,6 +188,9 @@ mod tests {
             let program = "(def-recv 3 30)";
             eval::<Value>(program, standalone.mut_object());
 
+            let program = "(def-recv (@a @b) (+ a b))";
+            eval::<Value>(program, standalone.mut_object());
+
             //操作対象のオブジェクトを最初のオブジェクトに戻す
             standalone = object::return_object_switch(standalone).unwrap();
 
@@ -209,11 +212,13 @@ mod tests {
             let ans = eval::<number::Integer>(program, standalone.mut_object());
             assert_eq!(ans.as_ref().get(), 31);
 
-            //TODO
-            //let program = "(send obj 4)";
-            //let ans = eval::<Value>(program, &mut standalone.object);
-            //assert!(ans.as_ref().is_false());
+            let program = "(force (send obj '(1 2)))";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 3);
 
+            let program = "(force (send obj 4))";
+            let ans = eval::<bool::Bool>(program, standalone.mut_object());
+            assert!(ans.as_ref().is_false());
         }
     }
 }
