@@ -817,41 +817,23 @@ mod codegen {
         //push continuation
         write_u8(vm::tag::PUSH_CONT, &mut ctx.buf);
 
-        let buf = {
-            //Call後の継続位置を知るために別バッファに書き込む
-            let mut ctx = CGCtx {
-                buf: Vec::new(),
-                constants: ctx.constants,
-                frames: ctx.frames,
-            };
-
             //push env header
             write_u8(vm::tag::PUSH_ARG_PREPARE_ENV, &mut ctx.buf);
 
             //eval app
-            pass_codegen(&iform.as_ref().app().reach(obj), &mut ctx, obj);
+        pass_codegen(&iform.as_ref().app().reach(obj), ctx, obj);
             write_u8(vm::tag::PUSH_APP, &mut ctx.buf);
 
             //eval and push argument
             let num_args = iform.as_ref().len_args();
             for index in 0..num_args {
                 let arg = iform.as_ref().get_arg(index).reach(obj);
-                pass_codegen(&arg, &mut ctx, obj);
+            pass_codegen(&arg, ctx, obj);
                 write_u8(vm::tag::PUSH_ARG, &mut ctx.buf);
             }
 
             //apply
             write_u8(vm::tag::CALL, &mut ctx.buf);
-
-            ctx.buf
-        };
-
-        //Call後の継続オフセットを書き込む
-        debug_assert!(buf.len() < u16::MAX as usize);
-        write_u16(buf.len() as u16, &mut ctx.buf);
-
-        //コール命令の本体を書き込む
-        ctx.buf.extend(buf);
     }
 
     fn codegen_const(iform: &Reachable<IFormConst>, ctx: &mut CGCtx, obj: &mut Object) {
@@ -929,7 +911,7 @@ mod codegen {
 
     fn codegen_container(iform: &Reachable<IFormContainer>, ctx: &mut CGCtx, obj: &mut Object) {
         //push continuation
-        write_u8(vm::tag::PUSH_CONT_FOR_FUNC_CALL, &mut ctx.buf);
+        write_u8(vm::tag::PUSH_CONT, &mut ctx.buf);
 
         //push env header
         write_u8(vm::tag::PUSH_ARG_PREPARE_ENV, &mut ctx.buf);

@@ -33,7 +33,6 @@ pub mod tag {
     pub const CLOSURE:u8 = 13;
     pub const RETURN:u8 = 14;
     pub const PUSH_CONT:u8 = 15;
-    pub const PUSH_CONT_FOR_FUNC_CALL:u8 = 16;
     pub const PUSH_ARG_PREPARE_ENV:u8 = 17;
     pub const CALL:u8 = 18;
     pub const AND:u8 = 19;
@@ -56,7 +55,7 @@ pub enum ExecError {
 #[repr(C)]
 struct Continuation {
     prev: *mut Continuation,
-    pc: i64,
+    pc: u64,
     env: *mut Environment,
     argp: *mut Environment,
     code: Option<FPtr<compiled::Code>>,
@@ -243,7 +242,7 @@ fn app_call(app: &Reachable<Value>, args_iter: impl Iterator<Item=FPtr<Value>>
         let mut buf: Vec<u8> = Vec::with_capacity(3);
 
         //push continuation
-        write_u8(tag::PUSH_CONT_FOR_FUNC_CALL, &mut buf);
+        write_u8(tag::PUSH_CONT, &mut buf);
 
         //push env header
         write_u8(tag::PUSH_ARG_PREPARE_ENV, &mut buf);
@@ -363,8 +362,6 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                 if let Some(cd) = (*state.cont).code.take() {
                     program = Cursor::new(cd.as_ref().program());
                     state.code = cd;
-                }
-                if (*state.cont).pc > 0 {
                     program.seek(SeekFrom::Start((*state.cont).pc as u64)).unwrap();
                 }
 
@@ -629,23 +626,12 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
 
             }
             tag::PUSH_CONT => {
-                let cont_offset = read_u16(&mut program);
+                //let cont_offset = read_u16(&mut program);
 
                 let new_cont = Continuation {
                     prev: obj.vm_state().cont,
                     code: None, //実行コードはCursorが所有権を持っているので実際にCallされる直前に設定する
-                    pc: (program.position() + cont_offset as u64) as i64,
-                    env: obj.vm_state().env,
-                    argp: obj.vm_state().argp,
-                };
-                //contポインタを新しく追加したポインタに差し替える
-                obj.vm_state().cont = push(new_cont, &mut obj.vm_state().stack);
-            }
-            tag::PUSH_CONT_FOR_FUNC_CALL => {
-                let new_cont = Continuation {
-                    prev: obj.vm_state().cont,
-                    code: None, //実行コードはCursorが所有権を持っているので実際にCallされる直前に設定する
-                    pc: -1, //Func呼び出しでは関数呼び出し後に続けてプログラムを読み込めばいいので、PCの保存は行わない
+                    pc: 0, //復帰するPCはCall直前に設定する
                     env: obj.vm_state().env,
                     argp: obj.vm_state().argp,
                 };
@@ -757,6 +743,7 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                     //現在実行中のプログラムをContinuationの中に保存する
                     unsafe {
                         (*obj.vm_state().cont).code = Some(obj.vm_state().code.clone());
+                        (*obj.vm_state().cont).pc = program.position();
                     }
 
                     let code = closure.as_ref().code();
