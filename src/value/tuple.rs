@@ -303,7 +303,7 @@ static FUNC_IS_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("tuple?",
             &[
-            Param::new("x", ParamKind::Require, Value::typeinfo()),
+            Param::new_no_force("x", ParamKind::Require, Value::typeinfo()),
             ],
             func_is_tuple)
     )
@@ -313,7 +313,7 @@ static FUNC_TUPLE_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("tuple-len",
             &[
-            Param::new("tuple", ParamKind::Require, Tuple::typeinfo()),
+            Param::new_no_force("tuple", ParamKind::Require, Tuple::typeinfo()),
             ],
             func_tuple_len)
     )
@@ -323,7 +323,7 @@ static FUNC_TUPLE_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("tuple-ref",
             &[
-            Param::new("tuple", ParamKind::Require, Tuple::typeinfo()),
+            Param::new_no_force("tuple", ParamKind::Require, Tuple::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
             ],
             func_tuple_ref)

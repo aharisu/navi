@@ -322,7 +322,7 @@ static FUNC_IS_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("array?",
             &[
-            Param::new("x", ParamKind::Require, Value::typeinfo()),
+            Param::new_no_force("x", ParamKind::Require, Value::typeinfo()),
             ],
             func_is_array)
     )
@@ -332,7 +332,7 @@ static FUNC_ARRAY_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("array-len",
             &[
-            Param::new("array", ParamKind::Require, Array::<Value>::typeinfo()),
+            Param::new_no_force("array", ParamKind::Require, Array::<Value>::typeinfo()),
             ],
             func_array_len)
     )
@@ -342,7 +342,7 @@ static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("array-ref",
             &[
-            Param::new("array", ParamKind::Require, Array::<Value>::typeinfo()),
+            Param::new_no_force("array", ParamKind::Require, Array::<Value>::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
             ],
             func_array_ref)

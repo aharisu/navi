@@ -23,6 +23,7 @@ pub enum ParamKind {
 pub struct Param {
     pub name: String,
     pub typeinfo: NonNullConst<TypeInfo>,
+    pub force: bool,
     pub kind: ParamKind,
     //TODO Optionalのデフォルト値
 }
@@ -32,6 +33,15 @@ impl Param {
         Param {
             name: name.into(),
             typeinfo: typeinfo,
+            force: true,
+            kind: kind,
+        }
+    }
+    pub fn new_no_force<T: Into<String>>(name: T, kind: ParamKind, typeinfo: NonNullConst<TypeInfo>) -> Param {
+        Param {
+            name: name.into(),
+            typeinfo: typeinfo,
+            force: false,
             kind: kind,
         }
     }

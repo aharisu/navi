@@ -501,25 +501,8 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                 //引数準備中フレームからappを取得
                 let app = refer_local_var(argp_env, 0);
                 if let Some(func) = app.try_cast::<func::Func>() {
-                    // reply check
-                    //スタック領域内のFPtrをCapとして扱わせる
-                    let mut cap = Cap::new(&mut arg as *mut FPtr<Value>);
-                    //値にReply待ちがないかを確認
-                    let ok = crate::value::check_reply(&mut cap, obj);
-                    //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
-                    std::mem::forget(cap);
-                    if  ok == false {
-                        //もう一度、PUSH_ARGが実行できるように現在位置-1をresume後のPCとする
-                        obj.vm_state().suspend_pc = (program.position() - 1) as usize;
-
-                        //引数の値にReply待ちを含んでいるため、返信を待つ
-                        return Err(ExecError::WaitReply);
-                    }
-
-                    // type check
                     let index = unsafe { (*argp_env).size - 1 };
                     let parameter = func.as_ref().get_paramter();
-
                     let param = if parameter.is_empty() {
                             None
                         } else if index < parameter.len() {
@@ -529,8 +512,25 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                         } else {
                             None
                         };
-
                     if let Some(param) = param {
+                        if param.force {
+                            // reply check
+                            //スタック領域内のFPtrをCapとして扱わせる
+                            let mut cap = Cap::new(&mut arg as *mut FPtr<Value>);
+                            //値にReply待ちがないかを確認
+                            let ok = crate::value::check_reply(&mut cap, obj);
+                            //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
+                            std::mem::forget(cap);
+                            if  ok == false {
+                                //もう一度、PUSH_ARGが実行できるように現在位置-1をresume後のPCとする
+                                obj.vm_state().suspend_pc = (program.position() - 1) as usize;
+
+                                //引数の値にReply待ちを含んでいるため、返信を待つ
+                                return Err(ExecError::WaitReply);
+                            }
+                        }
+
+                        // type check
                         if arg.is_type(param.typeinfo) == false {
                             //TODO 型チェックエラー
                             panic!("type error");

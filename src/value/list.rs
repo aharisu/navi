@@ -404,6 +404,12 @@ impl ListBuilder {
 
 }
 
+fn func_cons(obj: &mut Object) -> FPtr<Value> {
+    let v = vm::refer_arg::<Value>(0, obj);
+    let tail = vm::refer_arg::<List>(1, obj);
+    list::List::alloc(&v.reach(obj), &tail.reach(obj), obj).into_value()
+}
+
 fn func_is_list(obj: &mut Object) -> FPtr<Value> {
     let v = vm::refer_arg(0, obj);
     if v.is_type(list::List::typeinfo()) {
@@ -428,11 +434,22 @@ fn func_list_ref(obj: &mut Object) -> FPtr<Value> {
     v.as_ref().get(index).clone()
 }
 
+static FUNC_CONS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("cons",
+            &[
+            Param::new_no_force("head", ParamKind::Require, Value::typeinfo()),
+            Param::new_no_force("tail", ParamKind::Require, list::List::typeinfo()),
+            ],
+            func_cons)
+    )
+});
+
 static FUNC_IS_LIST: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("list?",
             &[
-            Param::new("x", ParamKind::Require, Value::typeinfo()),
+            Param::new_no_force("x", ParamKind::Require, Value::typeinfo()),
             ],
             func_is_list)
     )
@@ -442,7 +459,7 @@ static FUNC_LIST_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("list-len",
             &[
-            Param::new("list", ParamKind::Require, List::typeinfo()),
+            Param::new_no_force("list", ParamKind::Require, List::typeinfo()),
             ],
             func_list_len)
     )
@@ -452,7 +469,7 @@ static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("list-ref",
             &[
-            Param::new("list", ParamKind::Require, List::typeinfo()),
+            Param::new_no_force("list", ParamKind::Require, List::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
             ],
             func_list_ref)
@@ -460,6 +477,7 @@ static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("cons", &FUNC_CONS.value);
     obj.define_global_value("list?", &FUNC_IS_LIST.value);
     obj.define_global_value("list-len", &FUNC_LIST_LEN.value);
     obj.define_global_value("list-ref", &FUNC_LIST_REF.value);

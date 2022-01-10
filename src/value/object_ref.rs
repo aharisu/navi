@@ -193,21 +193,26 @@ mod tests {
 
             //操作対象のオブジェクトを最初のオブジェクトに戻す
             standalone = object::return_object_switch(standalone).unwrap();
+        }
 
+        {
             let program = "(send obj 1)";
             let mut ans = eval::<reply::Reply>(program, standalone.mut_object()).capture(standalone.mut_object());
             let ans = get_reply_value(&mut ans, standalone.mut_object());
             assert!(ans.is::<number::Integer>());
             assert_eq!(unsafe { ans.cast_unchecked::<number::Integer>().as_ref().get() }, 10);
 
+            //sendの戻り値はReply型
             let program = "(let a (send obj 2))";
             let ans = eval::<Value>(program, standalone.mut_object());
             assert!( ans.is::<reply::Reply>());
 
+            //forceに通すことでReplyの値を強制的に取得できる
             let program = "(force a)";
             let ans = eval::<number::Integer>(program, standalone.mut_object());
             assert_eq!(ans.as_ref().get(), 20);
 
+            //Reply型はforceなしで、そのまま通常の関数に渡すことができる。
             let program = "(+ (send obj 3) 1)";
             let ans = eval::<number::Integer>(program, standalone.mut_object());
             assert_eq!(ans.as_ref().get(), 31);
@@ -220,5 +225,51 @@ mod tests {
             let ans = eval::<bool::Bool>(program, standalone.mut_object());
             assert!(ans.as_ref().is_false());
         }
+
+        {
+            //ListはReply型の値をそのまま受け取る
+            let program = "(let l (cons (send obj 1) (cons (send obj 2) '())))";
+            let ans = eval::<list::List>(program, standalone.mut_object());
+            assert!(ans.as_ref().head().is::<reply::Reply>());
+            assert!(ans.as_ref().tail().as_ref().head().is::<reply::Reply>());
+
+            //値の取得もReplyのまま
+            let program = "(list-ref l 0)";
+            let ans = eval::<Value>(program, standalone.mut_object());
+            assert!(ans.as_ref().is::<reply::Reply>());
+
+            let program = "(force (list-ref l 1))";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 20);
+        }
+
+        {
+            //配列はReply型の値をそのまま受け取る
+            let program = "(let a [(send obj 1) (send obj 2)])";
+            eval::<Value>(program, standalone.mut_object());
+
+            let program = "(array-ref a 0)";
+            let ans = eval::<Value>(program, standalone.mut_object());
+            assert!(ans.as_ref().is::<reply::Reply>());
+
+            let program = "(force (array-ref a 1))";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 20);
+        }
+
+        {
+            //タプルはReply型の値をそのまま受け取る
+            let program = "(let t {(send obj 1) (send obj 2)})";
+            eval::<Value>(program, standalone.mut_object());
+
+            let program = "(tuple-ref t 0)";
+            let ans = eval::<Value>(program, standalone.mut_object());
+            assert!(ans.as_ref().is::<reply::Reply>());
+
+            let program = "(force (tuple-ref t 1))";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 20);
+        }
+
     }
 }
