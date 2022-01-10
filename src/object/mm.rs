@@ -224,9 +224,7 @@ impl Heap {
                 try_count += 1;
 
             } else {
-                self.dump_heap();
-
-                panic!("oom");
+                self.grow(root);
             }
         }
     }
@@ -283,9 +281,7 @@ impl Heap {
                 try_count += 1;
 
             } else {
-                self.dump_heap();
-
-                panic!("oom");
+                self.grow(root);
             }
         }
     }
@@ -379,120 +375,58 @@ impl Heap {
         //self.dump_heap();
 
         match self.heap_size {
-            HeapSize::_256 => self.gc_copying(HeapSize::_512, root),
-            HeapSize::_512 => self.gc_copying(HeapSize::_1k, root),
-            HeapSize::_1k => self.gc_copying(HeapSize::_2k, root),
-            HeapSize::_2k => self.gc_copying(HeapSize::_8k, root),
-            HeapSize::_8k => self.gc_copying(HeapSize::_16k, root),
-            HeapSize::_16k => self.gc_copying(HeapSize::_32k, root),
+            HeapSize::_256 => self.gc_compaction_256(root),
+            HeapSize::_512 => self.gc_compaction_512(root),
+            HeapSize::_1k => self.gc_compaction_1k(root),
+            HeapSize::_2k => self.gc_compaction_2k(root),
+            HeapSize::_8k => self.gc_compaction_8k(root),
+            HeapSize::_16k => self.gc_compaction_16k(root),
             HeapSize::_32k => self.gc_compaction_32k(root),
         };
 
         //self.dump_heap();
     }
 
-    fn is_valid_value(v: &Value, arg: &mut GCCopyingArg) -> bool {
-        //ポインタかつ、自分自身のヒープ内に存在するオブジェクトなら、有効な値。
-        value::value_is_pointer(v)
-            && Self::is_pointer_within_heap(v, arg.start_addr, arg.end_addr)
+    fn gc_compaction_256<R: GCRootValueHolder>(&mut self, root: &R) {
+        println!("compaction: 256");
+        //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
+        let mut flags = [0u16; 256 >> SIZE_BIT_SHIFT];
+        self.gc_compaction_body(&mut flags, root);
     }
 
-    fn gc_copying_copy(v: &Value, arg: &mut GCCopyingArg) -> *mut u8 {
-        //値を指している参照から、GCHeaderを指しているポインタに変換
-        let alloc_ptr = unsafe {
-            let ptr = v as *const Value as *const u8;
-            ptr.sub(mem::size_of::<GCHeader>())
-        };
-
-        unsafe {
-            //オブジェクトがあるはずの場所をCopiedValueとして無理やり解釈する。
-            //※有効な値とは絶対にかぶらないような値構造になっているため安全。
-            //※まだコピーされていない有効な値の場合、最初のフィールドにはtypeinfoへのポインタが入っている。
-            //※コピー済みの場合はポインタではない特別なImmidiate Valueが入っているため区別できる。
-            let copied = alloc_ptr as *mut CopiedValue;
-            //まだコピーされていないオブジェクトなら
-            if CopiedValue::is_copied(copied) == false {
-                let header = &mut *(alloc_ptr as *mut GCHeader);
-
-                //新しい領域にオブジェクトをコピー
-                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
-                let new_ptr = arg.free_ptr;
-                std::ptr::copy_nonoverlapping(alloc_ptr, new_ptr, size);
-
-                //古い領域のコピー済み領域に、マークとコピー先のポインタを保存する
-                CopiedValue::mark_copied(copied, new_ptr.add(std::mem::size_of::<GCHeader>()));
-                //※注意、これ以降は元の領域にアクセスすると壊れたデータになっている!!
-
-                //使用した分空き領域を指すポインタを進める
-                arg.free_ptr = arg.free_ptr.add(size);
-                arg.used += size;
-
-                //コピー先の領域にあるデータ参照するように諸々のローカル変数を更新
-                let header = &mut *(new_ptr as *mut GCHeader);
-                let v = &*(new_ptr.add(mem::size_of::<GCHeader>()) as *const Value);
-
-                //コピーしたオブジェクトが子オブジェクトを持っているなら、再帰的にコピー処理を行う
-                if let Some(func) = header.typeinfo.as_ref().child_traversal_func {
-                    func(v, arg.as_ptr(), |child, arg_ptr| {
-                        let arg = GCCopyingArg::from_ptr(arg_ptr);
-
-                        if Self::is_valid_value(child.as_ref(), arg) {
-                            let new_child_ptr = Self::gc_copying_copy(child.as_ref(), arg);
-
-                            //コピー先の新しいポインタで、内部で保持している子オブジェクトへのポインタを上書きする
-                            child.update_pointer(new_child_ptr as *mut Value);
-                        }
-                    });
-                }
-            }
-
-            //戻り値としてコピーした先のポインタを返す
-            CopiedValue::forwarding_pointer(copied)
-        }
+    fn gc_compaction_512<R: GCRootValueHolder>(&mut self, root: &R) {
+        println!("compaction: 512");
+        //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
+        let mut flags = [0u16; 512 >> SIZE_BIT_SHIFT];
+        self.gc_compaction_body(&mut flags, root);
     }
 
-    fn gc_copying<R: GCRootValueHolder>(&mut self, next_heap_size: HeapSize, root: &R) {
-        //self.dump_heap();
-        //コピー先の新しいヒープを作成
-        let new_layout = Self::get_alloc_layout(next_heap_size);
+    fn gc_compaction_1k<R: GCRootValueHolder>(&mut self, root: &R) {
+        println!("compaction: 1k");
+        //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
+        let mut flags = [0u16; 1024 * 1 >> SIZE_BIT_SHIFT];
+        self.gc_compaction_body(&mut flags, root);
+    }
 
-        println!("copying:{:?} {:?}", next_heap_size, new_layout);
-        //self.dump_heap();
+    fn gc_compaction_2k<R: GCRootValueHolder>(&mut self, root: &R) {
+        println!("compaction: 2k");
+        //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
+        let mut flags = [0u16; 1024 * 2 >> SIZE_BIT_SHIFT];
+        self.gc_compaction_body(&mut flags, root);
+    }
 
-        let new_heap_ptr = unsafe { alloc::alloc(new_layout) };
+    fn gc_compaction_8k<R: GCRootValueHolder>(&mut self, root: &R) {
+        println!("compaction: 8k");
+        //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
+        let mut flags = [0u16; 1024 * 8 >> SIZE_BIT_SHIFT];
+        self.gc_compaction_body(&mut flags, root);
+    }
 
-        let mut arg = GCCopyingArg::new(
-            self.pool_ptr,
-            unsafe { self.pool_ptr.add(self.used) },
-            new_heap_ptr,
-        );
-
-        //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
-        //ルートから辿ることができるオブジェクトをすべて取得して、新しい領域へコピーする
-        root.for_each_alived_value(arg.as_ptr(), |v, arg_ptr| {
-            let arg = unsafe { GCCopyingArg::from_ptr(arg_ptr) };
-            let value = v.as_ref();
-
-            if Self::is_valid_value(value, arg) {
-                let new_ptr = Self::gc_copying_copy(value, arg);
-                //コピー先の新しいポインタで、保持しているポインタを上書きする
-                v.update_pointer(new_ptr as *mut Value);
-            }
-        });
-
-        //古いヒープを削除
-        unsafe {
-            alloc::dealloc(self.pool_ptr, self.page_layout);
-        }
-
-        self.heap_size = next_heap_size;
-        self.page_layout = new_layout;
-        self.pool_ptr = new_heap_ptr;
-        self.used = arg.used;
-
-        println!("{:?} ... {:?}", new_heap_ptr, unsafe { new_heap_ptr.add(new_layout.size()) });
-
-        //self.dump_heap();
+    fn gc_compaction_16k<R: GCRootValueHolder>(&mut self, root: &R) {
+        println!("compaction: 16k");
+        //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
+        let mut flags = [0u16; 1024 * 16 >> SIZE_BIT_SHIFT];
+        self.gc_compaction_body(&mut flags, root);
     }
 
     fn gc_compaction_32k<R: GCRootValueHolder>(&mut self, root: &R) {
@@ -502,15 +436,16 @@ impl Heap {
         //※最後のシフトは8,または16で割り算することと同じ意味。
         //値の最低サイズは32bitOSなら8、64bitOSなら16なのでそれぞれの数字で割る。
         let mut flags = [0u16; 1024 * 32 >> SIZE_BIT_SHIFT];
+        self.gc_compaction_body(&mut flags, root);
+    }
 
-        self.gc_compaction_mark_phase(&mut flags, root);
-        self.gc_compaction_setup_forwad_ptr(&mut flags);
+    fn gc_compaction_body<R: GCRootValueHolder>(&mut self, flags: &mut [u16], root: &R) {
+        self.gc_compaction_mark_phase(flags, root);
+        self.gc_compaction_setup_forwad_ptr(flags);
         //self.dump_gc_heap(&flags, obj);
 
-        self.gc_compaction_update_reference(&mut flags, root);
-        self.gc_compaction_move_object(&mut flags);
-
-        self.heap_size = HeapSize::_32k;
+        self.gc_compaction_update_reference(flags, root);
+        self.gc_compaction_move_object(flags);
     }
 
     fn get_allocation_size(v: &Value, typeinfo: &TypeInfo) -> usize {
@@ -737,6 +672,122 @@ impl Heap {
             self.used = used;
         }
     }
+
+    fn grow<R: GCRootValueHolder>(&mut self, root: &R) {
+        //self.dump_heap();
+
+        match self.heap_size {
+            HeapSize::_256 => self.grow_copying(HeapSize::_512, root),
+            HeapSize::_512 => self.grow_copying(HeapSize::_1k, root),
+            HeapSize::_1k => self.grow_copying(HeapSize::_2k, root),
+            HeapSize::_2k => self.grow_copying(HeapSize::_8k, root),
+            HeapSize::_8k => self.grow_copying(HeapSize::_16k, root),
+            HeapSize::_16k => self.grow_copying(HeapSize::_32k, root),
+            HeapSize::_32k => panic!("oom")
+        };
+
+        //self.dump_heap();
+    }
+
+
+    fn is_valid_value(v: &Value, arg: &mut GCCopyingArg) -> bool {
+        //ポインタかつ、自分自身のヒープ内に存在するオブジェクトなら、有効な値。
+        value::value_is_pointer(v)
+            && Self::is_pointer_within_heap(v, arg.start_addr, arg.end_addr)
+    }
+
+    fn grow_copying_copy(v: &Value, arg: &mut GCCopyingArg) -> *mut u8 {
+        //値を指している参照から、GCHeaderを指しているポインタに変換
+        let alloc_ptr = unsafe {
+            let ptr = v as *const Value as *const u8;
+            ptr.sub(mem::size_of::<GCHeader>())
+        };
+
+        unsafe {
+            //オブジェクトがあるはずの場所をCopiedValueとして無理やり解釈する。
+            //※有効な値とは絶対にかぶらないような値構造になっているため安全。
+            //※まだコピーされていない有効な値の場合、最初のフィールドにはtypeinfoへのポインタが入っている。
+            //※コピー済みの場合はポインタではない特別なImmidiate Valueが入っているため区別できる。
+            let copied = alloc_ptr as *mut CopiedValue;
+            //まだコピーされていないオブジェクトなら
+            if CopiedValue::is_copied(copied) == false {
+                let header = &mut *(alloc_ptr as *mut GCHeader);
+
+                //新しい領域にオブジェクトをコピー
+                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                let new_ptr = arg.free_ptr;
+                std::ptr::copy_nonoverlapping(alloc_ptr, new_ptr, size);
+
+                //古い領域のコピー済み領域に、マークとコピー先のポインタを保存する
+                CopiedValue::mark_copied(copied, new_ptr.add(std::mem::size_of::<GCHeader>()));
+                //※注意、これ以降は元の領域にアクセスすると壊れたデータになっている!!
+
+                //使用した分空き領域を指すポインタを進める
+                arg.free_ptr = arg.free_ptr.add(size);
+                arg.used += size;
+
+                //コピー先の領域にあるデータ参照するように諸々のローカル変数を更新
+                let header = &mut *(new_ptr as *mut GCHeader);
+                let v = &*(new_ptr.add(mem::size_of::<GCHeader>()) as *const Value);
+
+                //コピーしたオブジェクトが子オブジェクトを持っているなら、再帰的にコピー処理を行う
+                if let Some(func) = header.typeinfo.as_ref().child_traversal_func {
+                    func(v, arg.as_ptr(), |child, arg_ptr| {
+                        let arg = GCCopyingArg::from_ptr(arg_ptr);
+
+                        if Self::is_valid_value(child.as_ref(), arg) {
+                            let new_child_ptr = Self::grow_copying_copy(child.as_ref(), arg);
+
+                            //コピー先の新しいポインタで、内部で保持している子オブジェクトへのポインタを上書きする
+                            child.update_pointer(new_child_ptr as *mut Value);
+                        }
+                    });
+                }
+            }
+
+            //戻り値としてコピーした先のポインタを返す
+            CopiedValue::forwarding_pointer(copied)
+        }
+    }
+
+    fn grow_copying<R: GCRootValueHolder>(&mut self, next_heap_size: HeapSize, root: &R) {
+        //コピー先の新しいヒープを作成
+        let new_layout = Self::get_alloc_layout(next_heap_size);
+        println!("copying:{:?} {:?}", next_heap_size, new_layout);
+
+        let new_heap_ptr = unsafe { alloc::alloc(new_layout) };
+
+        let mut arg = GCCopyingArg::new(
+            self.pool_ptr,
+            unsafe { self.pool_ptr.add(self.used) },
+            new_heap_ptr,
+        );
+
+        //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
+        //ルートから辿ることができるオブジェクトをすべて取得して、新しい領域へコピーする
+        root.for_each_alived_value(arg.as_ptr(), |v, arg_ptr| {
+            let arg = unsafe { GCCopyingArg::from_ptr(arg_ptr) };
+            let value = v.as_ref();
+
+            if Self::is_valid_value(value, arg) {
+                let new_ptr = Self::grow_copying_copy(value, arg);
+                //コピー先の新しいポインタで、保持しているポインタを上書きする
+                v.update_pointer(new_ptr as *mut Value);
+            }
+        });
+
+        //古いヒープを削除
+        unsafe {
+            alloc::dealloc(self.pool_ptr, self.page_layout);
+        }
+
+        self.heap_size = next_heap_size;
+        self.page_layout = new_layout;
+        self.pool_ptr = new_heap_ptr;
+        self.used = arg.used;
+    }
+
+
 }
 
 impl Drop for Heap {
