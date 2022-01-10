@@ -457,6 +457,10 @@ impl mm::GCRootValueHolder for Object {
         self.ctx.for_each_all_alived_value(arg, callback);
         self.vm_state.for_each_all_alived_value(arg, callback);
 
+        if let Some(prev_object) = self.prev_object.as_ref() {
+            callback(prev_object.cast_value(), arg);
+        }
+
         //グローバルスペース内で保持している値
         for v in self.world.get_all_values().iter() {
             callback(v, arg);
