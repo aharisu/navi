@@ -551,20 +551,8 @@ fn cons_cond_fail(obj: &mut Object) -> Ref<Any> {
     builder.get().into_value()
 }
 
-fn syntax_fail_catch(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
-
-    for sexp in args.iter(obj) {
-        let e = crate::eval::eval(&sexp.reach(obj), obj);
-        if MatchFail::is_fail(e.as_ref()) == false {
-            return e;
-        }
-    }
-
-    MatchFail::fail().into_ref().into_value()
-}
-
 static SYNTAX_FAIL_CATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(syntax::Syntax::new("fail-catch", 0, 0, true, syntax_fail_catch, crate::compile::syntax_fail_catch))
+    GCAllocationStruct::new(syntax::Syntax::new("fail-catch", 0, 0, true, crate::compile::syntax_fail_catch))
 });
 
 pub mod literal {

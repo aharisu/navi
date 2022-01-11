@@ -35,7 +35,6 @@ macro_rules! new_typeinfo {
 pub mod any;
 pub mod array;
 pub mod bool;
-pub mod closure;
 pub mod compiled;
 pub mod list;
 pub mod number;

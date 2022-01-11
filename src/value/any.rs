@@ -160,28 +160,11 @@ mod tests {
         let sexp = result.unwrap();
 
         let sexp = sexp.reach(obj);
+        let result = crate::eval::eval(&sexp, obj);
+        let result = result.try_cast::<T>();
+        assert!(result.is_some());
 
-        let result = {
-            let result = crate::eval::eval(&sexp, obj);
-            let result = result.try_cast::<T>();
-            assert!(result.is_some());
-
-            result.unwrap().clone()
-        };
-        let result = result.reach(obj);
-
-        let result2 = {
-            let compiled = crate::compile::compile(&sexp, obj).into_value().reach(obj);
-
-            let result = crate::eval::eval(&compiled, obj);
-            let result = result.try_cast::<T>();
-            assert!(result.is_some());
-
-            result.unwrap().clone()
-        };
-        assert_eq!(result.as_ref(), result2.as_ref());
-
-        result.into_ref()
+        result.unwrap().clone()
     }
 
 

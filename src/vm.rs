@@ -550,7 +550,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
             }
             tag::PUSH_APP => {
                 let app = obj.vm_state().acc.clone();
-                if app.is::<func::Func>() || app.is::<compiled::Closure>() || app.is::<closure::Closure>() {
+                if app.is::<func::Func>() || app.is::<compiled::Closure>() {
                     // OK!!  do nothing
                 } else {
                     panic!("Not Applicable: {}", app.as_ref())
@@ -752,25 +752,6 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                     //リターン処理を実行
                     tag_return!();
                     reduce_with_check_timelimit!(10);
-
-                } else if let Some(closure) = app.try_cast::<closure::Closure>() {
-                    let size = unsafe { (*obj.vm_state().env).size } - 1;
-                    let mut builder = array::ArrayBuilder::<Any>::new(size, obj);
-                    for index in 0..size {
-                        builder.push(&refer_local_var(obj.vm_state().env, index), obj);
-                    }
-                    let args = builder.get().reach(obj);
-
-                    if closure.as_ref().process_arguments_descriptor(args.iter(), obj) {
-                        obj.vm_state().acc = closure.as_ref().apply(args.iter(), obj);
-
-                        //リターン処理を実行
-                        tag_return!();
-                        reduce_with_check_timelimit!(20);
-
-                    } else {
-                        panic!("Invalid arguments: {:?} {:?}", closure.as_ref(), args.as_ref())
-                    }
 
                 } else if let Some(closure) = app.try_cast::<compiled::Closure>() {
                     //引数の数などが正しいかを確認

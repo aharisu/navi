@@ -1,6 +1,5 @@
 mod fixed_size_alloc;
 mod world;
-pub mod context;
 pub mod mm;
 mod balance;
 mod schedule;
@@ -22,7 +21,6 @@ use crate::value::list::ListBuilder;
 use crate::value::object_ref::ObjectRef;
 use crate::vm::{self, VMState};
 
-use self::context::Context;
 use self::fixed_size_alloc::FixedSizeAllocator;
 use self::mm::{GCAllocationStruct, Heap};
 use self::mailbox::*;
@@ -94,7 +92,6 @@ struct ObjectGCRootValues {
 
     world: world::World,
 
-    ctx: Context,
     vm_state: VMState,
 
     captures: FixedSizeAllocator<Ref<Any>>,
@@ -105,7 +102,6 @@ struct ObjectGCRootValues {
 
 impl mm::GCRootValueHolder for ObjectGCRootValues {
     fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
-        self.ctx.for_each_all_alived_value(arg, callback);
         self.vm_state.for_each_all_alived_value(arg, callback);
 
         if let Some(prev_object) = self.prev_object.as_mut() {
@@ -165,7 +161,6 @@ impl Object {
 
                 world: world::World::new(),
 
-                ctx: Context::new(),
                 vm_state: VMState::new(),
 
                 captures: FixedSizeAllocator::new(),
@@ -367,11 +362,10 @@ impl Object {
             builder_fun.append(&match_.into_value().reach(obj), obj);
 
             //メッセージレシーバ用のクロージャをコンパイル
-            let receiver = builder_fun.get();
-            let message_receiver_gen = crate::compile::compile(&receiver.into_value().reach(obj), obj);
+            let receiver = builder_fun.get().into_value().reach(obj);
 
             //クロージャを生成するコードを実行
-            let message_receiver = crate::eval::eval(&message_receiver_gen.into_value().reach(obj), obj);
+            let message_receiver = crate::eval::eval(&receiver, obj);
             //実行結果は必ずコンパイル済みクロージャなのでuncheckedでキャスト
             let message_receiver = unsafe { message_receiver.cast_unchecked::<compiled::Closure>() }.clone();
 
@@ -430,10 +424,6 @@ impl Object {
                 panic!("TODO");
             },
         }
-    }
-
-    pub fn context(&mut self) -> &mut Context {
-        &mut self.values.ctx
     }
 
     #[inline(always)]

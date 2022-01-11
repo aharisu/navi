@@ -1,10 +1,7 @@
-use crate::cap_append;
 use crate::object::Object;
 use crate::value::*;
 use crate::ptr::*;
 use crate::value::any::Any;
-use crate::value::array::ArrayBuilder;
-use crate::value::list::ListBuilder;
 use crate::vm;
 
 #[macro_export]
@@ -21,97 +18,9 @@ pub fn eval(sexp: &Reachable<Any>, obj: &mut Object) -> Ref<Any> {
     if let Some(code) = sexp.try_cast::<compiled::Code>() {
         vm::code_execute(code, vm::WorkTimeLimit::Inf, obj).unwrap()
 
-    } else if let Some(sexp) = sexp.try_cast::<list::List>() {
-        if sexp.as_ref().is_nil() {
-            sexp.make().into_value()
-
-        } else {
-            //リスト先頭の式を評価
-            let head = cap_eval!(sexp.as_ref().head(), obj).reach(obj);
-
-            if let Some(func) = head.try_cast::<func::Func>() {
-                //関数適用
-
-                //引数を順に評価してリスト内に保存
-                let mut builder_args = ListBuilder::new(obj);
-                for sexp in sexp.as_ref().tail().reach(obj).iter(obj) {
-                    cap_append!(builder_args, cap_eval!(sexp, obj), obj);
-                }
-                let args = builder_args.get().reach(obj);
-
-                //関数の呼び出し処理を実行
-                vm::func_call(func, args.iter(obj), vm::WorkTimeLimit::Inf, obj).unwrap()
-
-            } else if let Some(syntax) = head.try_cast::<syntax::Syntax>() {
-                //シンタックス適用
-                let args = sexp.as_ref().tail().reach(obj);
-                if syntax.as_ref().check_arguments(&args) {
-                    syntax.as_ref().apply(&args, obj)
-
-                } else {
-                    panic!("Invalid arguments: {:?} {:?}", syntax.as_ref(), args.as_ref())
-                }
-            } else if let Some(closure) = head.try_cast::<closure::Closure>() {
-                //クロージャ適用
-
-                //引数を順に評価してリスト内に保存
-                let mut builder_args = ListBuilder::new(obj);
-                for sexp in sexp.as_ref().tail().reach(obj).iter(obj) {
-                    cap_append!(builder_args, cap_eval!(sexp, obj), obj);
-                }
-
-                let args = builder_args.get().reach(obj);
-                if closure.as_ref().process_arguments_descriptor(args.iter(obj), obj) {
-                    let args = array::Array::from_list(&args, None, obj).reach(obj);
-                    closure.as_ref().apply(args.iter(), obj)
-
-                } else {
-                    panic!("Invalid arguments: {:?} {:?}", closure.as_ref(), args.as_ref())
-                }
-            } else if let Some(closure) = head.try_cast::<compiled::Closure>() {
-
-                //TODO vm::closure_call
-                unimplemented!()
-
-            } else {
-                panic!("Not Applicable: {:?}", head.as_ref())
-            }
-        }
-
-    } else if let Some(symbol) = sexp.try_cast::<symbol::Symbol>() {
-        if let Some(v) = obj.context().find_local_value(symbol.as_ref()) {
-            v.clone()
-        } else if let Some(v) = obj.find_global_value(symbol.as_ref()) {
-            v.clone()
-        } else {
-            panic!("{:?} is not found", symbol.as_ref())
-        }
-
-    } else if let Some(ary) = sexp.try_cast::<array::Array<Any>>() {
-        let mut builder = ArrayBuilder::<Any>::new(ary.as_ref().len(), obj);
-        for sexp in ary.iter() {
-            let v = cap_eval!(sexp, obj);
-            builder.push(&v, obj)
-        }
-        builder.get().into_value()
-
-    } else if let Some(tuple) = sexp.try_cast::<tuple::Tuple>() {
-        let len = tuple.as_ref().len();
-        if len == 0 {
-            tuple::Tuple::unit().into_ref().into_value()
-
-        } else {
-            let mut builder = ArrayBuilder::<Any>::new(len, obj);
-            for index in 0..len {
-                let sexp = tuple.as_ref().get(index).reach(obj);
-                let v = eval(&sexp, obj);
-                builder.push(&v, obj)
-            }
-            tuple::Tuple::from_array(&builder.get().reach(obj), obj).into_value()
-        }
-
     } else {
-        sexp.make()
+            let compiled = crate::compile::compile(&sexp, obj).reach(obj);
+            vm::code_execute(&compiled, vm::WorkTimeLimit::Inf, obj).unwrap()
     }
 }
 
@@ -130,27 +39,11 @@ mod tests {
         let sexp = result.unwrap();
 
         let sexp = sexp.reach(obj);
-        let result = {
-            let result = crate::eval::eval(&sexp, obj);
-            let result = result.try_cast::<T>();
-            assert!(result.is_some());
+        let result = crate::eval::eval(&sexp, obj);
+        let result = result.try_cast::<T>();
+        assert!(result.is_some());
 
-            result.unwrap().clone()
-        };
-        let result = result.reach(obj);
-
-        let result2 = {
-            let compiled = crate::compile::compile(&sexp, obj).into_value().reach(obj);
-
-            let result = crate::eval::eval(&compiled, obj);
-            let result = result.try_cast::<T>();
-            assert!(result.is_some());
-
-            result.unwrap().clone()
-        };
-        assert_eq!(result.as_ref(), result2.as_ref());
-
-        result.into_ref()
+        result.unwrap().clone()
     }
 
 
