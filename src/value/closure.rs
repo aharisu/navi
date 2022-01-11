@@ -46,7 +46,7 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.params.cast_mut_value(), arg);
         callback(self.body.cast_mut_value(), arg);
     }
@@ -64,7 +64,7 @@ impl Closure {
         ptr.into_ref()
     }
 
-    pub fn process_arguments_descriptor(&self, args_iter: impl Iterator<Item = Ref<Value>>, _obj: &mut Object) -> bool {
+    pub fn process_arguments_descriptor(&self, args_iter: impl Iterator<Item = Ref<Any>>, _obj: &mut Object) -> bool {
         //TODO 各種パラメータ指定の処理(:option, :rest)
 
         let count = args_iter.count();
@@ -75,9 +75,9 @@ impl Closure {
         }
     }
 
-    pub fn apply(&self, args_iter: impl Iterator<Item=Ref<Value>>, obj: &mut Object) -> Ref<Value> {
+    pub fn apply(&self, args_iter: impl Iterator<Item=Ref<Any>>, obj: &mut Object) -> Ref<Any> {
         //ローカルフレームを構築
-        let mut frame = Vec::<(&symbol::Symbol, &Value)>::new();
+        let mut frame = Vec::<(&symbol::Symbol, &Any)>::new();
 
         {
             let params_iter = unsafe { self.params.as_ref().iter_gcunsafe() };

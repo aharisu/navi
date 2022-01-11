@@ -5,6 +5,7 @@ use crate::cap_append;
 use crate::object::Object;
 use crate::value::*;
 use crate::ptr::*;
+use crate::value::any::Any;
 use crate::value::list::ListBuilder;
 
 #[derive(Debug)]
@@ -16,7 +17,7 @@ fn readerror(msg: String) -> ReadError {
     ReadError { msg: msg}
 }
 
-pub type ReadResult = Result<Ref<Value>, ReadError>;
+pub type ReadResult = Result<Ref<Any>, ReadError>;
 
 pub struct Reader<'i> {
     input: Peekable<Chars<'i>>,
@@ -137,7 +138,7 @@ fn read_bind(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     read_with_modifier(syntax::literal::bind().cast_value(), reader, obj)
 }
 
-fn read_with_modifier(modifier: &Reachable<Value>, reader: &mut Reader, obj: &mut Object) -> ReadResult {
+fn read_with_modifier(modifier: &Reachable<Any>, reader: &mut Reader, obj: &mut Object) -> ReadResult {
     //skip first char
     reader.input.next();
 
@@ -475,15 +476,15 @@ mod tests {
             let ans = symbol::Symbol::alloc(&"+".to_string(), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(reader, obj);
+            let result = read_with_ctx::<Any>(reader, obj);
             let ans = symbol::Symbol::alloc(&"-".to_string(), ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(reader, obj).into_value();
+            let result = read_with_ctx::<Any>(reader, obj).into_value();
             let ans = symbol::Symbol::alloc(&"+1-2".to_string(), ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(reader, obj).into_value();
+            let result = read_with_ctx::<Any>(reader, obj).into_value();
             let ans = symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -495,11 +496,11 @@ mod tests {
             let mut reader = make_reader(program);
             let reader = &mut reader;
 
-            let result = read_with_ctx::<Value>(reader, obj);
+            let result = read_with_ctx::<Any>(reader, obj);
             let ans = bool::Bool::true_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let result = read_with_ctx::<Value>(reader, obj);
+            let result = read_with_ctx::<Any>(reader, obj);
             let ans = bool::Bool::false_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -532,7 +533,7 @@ mod tests {
         {
             let program = "[]";
 
-            let result = read::<array::Array<Value>>(program, obj);
+            let result = read::<array::Array<Any>>(program, obj);
             let ans = array::Array::from_list(&list::List::nil(), Some(0), ans_obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -540,7 +541,7 @@ mod tests {
         {
             let program = "[1 2 3]";
 
-            let result = read::<Value>(program, obj);
+            let result = read::<Any>(program, obj);
 
             let _1 = number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj);
             let _2 = number::Integer::alloc(2, ans_obj).into_value().reach(ans_obj);
@@ -558,7 +559,7 @@ mod tests {
         {
             let program = "[1 3.14 \"hohoho\" symbol]";
 
-            let result = read::<Value>(program, obj);
+            let result = read::<Any>(program, obj);
 
 
             let _1 = number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj);
@@ -566,7 +567,7 @@ mod tests {
             let hohoho = string::NString::alloc(&"hohoho".to_string(), ans_obj).into_value().reach(ans_obj);
             let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value().reach(ans_obj);
 
-            let mut builder = ArrayBuilder::<Value>::new(4, ans_obj);
+            let mut builder = ArrayBuilder::<Any>::new(4, ans_obj);
 
             builder.push(&_1, ans_obj);
             builder.push(&_3_14, ans_obj);
@@ -588,7 +589,7 @@ mod tests {
         {
             let program = "()";
 
-            let result = read::<Value>(program, obj);
+            let result = read::<Any>(program, obj);
             let ans = list::List::nil().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -596,7 +597,7 @@ mod tests {
         {
             let program = "(1 2 3)";
 
-            let result = read::<Value>(program, obj);
+            let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
             builder.append( &number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj), ans_obj);
@@ -610,7 +611,7 @@ mod tests {
         {
             let program = "(1 3.14 \"hohoho\" symbol)";
 
-            let result = read::<Value>(program, obj);
+            let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
             builder.append( &number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj), ans_obj);
@@ -641,7 +642,7 @@ mod tests {
         {
             let program = "{1 2 3}";
 
-            let result = read::<Value>(program, obj);
+            let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
             builder.append( &number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj), ans_obj);
@@ -656,7 +657,7 @@ mod tests {
         {
             let program = "{1 3.14 \"hohoho\" symbol}";
 
-            let result = read::<Value>(program, obj);
+            let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
             builder.append( &number::Integer::alloc(1, ans_obj).into_value().reach(ans_obj), ans_obj);
@@ -681,7 +682,7 @@ mod tests {
         {
             let program = "'symbol";
 
-            let result = read::<Value>(program, obj);
+            let result = read::<Any>(program, obj);
 
             let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).into_value().reach(ans_obj);
 

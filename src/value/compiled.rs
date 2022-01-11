@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 
 pub struct Code {
     program: Vec<u8>,
-    constants: Vec<Ref<Value>>,
+    constants: Vec<Ref<Any>>,
 }
 
 static CODE_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -32,7 +32,7 @@ impl NaviType for Code {
         unsafe {
             let program = self.program.clone();
             let constants = self.constants.iter()
-                .map(|c| Value::clone_inner(c.as_ref(), allocator))
+                .map(|c| Any::clone_inner(c.as_ref(), allocator))
                 .collect()
                 ;
 
@@ -53,11 +53,11 @@ impl Code {
         std::ptr::eq(&CODE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         self.constants.iter_mut().for_each(|v| callback(v, arg));
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Value>>, allocator: &mut A) -> Ref<Self> {
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Any>>, allocator: &mut A) -> Ref<Self> {
         let ptr = allocator.alloc::<Code>();
 
         unsafe {
@@ -67,7 +67,7 @@ impl Code {
         ptr.into_ref()
     }
 
-    pub fn new(program: Vec<u8>, constants: Vec<Cap<Value>>) -> Self {
+    pub fn new(program: Vec<u8>, constants: Vec<Cap<Any>>) -> Self {
         let constants = constants.into_iter()
             .map(|c| c.take())
             .collect()
@@ -82,11 +82,11 @@ impl Code {
         &self.program[..]
     }
 
-    pub fn get_constant(&self, index: usize) -> Ref<Value> {
+    pub fn get_constant(&self, index: usize) -> Ref<Any> {
         self.constants[index].clone()
     }
 
-    pub fn get_constant_slice(&self, start: usize, end: usize) -> &[Ref<Value>] {
+    pub fn get_constant_slice(&self, start: usize, end: usize) -> &[Ref<Any>] {
         &self.constants[start..end]
     }
 
@@ -142,8 +142,8 @@ impl NaviType for Closure {
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         let program = self.code.program.clone();
-        let constants:Vec<Ref<Value>> = self.code.constants.iter()
-            .map(|c| Value::clone_inner(c.as_ref(), allocator))
+        let constants:Vec<Ref<Any>> = self.code.constants.iter()
+            .map(|c| Any::clone_inner(c.as_ref(), allocator))
             .collect()
             ;
 
@@ -157,11 +157,11 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         self.code.child_traversal(arg, callback);
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Value>], num_args: usize, allocator: &mut A) -> Ref<Self> {
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Any>], num_args: usize, allocator: &mut A) -> Ref<Self> {
         let ptr = allocator.alloc::<Closure>();
 
         let constants = constants.into_iter()

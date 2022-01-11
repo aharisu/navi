@@ -6,6 +6,7 @@ use crate::object::mm::GCAllocationStruct;
 use crate::ptr::*;
 use crate::object::Object;
 use crate::value::*;
+use crate::value::any::Any;
 use crate::value::array::ArrayBuilder;
 use crate::value::symbol::Symbol;
 use crate::value::list::List;
@@ -24,7 +25,7 @@ pub struct CCtx<'a> {
     toplevel: bool,
 }
 
-pub fn compile(sexp: &Reachable<Value>, obj: &mut Object) -> Ref<compiled::Code> {
+pub fn compile(sexp: &Reachable<Any>, obj: &mut Object) -> Ref<compiled::Code> {
     let mut frames = Vec::new();
     let mut ctx = CCtx {
         frames: &mut frames,
@@ -40,7 +41,7 @@ pub fn compile(sexp: &Reachable<Value>, obj: &mut Object) -> Ref<compiled::Code>
 //
 // pass 1
 // Covnerts S expression into intermediates form (IForm).
-fn pass_transform(sexp: &Reachable<Value>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn pass_transform(sexp: &Reachable<Any>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     if let Some(list) = sexp.try_cast::<List>() {
         if list.as_ref().is_nil() {
             IFormConst::alloc(sexp, obj).into_iform()
@@ -55,7 +56,7 @@ fn pass_transform(sexp: &Reachable<Value>, ctx: &mut CCtx, obj: &mut Object) -> 
     } else if let Some(tuple) = sexp.try_cast::<tuple::Tuple>() {
         transform_tuple(tuple, ctx, obj)
 
-    } else if let Some(array) = sexp.try_cast::<array::Array<Value>>() {
+    } else if let Some(array) = sexp.try_cast::<array::Array<Any>>() {
         transform_array(array, ctx, obj)
 
     } else {
@@ -112,7 +113,7 @@ fn lookup_localvar<'a>(symbol: &Symbol, ctx: &'a mut CCtx) -> LookupResult<'a> {
 }
 
 
-fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Option<Ref<Value>> {
+fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Option<Ref<Any>> {
     match lookup_localvar(symbol, ctx) {
         LookupResult::Var(lvar) => {
             //ローカル変数が、グローバル変数を束縛していたら
@@ -210,7 +211,7 @@ fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Ob
     IFormContainer::alloc(&args, iform::ContainerKind::Tuple, obj).into_iform()
 }
 
-fn transform_array(array: &Reachable<array::Array<Value>>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -574,6 +575,7 @@ mod codegen {
     use crate::vm;
     use crate::object::Object;
     use crate::value::{*, self};
+    use crate::value::any::Any;
     use crate::value::iform::*;
     use crate::value::symbol::Symbol;
     use crate::vm::{write_u16, write_u8, write_usize};
@@ -582,12 +584,12 @@ mod codegen {
     // Code Generation Arg
     struct CGCtx<'a> {
         pub buf: Vec<u8>,
-        pub constants: &'a mut Vec<Cap<Value>>,
+        pub constants: &'a mut Vec<Cap<Any>>,
         pub frames: &'a mut Vec<Vec<Cap<Symbol>>>,
     }
 
     impl <'a> CGCtx<'a> {
-        pub fn add_constant(&mut self, v: Ref<Value>, obj: &mut Object) -> usize {
+        pub fn add_constant(&mut self, v: Ref<Any>, obj: &mut Object) -> usize {
             //同じ値が既に存在しているなら
             if let Some((index, _)) = self.constants.iter().enumerate()
                     .find(|(_index, constant)|  constant.as_ref() == v.as_ref()) {
@@ -610,7 +612,7 @@ mod codegen {
     //
 
     pub fn code_generate(iform: &Reachable<IForm>, obj: &mut Object) -> Ref<compiled::Code> {
-        let mut constants:Vec<Cap<Value>> = Vec::new();
+        let mut constants:Vec<Cap<Any>> = Vec::new();
         let mut frames:Vec<Vec<Cap<Symbol>>> = Vec::new();
 
         let mut ctx = CGCtx {
@@ -805,7 +807,7 @@ mod codegen {
         }
 
         ctx.frames.push(new_frame);
-        let mut constants:Vec<Cap<Value>> = Vec::new();
+        let mut constants:Vec<Cap<Any>> = Vec::new();
         let buf_body = {
             let mut ctx_body = CGCtx {
                 buf: Vec::new(),
@@ -886,14 +888,14 @@ mod codegen {
             //ヒープ外へのポインタはStaticなオブジェクト
             write_u8(vm::tag::CONST_STATIC, &mut ctx.buf);
             //Staticなオブジェクトは移動することがないのでポインタをそのまま書き込む
-            let data = ptr_to_usize(v as *const Value);
+            let data = ptr_to_usize(v as *const Any);
             write_usize(data, &mut ctx.buf);
 
         } else {
             //IMMIDIATE VALUEならそのまま書き込む
             write_u8(vm::tag::CONST_IMMIDIATE, &mut ctx.buf);
             //そもそも単なる値なのでそのまま書き込む
-            let data = ptr_to_usize(v as *const Value);
+            let data = ptr_to_usize(v as *const Any);
             write_usize(data, &mut ctx.buf);
         }
     }

@@ -5,15 +5,15 @@ macro_rules! new_typeinfo {
             name: $name,
             fixed_size: $fixed_size,
             variable_size_func: match $variable_size_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t) -> usize, fn(&Value) -> usize>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t) -> usize, fn(&Any) -> usize>(func) }),
                 None => None
             },
-            eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Value, &Value) -> bool>($eq_func) },
-            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut crate::object::AnyAllocator) -> Ref<$t>, fn(&Value, &mut crate::object::AnyAllocator) -> Ref<Value>>($clone_func) },
-            print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
+            eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Any, &Any) -> bool>($eq_func) },
+            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut crate::object::AnyAllocator) -> Ref<$t>, fn(&Any, &mut crate::object::AnyAllocator) -> Ref<Any>>($clone_func) },
+            print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Any, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
             finalize: match $finalize_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t), fn(&mut Value)>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t), fn(&mut Any)>(func) }),
                 None => None
             },
             is_comparable_func: match $is_comparable_func {
@@ -21,17 +21,18 @@ macro_rules! new_typeinfo {
                 None => None
              },
             child_traversal_func: match $child_traversal_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t, *mut u8, fn(&mut Ref<Value>, *mut u8)), fn(&mut Value, *mut u8, fn(&mut Ref<Value>, *mut u8))>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t, *mut u8, fn(&mut Ref<Any>, *mut u8)), fn(&mut Any, *mut u8, fn(&mut Ref<Any>, *mut u8))>(func) }),
                 None => None
              },
             check_reply_func: match $check_reply_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut Cap<$t>, &mut crate::object::Object) -> bool, fn(&mut Cap<Value>, &mut crate::object::Object) -> bool>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut Cap<$t>, &mut crate::object::Object) -> bool, fn(&mut Cap<Any>, &mut crate::object::Object) -> bool>(func) }),
                 None => None
              },
         }
     };
 }
 
+pub mod any;
 pub mod array;
 pub mod bool;
 pub mod closure;
@@ -49,6 +50,7 @@ pub mod iform;
 pub mod reply;
 
 
+use crate::value::any::Any;
 use crate::object::{Object, Allocator, AnyAllocator};
 use crate::object::mm::{self, GCAllocationStruct, ptr_to_usize, usize_to_ptr};
 use crate::util::non_null_const::*;
@@ -56,6 +58,7 @@ use crate::{ptr::*, vm};
 
 use crate::value::func::*;
 use once_cell::sync::Lazy;
+
 
 //xxxx xxxx xxxx xx0r pointer value(r = 1: has Reply type. r = 0: do not have Reply type.)
 //xxxx xxxx xxxx x110 fixnum
@@ -112,8 +115,8 @@ fn pointer_kind<T>(ptr: *const T) -> PtrKind {
     }
 }
 
-pub fn value_is_pointer(v: &Value) -> bool {
-    pointer_kind(v as *const Value) == PtrKind::Ptr
+pub fn value_is_pointer(v: &Any) -> bool {
+    pointer_kind(v as *const Any) == PtrKind::Ptr
 }
 
 pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) -> Ref<T> {
@@ -147,7 +150,7 @@ pub fn get_typeinfo<T: NaviType>(this: &T) -> NonNullConst<TypeInfo>{
     }
 }
 
-pub fn check_reply(cap: &mut Cap<Value>, obj: &mut Object) -> bool {
+pub fn check_reply(cap: &mut Cap<Any>, obj: &mut Object) -> bool {
 
     if let Some(reply) = cap.try_cast_mut::<reply::Reply>() {
         if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
@@ -213,167 +216,19 @@ pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
 pub struct TypeInfo {
     pub name : &'static str,
     pub fixed_size: usize,
-    pub variable_size_func: Option<fn(&Value) -> usize>,
-    pub eq_func: fn(&Value, &Value) -> bool,
-    pub clone_func: fn(&Value, &mut AnyAllocator) -> Ref<Value>,
-    pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
+    pub variable_size_func: Option<fn(&Any) -> usize>,
+    pub eq_func: fn(&Any, &Any) -> bool,
+    pub clone_func: fn(&Any, &mut AnyAllocator) -> Ref<Any>,
+    pub print_func: fn(&Any, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: fn(&TypeInfo) -> bool,
-    pub finalize: Option<fn(&mut Value)>,
+    pub finalize: Option<fn(&mut Any)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
-    pub child_traversal_func: Option<fn(&mut Value, *mut u8, fn(&mut Ref<Value>, *mut u8))>,
-    pub check_reply_func: Option<fn(&mut Cap<Value>, &mut Object) -> bool>,
-}
-
-pub struct Value { }
-
-static VALUE_TYPEINFO : TypeInfo = new_typeinfo!(
-    Value,
-    "Value",
-    0, None,
-    Value::_eq,
-    Value::clone_inner,
-    Value::_fmt,
-    Value::_is_type,
-    None,
-    None,
-    None,
-    None,
-);
-
-impl NaviType for Value {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&VALUE_TYPEINFO as *const TypeInfo)
-    }
-
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
-        if value_is_pointer(self) {
-            let typeinfo = get_typeinfo(self);
-           (unsafe { typeinfo.as_ref() }.clone_func)(self, allocator)
-
-        } else {
-            //Immidiate Valueの場合はそのまま返す
-            Ref::new(self)
-        }
-    }
-}
-
-impl Eq for Value {}
-
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        let self_typeinfo = unsafe { get_typeinfo(self).as_ref() };
-        let other_typeinfo = unsafe { get_typeinfo(other).as_ref() };
-
-        //比較可能な型同士かを確認する関数を持っている場合は、処理を委譲する。
-        //持っていない場合は同じ型同士の時だけ比較可能にする。
-        let comparable = match self_typeinfo.is_comparable_func {
-            Some(func) => func(other_typeinfo),
-            None => std::ptr::eq(self_typeinfo, other_typeinfo),
-        };
-
-        if comparable {
-            (self_typeinfo.eq_func)(self, other)
-        } else {
-            false
-        }
-    }
-}
-
-impl std::fmt::Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let self_typeinfo = get_typeinfo(self);
-
-        (unsafe { self_typeinfo.as_ref() }.print_func)(self, f)
-    }
-}
-
-impl std::fmt::Debug for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let self_typeinfo = get_typeinfo(self);
-
-        (unsafe { self_typeinfo.as_ref() }.print_func)(self, f)
-    }
-}
-
-impl Value {
-    pub fn is<U: NaviType>(&self) -> bool {
-        let other_typeinfo = U::typeinfo();
-        self.is_type(other_typeinfo)
-    }
-
-    pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
-        if std::ptr::eq(&VALUE_TYPEINFO, other_typeinfo.as_ptr()) {
-            //is::<Value>()の場合、常に結果はtrue
-            true
-
-        } else {
-            let self_typeinfo = get_typeinfo(self);
-
-            (unsafe { self_typeinfo.as_ref() }.is_type_func)(unsafe { other_typeinfo.as_ref() })
-        }
-    }
-
-    pub fn try_cast<U: NaviType>(&self) -> Option<&U> {
-        if self.is::<U>() {
-            Some(unsafe { &*(self as *const Value as *const U) })
-        } else {
-            None
-        }
-    }
-
-    //Value型のインスタンスは存在しないため、これらのメソッドが呼び出されることはない
-    fn _eq(&self, _other: &Self) -> bool {
-        unreachable!()
-    }
-
-    fn _fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unreachable!()
-    }
-
-    fn _is_type(_other_typeinfo: &TypeInfo) -> bool {
-        unreachable!()
-    }
-}
-
-fn func_equal(obj: &mut Object) -> Ref<Value> {
-    let left = vm::refer_arg::<Value>(0, obj);
-    let right = vm::refer_arg::<Value>(1, obj);
-
-    let result = left.as_ref().eq(right.as_ref());
-
-    if result {
-        bool::Bool::true_().into_ref().into_value()
-    } else {
-        bool::Bool::false_().into_ref().into_value()
-    }
-}
-
-static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("=",
-            &[
-            Param::new("left", ParamKind::Require, Value::typeinfo()),
-            Param::new("right", ParamKind::Require, Value::typeinfo()),
-            ],
-            func_equal)
-    )
-});
-
-pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("=", &Ref::new(&FUNC_EQUAL.value));
-}
-
-pub mod literal {
-    use super::*;
-
-    pub fn equal() -> Reachable<Func> {
-        Reachable::new_static(&FUNC_EQUAL.value)
-    }
+    pub child_traversal_func: Option<fn(&mut Any, *mut u8, fn(&mut Ref<Any>, *mut u8))>,
+    pub check_reply_func: Option<fn(&mut Cap<Any>, &mut Object) -> bool>,
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::read::Reader;
     use crate::value::*;
 
     #[test]
@@ -403,139 +258,6 @@ mod tests {
         let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).into_value().reach(obj);
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
-    }
-
-    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
-        let mut reader = Reader::new(program.chars().peekable());
-        let result = crate::read::read(&mut reader, obj);
-        assert!(result.is_ok());
-        let sexp = result.unwrap();
-
-        let sexp = sexp.reach(obj);
-
-        let result = {
-            let result = crate::eval::eval(&sexp, obj);
-            let result = result.try_cast::<T>();
-            assert!(result.is_some());
-
-            result.unwrap().clone()
-        };
-        let result = result.reach(obj);
-
-        let result2 = {
-            let compiled = crate::compile::compile(&sexp, obj).into_value().reach(obj);
-
-            let result = crate::eval::eval(&compiled, obj);
-            let result = result.try_cast::<T>();
-            assert!(result.is_some());
-
-            result.unwrap().clone()
-        };
-        assert_eq!(result.as_ref(), result2.as_ref());
-
-        result.into_ref()
-    }
-
-
-    #[test]
-    fn equal() {
-        let mut obj = Object::new_for_test();
-        let obj = &mut obj;
-
-        {
-            let program = "(= 1 1)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= 1 1.0)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= 1.0 1)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= 3.14 3.14)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= 1 1.001)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-        }
-
-        {
-            let program = "(= \"hoge\" \"hoge\")";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= \"hoge\" \"hogehoge\")";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-
-            let program = "(= \"hoge\" \"huga\")";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-        }
-
-        {
-            let program = "(= 'symbol 'symbol)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= 'symbol 'other)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-
-            let program = "(= :keyword :keyword)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= 'symbol 'other)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-        }
-
-        {
-            let program = "(= '(1 \"2\" :3) '(1 \"2\" :3))";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= '(1 \"2\" :3) '(1 \"2\" '3))";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-
-            let program = "(= [1 \"2\" :3] [1 \"2\" :3])";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= [1 \"2\" :3] [1 \"2\" '3])";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-
-            let program = "(= {1 \"2\" :3} {1 \"2\" :3})";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_true());
-
-            let program = "(= {1 \"2\" :3} {1 \"2\" '3})";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-        }
-
-        {
-            let program = "(= 1 \"1\")";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-
-            let program = "(= '(1 2 3) [1 2 3])";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-
-            let program = "(= {} [])";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
-            assert!(result.as_ref().is_false());
-        }
-
     }
 
 }

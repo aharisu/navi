@@ -7,7 +7,7 @@ use crate::vm;
 use std::fmt::{self, Debug, Display};
 
 pub struct List {
-    v: Ref<Value>,
+    v: Ref<Any>,
     next: Ref<List>,
 }
 
@@ -38,7 +38,7 @@ impl NaviType for List {
         } else {
             //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
             unsafe {
-                let v = crate::value::Value::clone_inner(self.v.as_ref(), allocator).into_reachable();
+                let v = crate::value::Any::clone_inner(self.v.as_ref(), allocator).into_reachable();
                 let next = Self::clone_inner(self.next.as_ref(), allocator).into_reachable();
 
                 Self::alloc(&v, &next, allocator)
@@ -54,7 +54,7 @@ impl List {
         std::ptr::eq(&LIST_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(&mut self.v, arg);
         callback(self.next.cast_mut_value(), arg);
     }
@@ -99,7 +99,7 @@ impl List {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Value>, next: &Reachable<List>, allocator: &mut A) -> Ref<List> {
+    pub fn alloc<A: Allocator>(v: &Reachable<Any>, next: &Reachable<List>, allocator: &mut A) -> Ref<List> {
         let ptr = allocator.alloc::<List>();
         unsafe {
             //確保したメモリ内に値を書き込む
@@ -117,7 +117,7 @@ impl List {
         result
     }
 
-    pub fn alloc_tail<A: Allocator>(v: &Reachable<Value>, allocator: &mut A) -> Ref<List> {
+    pub fn alloc_tail<A: Allocator>(v: &Reachable<Any>, allocator: &mut A) -> Ref<List> {
         let ptr = allocator.alloc::<List>();
 
         unsafe {
@@ -136,7 +136,7 @@ impl List {
         result
     }
 
-    pub fn head(&self) -> Ref<Value> {
+    pub fn head(&self) -> Ref<Any> {
         self.v.clone()
     }
 
@@ -196,7 +196,7 @@ impl List {
         count == 0 && l.is_nil()
     }
 
-    pub fn get(&self, mut index: usize) -> Ref<Value> {
+    pub fn get(&self, mut index: usize) -> Ref<Any> {
         for v in unsafe { self.iter_gcunsafe() } {
             if index == 0 {
                 return v;
@@ -279,7 +279,7 @@ pub struct ListIteratorGCUnsafe {
 }
 
 impl std::iter::Iterator for ListIteratorGCUnsafe {
-    type Item = Ref<Value>;
+    type Item = Ref<Any>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur.as_ref().is_nil() {
@@ -305,7 +305,7 @@ impl ListIterator {
 }
 
 impl std::iter::Iterator for ListIterator {
-    type Item = Ref<Value>;
+    type Item = Ref<Any>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur.as_ref().is_nil() {
@@ -335,7 +335,7 @@ impl ListIteratorWithInfo {
 }
 
 impl std::iter::Iterator for ListIteratorWithInfo {
-    type Item = (Ref<Value>, ListIteratorInfo);
+    type Item = (Ref<Any>, ListIteratorInfo);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur.as_ref().is_nil() {
@@ -376,7 +376,7 @@ impl ListBuilder {
         }
     }
 
-    pub fn append(&mut self, v: &Reachable<Value>, obj: &mut Object) {
+    pub fn append(&mut self, v: &Reachable<Any>, obj: &mut Object) {
         let cell = List::alloc_tail(v, obj);
 
         if self.start.is_none() {
@@ -416,13 +416,13 @@ impl ListBuilder {
 
 }
 
-fn func_cons(obj: &mut Object) -> Ref<Value> {
-    let v = vm::refer_arg::<Value>(0, obj);
+fn func_cons(obj: &mut Object) -> Ref<Any> {
+    let v = vm::refer_arg::<Any>(0, obj);
     let tail = vm::refer_arg::<List>(1, obj);
     list::List::alloc(&v.reach(obj), &tail.reach(obj), obj).into_value()
 }
 
-fn func_is_list(obj: &mut Object) -> Ref<Value> {
+fn func_is_list(obj: &mut Object) -> Ref<Any> {
     let v = vm::refer_arg(0, obj);
     if v.is_type(list::List::typeinfo()) {
         v.clone()
@@ -431,13 +431,13 @@ fn func_is_list(obj: &mut Object) -> Ref<Value> {
     }
 }
 
-fn func_list_len(obj: &mut Object) -> Ref<Value> {
+fn func_list_len(obj: &mut Object) -> Ref<Any> {
     let v = vm::refer_arg::<List>(0, obj);
 
     number::Integer::alloc(v.as_ref().count() as i64, obj).into_value()
 }
 
-fn func_list_ref(obj: &mut Object) -> Ref<Value> {
+fn func_list_ref(obj: &mut Object) -> Ref<Any> {
     let v = vm::refer_arg::<List>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj);
 
@@ -450,7 +450,7 @@ static FUNC_CONS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("cons",
             &[
-            Param::new_no_force("head", ParamKind::Require, Value::typeinfo()),
+            Param::new_no_force("head", ParamKind::Require, Any::typeinfo()),
             Param::new_no_force("tail", ParamKind::Require, list::List::typeinfo()),
             ],
             func_cons)
@@ -461,7 +461,7 @@ static FUNC_IS_LIST: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("list?",
             &[
-            Param::new_no_force("x", ParamKind::Require, Value::typeinfo()),
+            Param::new_no_force("x", ParamKind::Require, Any::typeinfo()),
             ],
             func_is_list)
     )

@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display};
 pub struct Func {
     name: String,
     params: Vec<Param>,
-    body:  fn(&mut Object) -> Ref<Value>,
+    body:  fn(&mut Object) -> Ref<Any>,
     num_require: u8,
     num_optional: u8,
     has_rest: bool,
@@ -75,7 +75,7 @@ impl NaviType for Func {
 
 impl Func {
 
-    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&mut Object) -> Ref<Value>) -> Func {
+    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&mut Object) -> Ref<Any>) -> Func {
         let mut num_require = 0;
         let mut num_optional = 0;
         let mut has_rest = false;
@@ -120,7 +120,7 @@ impl Func {
         self.has_rest
     }
 
-    pub fn apply(&self, obj: &mut Object) -> Ref<Value> {
+    pub fn apply(&self, obj: &mut Object) -> Ref<Any> {
         (self.body)(obj)
     }
 }

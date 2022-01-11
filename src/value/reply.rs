@@ -9,7 +9,7 @@ use std::fmt::{Debug, Display};
 
 pub struct Reply {
     reply_token: ReplyToken,
-    reply_value: Option<Ref<Value>>,
+    reply_value: Option<Ref<Any>>,
 }
 
 static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -42,7 +42,7 @@ impl Reply {
         std::ptr::eq(&REPLY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         match self.reply_value.as_mut() {
             Some(value) => {
                 callback(value, arg);
@@ -51,7 +51,7 @@ impl Reply {
         }
     }
 
-    pub fn try_get_reply_value(cap: &mut Cap<Reply>, obj: &mut Object) -> Option<Ref<Value>> {
+    pub fn try_get_reply_value(cap: &mut Cap<Reply>, obj: &mut Object) -> Option<Ref<Any>> {
         if Self::check_reply(cap, obj) {
             cap.as_ref().reply_value.clone()
         } else {
@@ -121,16 +121,16 @@ impl Debug for Reply {
     }
 }
 
-fn func_force(obj: &mut Object) -> Ref<Value> {
+fn func_force(obj: &mut Object) -> Ref<Any> {
     //関数にわたってきている時点でReplyから実際の値になっているので引数の値をそのまま返す
-    vm::refer_arg::<Value>(0, obj)
+    vm::refer_arg::<Any>(0, obj)
 }
 
 static FUNC_FORCE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("force",
             &[
-            Param::new("v", ParamKind::Require, Value::typeinfo()),
+            Param::new("v", ParamKind::Require, Any::typeinfo()),
             ],
             func_force)
     )

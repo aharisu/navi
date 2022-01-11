@@ -21,7 +21,7 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&Reachable<List>, &mut Object) -> Ref<Value>,
+    body: fn(&Reachable<List>, &mut Object) -> Ref<Any>,
     transform_body: fn(&Reachable<List>, &mut compile::CCtx, &mut Object) -> Ref<crate::value::iform::IForm>,
 }
 
@@ -54,7 +54,7 @@ impl NaviType for Syntax {
 impl Syntax {
 
     pub fn new<T: Into<String>>(name: T, require: usize, optional: usize, has_rest: bool
-        , body: fn(&Reachable<list::List>, &mut Object) -> Ref<Value>
+        , body: fn(&Reachable<list::List>, &mut Object) -> Ref<Any>
         , translate_body: fn(&Reachable<list::List>, &mut crate::compile::CCtx, &mut Object) -> Ref<iform::IForm>,
     ) -> Self {
         Syntax {
@@ -82,7 +82,7 @@ impl Syntax {
         }
     }
 
-    pub fn apply(&self, args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+    pub fn apply(&self, args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
         (self.body)(&args, obj)
     }
 
@@ -112,7 +112,7 @@ impl Debug for Syntax {
     }
 }
 
-fn syntax_if(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+fn syntax_if(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
     let pred = cap_eval!(args.as_ref().head(), obj);
     let pred = is_true(pred.as_ref());
 
@@ -130,12 +130,12 @@ fn syntax_if(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     }
 }
 
-fn syntax_begin(args: &Reachable<List>, obj: &mut Object) -> Ref<Value> {
+fn syntax_begin(args: &Reachable<List>, obj: &mut Object) -> Ref<Any> {
     do_begin(args, obj)
 }
 
-pub(crate) fn do_begin(body: &Reachable<List>, obj: &mut Object) -> Ref<Value> {
-    let mut last: Option<Ref<Value>> = None;
+pub(crate) fn do_begin(body: &Reachable<List>, obj: &mut Object) -> Ref<Any> {
+    let mut last: Option<Ref<Any>> = None;
     for sexp in body.iter(obj) {
         //ここのFPtrはあえてCaptureしない
         //beginは最後に評価した式の結果だけを返せばいいので、
@@ -151,7 +151,7 @@ pub(crate) fn do_begin(body: &Reachable<List>, obj: &mut Object) -> Ref<Value> {
     }
 }
 
-fn syntax_cond(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+fn syntax_cond(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
     for (sexp, info) in args.iter_with_info(obj) {
         let sexp = sexp.reach(obj);
 
@@ -183,7 +183,7 @@ fn syntax_cond(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     bool::Bool::false_().into_ref().into_value()
 }
 
-fn syntax_def_recv(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+fn syntax_def_recv(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
     if obj.context().is_toplevel() {
         let pat = args.as_ref().head().reach(obj);
         let body = args.as_ref().tail().reach(obj);
@@ -198,7 +198,7 @@ fn syntax_def_recv(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value>
     }
 }
 
-pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
     let params = args.as_ref().head();
     if let Some(params) = params.try_cast::<list::List>() {
         let params = params.clone().reach(obj);
@@ -228,9 +228,9 @@ pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> Ref<
     }
 }
 
-fn syntax_local(args: &Reachable<List>, obj: &mut Object) -> Ref<Value> {
+fn syntax_local(args: &Reachable<List>, obj: &mut Object) -> Ref<Any> {
     //空のフレームを追加
-    let frame: Vec<(&Symbol, &Value)> = Vec::new();
+    let frame: Vec<(&Symbol, &Any)> = Vec::new();
     ////ローカルフレームを環境にプッシュ
     obj.context().push_local_frame(&frame);
 
@@ -242,7 +242,7 @@ fn syntax_local(args: &Reachable<List>, obj: &mut Object) -> Ref<Value> {
     result
 }
 
-fn syntax_let(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+fn syntax_let(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
     let symbol = args.as_ref().head().reach(obj);
     if let Some(symbol) = symbol.try_cast::<Symbol>() {
         let value = args.as_ref().tail().as_ref().head().reach(obj);
@@ -258,21 +258,21 @@ fn syntax_let(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     }
 }
 
-fn syntax_quote(args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
+fn syntax_quote(args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Any> {
     let sexp = args.as_ref().head();
     sexp
 }
 
-fn syntax_unquote(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
+fn syntax_unquote(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Any> {
     unimplemented!()
 }
 
-fn syntax_bind(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
+fn syntax_bind(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Any> {
     unimplemented!()
 }
 
-fn syntax_and(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
-    let mut last: Option<Ref<Value>> = None;
+fn syntax_and(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
+    let mut last: Option<Ref<Any>> = None;
     for sexp in args.iter(obj) {
         let result = cap_eval!(sexp, obj);
         if is_true(result.as_ref()) == false {
@@ -289,7 +289,7 @@ fn syntax_and(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     }
 }
 
-fn syntax_or(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+fn syntax_or(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
     for sexp in args.iter(obj) {
         let result = cap_eval!(sexp, obj);
         if is_true(result.as_ref()) {
@@ -300,7 +300,7 @@ fn syntax_or(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     bool::Bool::false_().into_ref().into_value()
 }
 
-fn syntax_match(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+fn syntax_match(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Any> {
     //パターン部が一つもなければUnitを返す
     if args.as_ref().is_nil() {
         tuple::Tuple::unit().into_ref().into_value()
@@ -310,11 +310,11 @@ fn syntax_match(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     }
 }
 
-fn syntax_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
+fn syntax_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Any> {
     unimplemented!()
 }
 
-fn syntax_return_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
+fn syntax_return_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Any> {
     unimplemented!()
 }
 

@@ -60,7 +60,7 @@ impl ObjectRef {
         Arc::clone(&self.mailbox)
     }
 
-    pub fn recv_message(&self, msg: &Reachable<Value>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
+    pub fn recv_message(&self, msg: &Reachable<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
         let mut mailbox = self.mailbox.lock().unwrap();
         mailbox.recv_message(msg, reply_to_mailbox)
     }
@@ -93,7 +93,7 @@ impl Debug for ObjectRef {
     }
 }
 
-fn func_spawn(obj: &mut Object) -> Ref<Value> {
+fn func_spawn(obj: &mut Object) -> Ref<Any> {
     let standalone = object::new_object();
 
     let id = standalone.object().id();
@@ -105,9 +105,9 @@ fn func_spawn(obj: &mut Object) -> Ref<Value> {
     ObjectRef::alloc(id, mailbox, obj).into_value()
 }
 
-fn func_send(obj: &mut Object) -> Ref<Value> {
+fn func_send(obj: &mut Object) -> Ref<Any> {
     let target_obj = vm::refer_arg::<ObjectRef>(0, obj).reach(obj);
-    let message = vm::refer_arg::<Value>(1, obj).reach(obj);
+    let message = vm::refer_arg::<Any>(1, obj).reach(obj);
 
     obj.send_message(&target_obj, &message)
 }
@@ -124,7 +124,7 @@ static FUNC_SEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("send", &[
             Param::new("object", ParamKind::Require, ObjectRef::typeinfo()),
-            Param::new("message", ParamKind::Require, Value::typeinfo()),
+            Param::new("message", ParamKind::Require, Any::typeinfo()),
             ],
             func_send)
     )
@@ -159,7 +159,7 @@ mod tests {
         result.unwrap().clone()
     }
 
-    fn get_reply_value(reply: &mut Cap<reply::Reply>, obj: &mut Object) -> Ref<Value> {
+    fn get_reply_value(reply: &mut Cap<reply::Reply>, obj: &mut Object) -> Ref<Any> {
         loop {
             if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
                 return result
@@ -181,16 +181,16 @@ mod tests {
             standalone = object::object_switch(standalone, new_obj_ref.as_ref());
 
             let program = "(def-recv 1 10)";
-            eval::<Value>(program, standalone.mut_object());
+            eval::<Any>(program, standalone.mut_object());
 
             let program = "(def-recv 2 20)";
-            eval::<Value>(program, standalone.mut_object());
+            eval::<Any>(program, standalone.mut_object());
 
             let program = "(def-recv 3 30)";
-            eval::<Value>(program, standalone.mut_object());
+            eval::<Any>(program, standalone.mut_object());
 
             let program = "(def-recv (@a @b) (+ a b))";
-            eval::<Value>(program, standalone.mut_object());
+            eval::<Any>(program, standalone.mut_object());
 
             //操作対象のオブジェクトを最初のオブジェクトに戻す
             standalone = object::return_object_switch(standalone).unwrap();
@@ -205,7 +205,7 @@ mod tests {
 
             //sendの戻り値はReply型
             let program = "(let a (send obj 2))";
-            let ans = eval::<Value>(program, standalone.mut_object());
+            let ans = eval::<Any>(program, standalone.mut_object());
             assert!( ans.is::<reply::Reply>());
 
             //forceに通すことでReplyの値を強制的に取得できる
@@ -236,7 +236,7 @@ mod tests {
 
             //値の取得もReplyのまま
             let program = "(list-ref l 0)";
-            let ans = eval::<Value>(program, standalone.mut_object());
+            let ans = eval::<Any>(program, standalone.mut_object());
             assert!(ans.as_ref().is::<reply::Reply>());
 
             let program = "(force (list-ref l 0))";
@@ -251,10 +251,10 @@ mod tests {
         {
             //配列はReply型の値をそのまま受け取る
             let program = "(let a [(send obj 1) (send obj 2)])";
-            eval::<Value>(program, standalone.mut_object());
+            eval::<Any>(program, standalone.mut_object());
 
             let program = "(array-ref a 0)";
-            let ans = eval::<Value>(program, standalone.mut_object());
+            let ans = eval::<Any>(program, standalone.mut_object());
             assert!(ans.as_ref().is::<reply::Reply>());
 
             let program = "(force (array-ref a 1))";
@@ -265,10 +265,10 @@ mod tests {
         {
             //タプルはReply型の値をそのまま受け取る
             let program = "(let t {(send obj 1) (send obj 2)})";
-            eval::<Value>(program, standalone.mut_object());
+            eval::<Any>(program, standalone.mut_object());
 
             let program = "(tuple-ref t 0)";
-            let ans = eval::<Value>(program, standalone.mut_object());
+            let ans = eval::<Any>(program, standalone.mut_object());
             assert!(ans.as_ref().is::<reply::Reply>());
 
             let program = "(force (tuple-ref t 1))";

@@ -2,6 +2,7 @@ use crate::cap_append;
 use crate::object::Object;
 use crate::value::*;
 use crate::ptr::*;
+use crate::value::any::Any;
 use crate::value::array::ArrayBuilder;
 use crate::value::list::ListBuilder;
 use crate::vm;
@@ -16,7 +17,7 @@ macro_rules! cap_eval {
     };
 }
 
-pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> Ref<Value> {
+pub fn eval(sexp: &Reachable<Any>, obj: &mut Object) -> Ref<Any> {
     if let Some(code) = sexp.try_cast::<compiled::Code>() {
         vm::code_execute(code, vm::WorkTimeLimit::Inf, obj).unwrap()
 
@@ -86,8 +87,8 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> Ref<Value> {
             panic!("{:?} is not found", symbol.as_ref())
         }
 
-    } else if let Some(ary) = sexp.try_cast::<array::Array<Value>>() {
-        let mut builder = ArrayBuilder::<Value>::new(ary.as_ref().len(), obj);
+    } else if let Some(ary) = sexp.try_cast::<array::Array<Any>>() {
+        let mut builder = ArrayBuilder::<Any>::new(ary.as_ref().len(), obj);
         for sexp in ary.iter() {
             let v = cap_eval!(sexp, obj);
             builder.push(&v, obj)
@@ -100,7 +101,7 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> Ref<Value> {
             tuple::Tuple::unit().into_ref().into_value()
 
         } else {
-            let mut builder = ArrayBuilder::<Value>::new(len, obj);
+            let mut builder = ArrayBuilder::<Any>::new(len, obj);
             for index in 0..len {
                 let sexp = tuple.as_ref().get(index).reach(obj);
                 let v = eval(&sexp, obj);
@@ -119,6 +120,7 @@ mod tests {
     use crate::object::Object;
     use crate::read::*;
     use crate::value::*;
+    use crate::value::any::Any;
     use crate::ptr::*;
 
     fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
@@ -380,65 +382,65 @@ mod tests {
 
         {
             let program = "(match 1 (2 2) (3 3) (4 4) (1 1))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(1, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match 1 (2 2))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = bool::Bool::false_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(match '((1 2) 3) (((4 5) 6) 1) (((7 8) 9) 2) ((10 (11 12)) 3) (((1 2) 3) 4))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(4, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match {{1 2} 3} ({{4 5} 6} 1) ({{1 2} 3} 2) ({10 {11 12}} 3))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(2, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match [[1 2] 3] ([4 [5 6]] 1) ([[7 8] 9] 2) ([1 [2 3]] 3))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = bool::Bool::false_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(match {{1 2} [3 '(4 5)]} ({{4 5} 6} 1) ((10 (11 12)) 2) ({{1 2} 3 (4 5)} 3) ({{1 2} [3 (4 5)]} 4))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(4, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(match {1 2 3} ({1 3 2} 1) ({1 2 3} 2))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(2, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(match 1 (@x x))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(1, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match 1 (@x x) (@a (+ a a)))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(1, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match {1 2} ({@a @b} (+ a b)))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(3, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match {1 '(2 3) [4 '(5)]} ({@a @_ [@b @_]} (+ a b)))";
-            let result = eval::<Value>(program, obj).capture(obj);
+            let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::Integer::alloc(5, ans_obj).into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }

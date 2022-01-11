@@ -8,7 +8,7 @@ use crate::{util::non_null_const::NonNullConst};
 
 use super::array::Array;
 use super::symbol::Symbol;
-use super::{TypeInfo, NaviType, Value};
+use super::{TypeInfo, NaviType, Any};
 
 
 static IFORM_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -45,10 +45,10 @@ impl NaviType for IForm {
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
-        let value: &Value = self.cast_value();
+        let value: &Any = self.cast_value();
 
         //IFormはインスタンス化されることがない型なので、自分自身に対してValue::clone_innerを無限ループにはならない。
-        let cloned = Value::clone_inner(value, allocator);
+        let cloned = Any::clone_inner(value, allocator);
         unsafe { cloned.cast_unchecked::<IForm>() }.clone()
     }
 }
@@ -96,7 +96,7 @@ impl IForm {
         unreachable!()
     }
 
-    fn cast_value(&self) -> &Value {
+    fn cast_value(&self) -> &Any {
         //任意のNaviTypeの参照からValueへの参照への変換は安全なので無理やりキャスト
         unsafe { std::mem::transmute(self) }
     }
@@ -401,7 +401,7 @@ impl IFormLet {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.symbol.cast_mut_value(), arg);
         callback(self.val.cast_mut_value(), arg);
     }
@@ -480,7 +480,7 @@ impl IFormIf {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.test.cast_mut_value(), arg);
         callback(self.then.cast_mut_value(), arg);
         callback(self.else_.cast_mut_value(), arg);
@@ -563,7 +563,7 @@ impl IFormLocal {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.body.cast_mut_value(), arg);
     }
 
@@ -632,7 +632,7 @@ impl IFormLRef {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.symbol.cast_mut_value(), arg);
     }
 
@@ -701,7 +701,7 @@ impl IFormGRef {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.symbol.cast_mut_value(), arg);
     }
 
@@ -772,7 +772,7 @@ impl IFormFun {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.params.cast_mut_value(), arg);
         callback(self.body.cast_mut_value(), arg);
     }
@@ -851,7 +851,7 @@ impl IFormSeq {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.body.cast_mut_value(), arg);
     }
 
@@ -922,7 +922,7 @@ impl IFormCall {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.app.cast_mut_value(), arg);
         callback(self.args.cast_mut_value(), arg);
     }
@@ -977,7 +977,7 @@ impl Debug for IFormCall {
 impl AsIForm for IFormCall {}
 
 pub struct IFormConst {
-    value: Ref<Value>,
+    value: Ref<Any>,
 }
 
 impl NaviType for IFormConst {
@@ -988,7 +988,7 @@ impl NaviType for IFormConst {
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let value = Value::clone_inner(self.value.as_ref(), allocator).into_reachable();
+            let value = Any::clone_inner(self.value.as_ref(), allocator).into_reachable();
 
             Self::alloc(&value, allocator)
         }
@@ -1001,11 +1001,11 @@ impl IFormConst {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.value.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Value>, allocator: &mut A) -> Ref<Self> {
+    pub fn alloc<A: Allocator>(v: &Reachable<Any>, allocator: &mut A) -> Ref<Self> {
         let ptr = allocator.alloc::<IFormConst>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormConst {
@@ -1016,7 +1016,7 @@ impl IFormConst {
         ptr.into_ref()
     }
 
-    pub fn value(&self) -> Ref<Value> {
+    pub fn value(&self) -> Ref<Any> {
         self.value.clone()
     }
 
@@ -1078,7 +1078,7 @@ impl IFormAndOr {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.exprs.cast_mut_value(), arg);
     }
 
@@ -1165,7 +1165,7 @@ impl IFormContainer {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.exprs.cast_mut_value(), arg);
     }
 
@@ -1219,7 +1219,7 @@ impl Debug for IFormContainer {
 impl AsIForm for IFormContainer {}
 
 pub struct IFormDefRecv {
-    pattern: Ref<Value>,
+    pattern: Ref<Any>,
     body: Ref<super::list::List>,
 }
 
@@ -1231,7 +1231,7 @@ impl NaviType for IFormDefRecv {
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let pattern = Value::clone_inner(self.pattern.as_ref(), allocator).into_reachable();
+            let pattern = Any::clone_inner(self.pattern.as_ref(), allocator).into_reachable();
             let body = super::list::List::clone_inner(self.body.as_ref(), allocator).into_reachable();
 
             Self::alloc(&pattern, &body, allocator)
@@ -1245,12 +1245,12 @@ impl IFormDefRecv {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.pattern.cast_mut_value(), arg);
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(pattern: &Reachable<Value>, body: &Reachable<super::list::List>, allocator: &mut A) -> Ref<Self> {
+    pub fn alloc<A: Allocator>(pattern: &Reachable<Any>, body: &Reachable<super::list::List>, allocator: &mut A) -> Ref<Self> {
         let ptr = allocator.alloc::<IFormDefRecv>();
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormDefRecv {
@@ -1262,7 +1262,7 @@ impl IFormDefRecv {
         ptr.into_ref()
     }
 
-    pub fn pattern(&self) -> Ref<Value> {
+    pub fn pattern(&self) -> Ref<Any> {
         self.pattern.clone()
     }
 
@@ -1324,7 +1324,7 @@ impl IFormObjectSwitch {
         || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         if let Some(obj) = self.target_obj.as_mut() {
             callback(obj.cast_mut_value(), arg);
         }

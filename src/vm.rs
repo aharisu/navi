@@ -13,6 +13,7 @@ use crate::ptr::Reachable;
 
 use crate::object::Object;
 use crate::value::*;
+use crate::value::any::Any;
 use crate::ptr::*;
 
 pub mod tag {
@@ -104,7 +105,7 @@ impl Drop for VMStack {
     }
 }
 
-pub fn is_true(v: &Value) -> bool {
+pub fn is_true(v: &Any) -> bool {
     //predの結果がfalse値の場合だけ、falseとして扱う。それ以外の値はすべてtrue
     if let Some(v) = v.try_cast::<bool::Bool>() {
         v.is_true()
@@ -138,11 +139,11 @@ pub fn refer_arg<T: NaviType>(index: usize, obj: &mut Object) -> Ref<T> {
     unsafe { v.cast_unchecked::<T>().clone() }
 }
 
-fn refer_local_var(env: *const Environment, index: usize) -> Ref<Value> {
+fn refer_local_var(env: *const Environment, index: usize) -> Ref<Any> {
     //目的の環境内にあるローカルフレームから値を取得
     unsafe {
         //ローカルフレームは環境ヘッダの後ろ側にある
-        let frame_ptr = env.add(1) as *mut Ref<Value>;
+        let frame_ptr = env.add(1) as *mut Ref<Any>;
         let cell = frame_ptr.add(index as usize);
         (*cell).clone()
     }
@@ -153,7 +154,7 @@ pub struct VMState {
     reductions: usize,
     code: Ref<compiled::Code>,
     suspend_pc: usize, //途中終了時のプログラムカウンタ
-    acc: Ref<Value>,
+    acc: Ref<Any>,
     stack: VMStack,
     cont: *mut Continuation,
     env: *mut Environment,
@@ -179,7 +180,7 @@ impl VMState {
         self.reductions
     }
 
-    pub fn for_each_all_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
+    pub fn for_each_all_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         if self.code.raw_ptr().is_null() == false {
             callback(self.code.cast_mut_value(), arg);
         }
@@ -207,7 +208,7 @@ impl VMState {
                     let len = (*env).size;
 
                     //ローカルフレームは環境ヘッダの後ろ側にある
-                    let frame_ptr = env.add(1) as *mut Ref<Value>;
+                    let frame_ptr = env.add(1) as *mut Ref<Any>;
                     for index in 0 .. len {
                         let cell = frame_ptr.add(index as usize);
                         let v = &mut *cell;
@@ -227,18 +228,18 @@ pub enum WorkTimeLimit {
     Reductions(usize),
 }
 
-pub fn func_call(func: &Reachable<func::Func>, args_iter: impl Iterator<Item=Ref<Value>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Value>, ExecError> {
+pub fn func_call(func: &Reachable<func::Func>, args_iter: impl Iterator<Item=Ref<Any>>
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
     app_call(func.cast_value(), args_iter, limit, obj)
 }
 
-pub fn closure_call(closure: &Reachable<compiled::Closure>, args_iter: impl Iterator<Item=Ref<Value>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Value>, ExecError> {
+pub fn closure_call(closure: &Reachable<compiled::Closure>, args_iter: impl Iterator<Item=Ref<Any>>
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
     app_call(closure.cast_value(), args_iter, limit, obj)
 }
 
-fn app_call(app: &Reachable<Value>, args_iter: impl Iterator<Item=Ref<Value>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Value>, ExecError> {
+fn app_call(app: &Reachable<Any>, args_iter: impl Iterator<Item=Ref<Any>>
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
     //ContinuationとEnvironmentのフレームをプッシュ
     {
         let mut buf: Vec<u8> = Vec::with_capacity(3);
@@ -299,7 +300,7 @@ fn app_call(app: &Reachable<Value>, args_iter: impl Iterator<Item=Ref<Value>>
     }
 }
 
-pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Value>, ExecError> {
+pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
     //実行対象のコードを設定
     obj.vm_state().code = code.make();
     obj.vm_state().suspend_pc = 0;
@@ -341,12 +342,12 @@ pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj:
     }
 }
 
-pub fn resume(reductions: usize, obj: &mut Object) -> Result<Ref<Value>, ExecError> {
+pub fn resume(reductions: usize, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
     obj.vm_state().reductions = reductions;
     execute(obj)
 }
 
-fn execute(obj: &mut Object) -> Result<Ref<Value>, ExecError> {
+fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
     let mut program = Cursor::new(obj.vm_state().code.as_ref().program());
     program.seek(SeekFrom::Start(obj.vm_state().suspend_pc as u64)).unwrap();
 
@@ -489,7 +490,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Value>, ExecError> {
             tag::CONST_STATIC
             | tag::CONST_IMMIDIATE => {
                 let data = read_usize(&mut program);
-                let ptr = usize_to_ptr::<Value>(data);
+                let ptr = usize_to_ptr::<Any>(data);
                 obj.vm_state().acc = ptr.into();
             }
             tag::PUSH_ARG => {
@@ -514,7 +515,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Value>, ExecError> {
                         // reply check
                         if param.force && arg.has_replytype() {
                             //スタック領域内のFPtrをCapとして扱わせる
-                            let mut cap = Cap::new(&mut arg as *mut Ref<Value>);
+                            let mut cap = Cap::new(&mut arg as *mut Ref<Any>);
                             //返信がないかを確認
                             let ok = crate::value::check_reply(&mut cap, obj);
                             //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
@@ -619,7 +620,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Value>, ExecError> {
                 unsafe {
                     let local_frame_size = (*obj.vm_state().env).size;
                     //Envヘッダーとローカル変数のサイズ分、スタックポインタを下げる
-                    let size = size_of::<Environment>() + (size_of::<Ref<Value>>() * local_frame_size);
+                    let size = size_of::<Environment>() + (size_of::<Ref<Any>>() * local_frame_size);
                     pop_from_size(&mut obj.vm_state().stack, size);
 
                     //現在のenvポインタを一つ上の環境に差し替える
@@ -734,7 +735,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Value>, ExecError> {
                                 //リストに詰め込んだ分、ローカルフレーム内の引数を削除
                             unsafe { (*env).size -= num_args_remain; }
                             //併せてスタックポインタも下げる
-                            pop_from_size(&mut obj.vm_state().stack, num_args_remain * size_of::<Ref<Value>>());
+                            pop_from_size(&mut obj.vm_state().stack, num_args_remain * size_of::<Ref<Any>>());
 
                             //削除した代わりに、リストをローカルフレームに追加
                             let_local!(rest.get());
@@ -754,7 +755,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Value>, ExecError> {
 
                 } else if let Some(closure) = app.try_cast::<closure::Closure>() {
                     let size = unsafe { (*obj.vm_state().env).size } - 1;
-                    let mut builder = array::ArrayBuilder::<Value>::new(size, obj);
+                    let mut builder = array::ArrayBuilder::<Any>::new(size, obj);
                     for index in 0..size {
                         builder.push(&refer_local_var(obj.vm_state().env, index), obj);
                     }
@@ -830,7 +831,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Value>, ExecError> {
                 complete_arg!();
 
                 let size = unsafe { (*obj.vm_state().env).size };
-                let mut builder = array::ArrayBuilder::<Value>::new(size, obj);
+                let mut builder = array::ArrayBuilder::<Any>::new(size, obj);
                 for index in 0..size {
                     let arg = refer_local_var(obj.vm_state().env, index);
                     builder.push(&arg, obj);

@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 
 use crate::value::*;
+use crate::value::any::Any;
 use crate::ptr::*;
 
 use super::{Object, Allocator, AnyAllocator};
@@ -22,18 +23,18 @@ impl ReplyToken {
 }
 
 pub struct MessageData {
-    pub message: Ref<Value>,
+    pub message: Ref<Any>,
     pub reply_to_mailbox: Arc<Mutex<MailBox>>,
     pub reply_token: ReplyToken,
 }
 
 struct MailBoxGCRootValues {
     pub inbox: Vec<MessageData>,
-    pub result_box: Vec<(ReplyToken, Ref<Value>)>,
+    pub result_box: Vec<(ReplyToken, Ref<Any>)>,
 }
 
 impl mm::GCRootValueHolder for MailBoxGCRootValues {
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
+    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         self.inbox.iter_mut().for_each(|data| callback(&mut data.message, arg));
         self.result_box.iter_mut().for_each(|(_, result)| callback(result, arg));
     }
@@ -80,7 +81,7 @@ impl MailBox {
         }
     }
 
-    pub fn recv_message(&mut self, msg: &Reachable<Value>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
+    pub fn recv_message(&mut self, msg: &Reachable<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
         //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
         let mut allocator = AnyAllocator::MailBox(self);
         let msg = crate::value::value_clone(msg, &mut allocator);
@@ -104,7 +105,7 @@ impl MailBox {
         self.values.inbox.pop()
     }
 
-    pub fn recv_reply(&mut self, result: &Reachable<Value>, reply_token: ReplyToken) {
+    pub fn recv_reply(&mut self, result: &Reachable<Any>, reply_token: ReplyToken) {
         //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
         let mut allocator = AnyAllocator::MailBox(self);
         let result = crate::value::value_clone(result, &mut allocator);
@@ -112,7 +113,7 @@ impl MailBox {
         self.values.result_box.push((reply_token, result));
     }
 
-    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<Ref<Value>> {
+    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<Ref<Any>> {
         self.values.result_box.iter().position(|(token, _)| reply_token == *token)
             .map(|index| {
                 let (_, result) = self.values.result_box.swap_remove(index);

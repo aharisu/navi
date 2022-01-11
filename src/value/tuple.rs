@@ -38,7 +38,7 @@ impl NaviType for Tuple {
             for index in 0..size {
                 let child = self.get_inner(index);
                 //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
-                let cloned = Value::clone_inner(child.as_ref(), allocator);
+                let cloned = Any::clone_inner(child.as_ref(), allocator);
 
                 tuple.as_mut().set_uncheck(cloned.raw_ptr(), index);
             }
@@ -52,14 +52,14 @@ impl NaviType for Tuple {
 impl Tuple {
     fn size_of(&self) -> usize {
         std::mem::size_of::<Tuple>()
-            + self.len * std::mem::size_of::<Ref<Value>>()
+            + self.len * std::mem::size_of::<Ref<Any>>()
     }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&TUPLE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         for index in 0..self.len {
             callback(self.get_inner(index), arg);
         }
@@ -101,7 +101,7 @@ impl Tuple {
     }
 
     fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> Ref<Tuple> {
-        let ptr = allocator.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<Ref<Value>>());
+        let ptr = allocator.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<Ref<Any>>());
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Tuple {len: size});
@@ -110,7 +110,7 @@ impl Tuple {
         ptr.into_ref()
     }
 
-    fn set_uncheck(&mut self, v: *mut Value, index: usize) {
+    fn set_uncheck(&mut self, v: *mut Any, index: usize) {
         if self.len() <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -120,7 +120,7 @@ impl Tuple {
             //ポインタをTuple構造体の後ろに移す
             let ptr = ptr.add(1);
             //Tuple構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut Ref<Value>;
+            let storage_ptr = ptr as *mut Ref<Any>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
@@ -128,11 +128,11 @@ impl Tuple {
         };
     }
 
-    pub fn get(&self, index: usize) -> Ref<Value> {
+    pub fn get(&self, index: usize) -> Ref<Any> {
         self.get_inner(index).clone()
     }
 
-    fn get_inner<'a>(&'a self, index: usize) -> &'a mut Ref<Value> {
+    fn get_inner<'a>(&'a self, index: usize) -> &'a mut Ref<Any> {
         if self.len() <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -142,7 +142,7 @@ impl Tuple {
             //ポインタをTuple構造体の後ろに移す
             let ptr = ptr.add(1);
             //Tuple構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut Ref<Value>;
+            let storage_ptr = ptr as *mut Ref<Any>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
 
@@ -158,7 +158,7 @@ impl Tuple {
         }
     }
 
-    pub fn from_array(ary: &Reachable<array::Array<Value>>, obj: &mut Object) -> Ref<Tuple> {
+    pub fn from_array(ary: &Reachable<array::Array<Any>>, obj: &mut Object) -> Ref<Tuple> {
         let len = ary.as_ref().len();
 
         if len == 0 {
@@ -207,7 +207,7 @@ impl Tuple {
 
 impl Ref<Tuple> {
 
-    fn set<V: ValueHolder<Value>>(&mut self, v: &V, index: usize) {
+    fn set<V: ValueHolder<Any>>(&mut self, v: &V, index: usize) {
         self.as_mut().set_uncheck(v.raw_ptr(), index);
         if v.has_replytype() {
             value::set_has_replytype_flag(self);
@@ -281,7 +281,7 @@ impl TupleBuilder {
         }
     }
 
-    pub fn push<V: ValueHolder<Value>>(&mut self, v: &V, _obj: &mut Object) {
+    pub fn push<V: ValueHolder<Any>>(&mut self, v: &V, _obj: &mut Object) {
         self.tuple.mut_refer().set(v, self.index);
         self.index += 1;
     }
@@ -291,8 +291,8 @@ impl TupleBuilder {
     }
 }
 
-fn func_is_tuple(obj: &mut Object) -> Ref<Value> {
-    let v = vm::refer_arg::<Value>(0, obj);
+fn func_is_tuple(obj: &mut Object) -> Ref<Any> {
+    let v = vm::refer_arg::<Any>(0, obj);
     if v.is_type(tuple::Tuple::typeinfo()) {
         v.clone()
     } else {
@@ -300,13 +300,13 @@ fn func_is_tuple(obj: &mut Object) -> Ref<Value> {
     }
 }
 
-fn func_tuple_len(obj: &mut Object) -> Ref<Value> {
+fn func_tuple_len(obj: &mut Object) -> Ref<Any> {
     let v = vm::refer_arg::<tuple::Tuple>(0, obj);
 
     number::Integer::alloc(v.as_ref().len as i64, obj).into_value()
 }
 
-fn func_tuple_ref(obj: &mut Object) -> Ref<Value> {
+fn func_tuple_ref(obj: &mut Object) -> Ref<Any> {
     let tuple = vm::refer_arg::<tuple::Tuple>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj);
 
@@ -318,7 +318,7 @@ static FUNC_IS_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("tuple?",
             &[
-            Param::new_no_force("x", ParamKind::Require, Value::typeinfo()),
+            Param::new_no_force("x", ParamKind::Require, Any::typeinfo()),
             ],
             func_is_tuple)
     )

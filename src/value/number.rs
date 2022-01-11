@@ -247,7 +247,7 @@ enum Num {
     Real(f64),
 }
 
-fn number_to(v: &Value) -> Num {
+fn number_to(v: &Any) -> Num {
     if let Some(integer) = v.try_cast::<Integer>() {
         Num::Int(integer.num)
     } else {
@@ -256,8 +256,8 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(obj: &mut Object) -> Ref<Value> {
-    let v = vm::refer_arg::<Value>(0, obj);
+fn func_add(obj: &mut Object) -> Ref<Any> {
+    let v = vm::refer_arg::<Any>(0, obj);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
         Num::Int(num) => (Some(num), None),
@@ -293,7 +293,7 @@ fn func_add(obj: &mut Object) -> Ref<Value> {
     }
 }
 
-fn func_abs(obj: &mut Object) -> Ref<Value> {
+fn func_abs(obj: &mut Object) -> Ref<Any> {
     let v = vm::refer_arg(0, obj);
 
     match number_to(v.as_ref()) {

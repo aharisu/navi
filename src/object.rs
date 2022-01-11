@@ -17,6 +17,7 @@ use once_cell::sync::Lazy;
 use crate::value::*;
 use crate::ptr::*;
 
+use crate::value::any::Any;
 use crate::value::list::ListBuilder;
 use crate::value::object_ref::ObjectRef;
 use crate::vm::{self, VMState};
@@ -96,14 +97,14 @@ struct ObjectGCRootValues {
     ctx: Context,
     vm_state: VMState,
 
-    captures: FixedSizeAllocator<Ref<Value>>,
+    captures: FixedSizeAllocator<Ref<Any>>,
 
-    receiver_vec: Vec<(Ref<Value>, Ref<list::List>)>,
+    receiver_vec: Vec<(Ref<Any>, Ref<list::List>)>,
     receiver_closure: Option<Ref<compiled::Closure>>,
 }
 
 impl mm::GCRootValueHolder for ObjectGCRootValues {
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
+    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         self.ctx.for_each_all_alived_value(arg, callback);
         self.vm_state.for_each_all_alived_value(arg, callback);
 
@@ -112,7 +113,7 @@ impl mm::GCRootValueHolder for ObjectGCRootValues {
         }
 
         //グローバルスペース内で保持している値
-        self.world.for_each_all_value(|v :&mut Ref<Value>| {
+        self.world.for_each_all_value(|v :&mut Ref<Any>| {
             callback(v, arg);
         });
 
@@ -249,7 +250,7 @@ impl Object {
         }
     }
 
-    pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: &Reachable<Value>) -> Ref<Value> {
+    pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: &Reachable<Any>) -> Ref<Any> {
         if let Some(mailbox) = self.mailbox.upgrade() {
             //戻り値を受け取るために自分自身のメールボックスをメッセージ送信相手に渡す
             let reply_token = target_obj.as_ref().recv_message(message, mailbox);
@@ -265,7 +266,7 @@ impl Object {
         }
     }
 
-    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<Ref<Value>> {
+    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<Ref<Any>> {
         if let Some(mailbox) = self.mailbox.upgrade() {
             let mut mailbox = mailbox.lock().unwrap();
             mailbox.check_reply(reply_token)
@@ -285,7 +286,7 @@ impl Object {
         }
     }
 
-    pub fn add_receiver(&mut self, pattern: &Reachable<Value>, body: &Reachable<list::List>) {
+    pub fn add_receiver(&mut self, pattern: &Reachable<Any>, body: &Reachable<list::List>) {
         //コンテキストが持つレシーバーリストに追加する
         self.values.receiver_vec.push((pattern.make(), body.make()));
         //レシーブを実際に行う処理は遅延して構築する。
@@ -392,7 +393,7 @@ impl Object {
         obj.apply_message_finish(result, data.reply_to_mailbox, data.reply_token);
     }
 
-    fn apply_message_finish(&mut self, result: Result<Ref<Value>, vm::ExecError>
+    fn apply_message_finish(&mut self, result: Result<Ref<Any>, vm::ExecError>
         , reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) {
 
         match result {
@@ -440,7 +441,7 @@ impl Object {
         &mut self.values.vm_state
     }
 
-    pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<Ref<Value>> {
+    pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<Ref<Any>> {
         //ローカルフレーム上になければ、グローバルスペースから探す
         if let Some(v) = self.values.world.get(symbol) {
             Some(v.clone())
@@ -457,7 +458,7 @@ impl Object {
         object_ref::register_global(self);
         number::register_global(self);
         syntax::register_global(self);
-        crate::value::register_global(self);
+        any::register_global(self);
         tuple::register_global(self);
         array::register_global(self);
         list::register_global(self);
@@ -479,7 +480,7 @@ impl Object {
     pub(crate) fn release_capture<T: NaviType>(cap: &Cap<T>) {
         unsafe {
             let ptr = cap.cast_value().ptr();
-            FixedSizeAllocator::<Ref<Value>>::free(ptr);
+            FixedSizeAllocator::<Ref<Any>>::free(ptr);
         }
     }
 

@@ -5,7 +5,8 @@ use std::ptr::NonNull;
 use crate::object::Object;
 use crate::object::mm::usize_to_ptr;
 use crate::util::non_null_const::NonNullConst;
-use crate::value::{NaviType, Value, TypeInfo};
+use crate::value::{NaviType, TypeInfo};
+use crate::value::any::Any;
 
 //
 //
@@ -70,15 +71,15 @@ impl <T: NaviType> Ref<T> {
         self.capture(obj).into_reachable()
     }
 
-    pub fn cast_value(&self) -> &Ref<Value> {
+    pub fn cast_value(&self) -> &Ref<Any> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn cast_mut_value(&mut self) -> &mut Ref<Value> {
+    pub fn cast_mut_value(&mut self) -> &mut Ref<Any> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn into_value(self) -> Ref<Value> {
+    pub fn into_value(self) -> Ref<Any> {
         self.cast_value().clone()
     }
 
@@ -113,7 +114,7 @@ impl <T: NaviType> Ref<T> {
 
 }
 
-impl Ref<Value> {
+impl Ref<Any> {
     pub fn try_cast<U: NaviType>(&self) -> Option<&Ref<U>> {
         if self.as_ref().is::<U>() {
             Some( unsafe { self.cast_unchecked() } )
@@ -207,7 +208,7 @@ impl <T:NaviType> Cap<T> {
         Ref::from(self.raw_ptr()).capture(obj)
     }
 
-    pub fn cast_value(&self) -> &Cap<Value> {
+    pub fn cast_value(&self) -> &Cap<Any> {
         unsafe {
             std::mem::transmute(self)
         }
@@ -244,7 +245,7 @@ impl <T:NaviType> Cap<T> {
     }
 }
 
-impl Cap<Value> {
+impl Cap<Any> {
     pub fn try_cast<U: NaviType>(&self) -> Option<&Cap<U>> {
         if self.as_ref().is::<U>() {
             Some( unsafe { self.cast_unchecked() } )
@@ -361,24 +362,24 @@ impl <T: NaviType> Reachable<T> {
         }
     }
 
-    pub fn into_value(self) -> Reachable<Value> {
+    pub fn into_value(self) -> Reachable<Any> {
         match self {
             Self::Static(ptr) => {
-                Reachable::Static(ptr as *mut Value)
+                Reachable::Static(ptr as *mut Any)
             },
             Self::Capture(cap) => {
                 unsafe {
                     //Capが内部で持っているのはTやValueへのポインタのポインタで、
                     //T から Valueへの変換は動作に影響がないことが保証されているので無理やりtransmuteする。
                     //CapはクローンするとObjectから新しい領域をアロケートするので、オーバーヘッドを回避するためにtransmuteしている。
-                    let cap_value = std::mem::transmute::<Cap<T>, Cap<Value>>(cap);
+                    let cap_value = std::mem::transmute::<Cap<T>, Cap<Any>>(cap);
                     Reachable::Capture(cap_value)
                 }
             },
         }
     }
 
-    pub fn cast_value(&self) -> &Reachable<Value> {
+    pub fn cast_value(&self) -> &Reachable<Any> {
         unsafe {
             std::mem::transmute(self)
         }
@@ -396,7 +397,7 @@ impl <T: NaviType> Reachable<T> {
     }
 }
 
-impl Reachable<Value> {
+impl Reachable<Any> {
     pub fn try_cast<U: NaviType>(&self) -> Option<&Reachable<U>> {
         if self.as_ref().is::<U>() {
             Some( unsafe { self.cast_unchecked() } )

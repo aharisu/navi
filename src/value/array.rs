@@ -11,18 +11,18 @@ pub struct Array<T: NaviType> {
 }
 
 static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
-    Array<Value>,
+    Array<Any>,
     "Array",
     0,
-    Some(Array::<Value>::size_of),
-    Array::<Value>::eq,
-    Array::<Value>::clone_inner,
+    Some(Array::<Any>::size_of),
+    Array::<Any>::eq,
+    Array::<Any>::clone_inner,
     Display::fmt,
-    Array::<Value>::is_type,
+    Array::<Any>::is_type,
     None,
     None,
-    Some(Array::<Value>::child_traversal),
-    Some(Array::<Value>::check_reply),
+    Some(Array::<Any>::child_traversal),
+    Some(Array::<Any>::check_reply),
 );
 
 impl <T:NaviType> NaviType for Array<T> {
@@ -38,7 +38,7 @@ impl <T:NaviType> NaviType for Array<T> {
             let child = self.get_inner(index);
             let child = child.cast_value();
             //clone_innerの文脈の中だけ、PtrをキャプチャせずにRPtrとして扱うことが許されている
-            let cloned = Value::clone_inner(child.as_ref(), allocator);
+            let cloned = Any::clone_inner(child.as_ref(), allocator);
             let cloned = unsafe { cloned.cast_unchecked::<T>() };
 
             array.as_mut().set_uncheck(cloned.raw_ptr(), index);
@@ -51,20 +51,20 @@ impl <T:NaviType> NaviType for Array<T> {
 impl <T: NaviType> Array<T> {
     fn size_of(&self) -> usize {
         std::mem::size_of::<Array<T>>()
-            + self.len * std::mem::size_of::<Ref<Value>>()
+            + self.len * std::mem::size_of::<Ref<Any>>()
     }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         for index in 0..self.len {
             callback(self.get_inner(index).cast_mut_value(), arg);
         }
     }
 
-    fn check_reply(cap: &mut Cap<Array<Value>>, obj: &mut Object) -> bool {
+    fn check_reply(cap: &mut Cap<Array<Any>>, obj: &mut Object) -> bool {
         for index in 0.. cap.as_ref().len {
             let child_v = cap.as_ref().get_inner(index);
             //子要素がReply型を持っている場合は
@@ -90,7 +90,7 @@ impl <T: NaviType> Array<T> {
     }
 
     fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> Ref<Array<T>> {
-        let ptr = allocator.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<Ref<Value>>());
+        let ptr = allocator.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<Ref<Any>>());
         unsafe {
             std::ptr::write(ptr.as_ptr(), Array { len: size, _type: PhantomData})
         }
@@ -150,8 +150,8 @@ impl <T: NaviType> Array<T> {
     }
 }
 
-impl Array<Value> {
-    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> Ref<Array<Value>> {
+impl Array<Any> {
+    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> Ref<Array<Any>> {
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
@@ -310,23 +310,23 @@ impl <T: NaviType> ArrayBuilder<T> {
     }
 }
 
-fn func_is_array(obj: &mut Object) -> Ref<Value> {
-    let v = vm::refer_arg::<Value>(0, obj);
-    if v.as_ref().is_type(array::Array::<Value>::typeinfo()) {
+fn func_is_array(obj: &mut Object) -> Ref<Any> {
+    let v = vm::refer_arg::<Any>(0, obj);
+    if v.as_ref().is_type(array::Array::<Any>::typeinfo()) {
         v.clone()
     } else {
         bool::Bool::false_().into_ref().into_value()
     }
 }
 
-fn func_array_len(obj: &mut Object) -> Ref<Value> {
-    let v = vm::refer_arg::<Array<Value>>(0, obj);
+fn func_array_len(obj: &mut Object) -> Ref<Any> {
+    let v = vm::refer_arg::<Array<Any>>(0, obj);
 
     number::Integer::alloc(v.as_ref().len() as i64, obj).into_value()
 }
 
-fn func_array_ref(obj: &mut Object) -> Ref<Value> {
-    let v = vm::refer_arg::<Array<Value>>(0, obj);
+fn func_array_ref(obj: &mut Object) -> Ref<Any> {
+    let v = vm::refer_arg::<Array<Any>>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj);
 
     let index = index.as_ref().get() as usize;
@@ -338,7 +338,7 @@ static FUNC_IS_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("array?",
             &[
-            Param::new_no_force("x", ParamKind::Require, Value::typeinfo()),
+            Param::new_no_force("x", ParamKind::Require, Any::typeinfo()),
             ],
             func_is_array)
     )
@@ -348,7 +348,7 @@ static FUNC_ARRAY_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("array-len",
             &[
-            Param::new_no_force("array", ParamKind::Require, Array::<Value>::typeinfo()),
+            Param::new_no_force("array", ParamKind::Require, Array::<Any>::typeinfo()),
             ],
             func_array_len)
     )
@@ -358,7 +358,7 @@ static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("array-ref",
             &[
-            Param::new_no_force("array", ParamKind::Require, Array::<Value>::typeinfo()),
+            Param::new_no_force("array", ParamKind::Require, Array::<Any>::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
             ],
             func_array_ref)
