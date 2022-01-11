@@ -9,7 +9,7 @@ use std::fmt::{Debug, Display};
 
 pub struct Reply {
     reply_token: ReplyToken,
-    reply_value: Option<FPtr<Value>>,
+    reply_value: Option<Ref<Value>>,
 }
 
 static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -32,7 +32,7 @@ impl NaviType for Reply {
         NonNullConst::new_unchecked(&REPLY_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
         unreachable!()
     }
 }
@@ -42,7 +42,7 @@ impl Reply {
         std::ptr::eq(&REPLY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
         match self.reply_value.as_mut() {
             Some(value) => {
                 callback(value, arg);
@@ -51,7 +51,7 @@ impl Reply {
         }
     }
 
-    pub fn try_get_reply_value(cap: &mut Cap<Reply>, obj: &mut Object) -> Option<FPtr<Value>> {
+    pub fn try_get_reply_value(cap: &mut Cap<Reply>, obj: &mut Object) -> Option<Ref<Value>> {
         if Self::check_reply(cap, obj) {
             cap.as_ref().reply_value.clone()
         } else {
@@ -79,7 +79,7 @@ impl Reply {
         unreachable!()
     }
 
-    pub fn alloc<A: Allocator>(token: ReplyToken, allocator: &mut A) -> FPtr<Reply> {
+    pub fn alloc<A: Allocator>(token: ReplyToken, allocator: &mut A) -> Ref<Reply> {
         let ptr = allocator.alloc::<Reply>();
 
         unsafe {
@@ -89,7 +89,7 @@ impl Reply {
             });
         }
 
-        let mut result = ptr.into_fptr();
+        let mut result = ptr.into_ref();
         //Reply型を持つポインタとして目印のフラグを立てる。
         crate::value::set_has_replytype_flag(&mut result);
 
@@ -121,7 +121,7 @@ impl Debug for Reply {
     }
 }
 
-fn func_force(obj: &mut Object) -> FPtr<Value> {
+fn func_force(obj: &mut Object) -> Ref<Value> {
     //関数にわたってきている時点でReplyから実際の値になっているので引数の値をそのまま返す
     vm::refer_arg::<Value>(0, obj)
 }
@@ -137,5 +137,5 @@ static FUNC_FORCE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("force", &FPtr::new(&FUNC_FORCE.value));
+    obj.define_global_value("force", &Ref::new(&FUNC_FORCE.value));
 }

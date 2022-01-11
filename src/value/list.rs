@@ -7,8 +7,8 @@ use crate::vm;
 use std::fmt::{self, Debug, Display};
 
 pub struct List {
-    v: FPtr<Value>,
-    next: FPtr<List>,
+    v: Ref<Value>,
+    next: Ref<List>,
 }
 
 static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -31,10 +31,10 @@ impl NaviType for List {
         NonNullConst::new_unchecked(&LIST_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         if self.is_nil() {
             //Nilの場合はImmidiate Valueなのでそのまま返す
-            FPtr::new(self)
+            Ref::new(self)
         } else {
             //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
             unsafe {
@@ -54,7 +54,7 @@ impl List {
         std::ptr::eq(&LIST_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
         callback(&mut self.v, arg);
         callback(self.next.cast_mut_value(), arg);
     }
@@ -99,7 +99,7 @@ impl List {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Value>, next: &Reachable<List>, allocator: &mut A) -> FPtr<List> {
+    pub fn alloc<A: Allocator>(v: &Reachable<Value>, next: &Reachable<List>, allocator: &mut A) -> Ref<List> {
         let ptr = allocator.alloc::<List>();
         unsafe {
             //確保したメモリ内に値を書き込む
@@ -109,7 +109,7 @@ impl List {
                 })
         }
 
-        let mut result = ptr.into_fptr();
+        let mut result = ptr.into_ref();
         if v.has_replytype() || next.has_replytype() {
             value::set_has_replytype_flag(&mut result);
         }
@@ -117,18 +117,18 @@ impl List {
         result
     }
 
-    pub fn alloc_tail<A: Allocator>(v: &Reachable<Value>, allocator: &mut A) -> FPtr<List> {
+    pub fn alloc_tail<A: Allocator>(v: &Reachable<Value>, allocator: &mut A) -> Ref<List> {
         let ptr = allocator.alloc::<List>();
 
         unsafe {
             //確保したメモリ内に値を書き込む
             std::ptr::write(ptr.as_ptr(), List {
                 v: v.raw_ptr().into(),
-                next: Self::nil().into_fptr(),
+                next: Self::nil().into_ref(),
                 })
         }
 
-        let mut result = ptr.into_fptr();
+        let mut result = ptr.into_ref();
         if v.has_replytype() {
             value::set_has_replytype_flag(&mut result);
         }
@@ -136,11 +136,11 @@ impl List {
         result
     }
 
-    pub fn head(&self) -> FPtr<Value> {
+    pub fn head(&self) -> Ref<Value> {
         self.v.clone()
     }
 
-    pub fn tail(&self) -> FPtr<List> {
+    pub fn tail(&self) -> Ref<List> {
         self.next.clone()
     }
 
@@ -196,7 +196,7 @@ impl List {
         count == 0 && l.is_nil()
     }
 
-    pub fn get(&self, mut index: usize) -> FPtr<Value> {
+    pub fn get(&self, mut index: usize) -> Ref<Value> {
         for v in unsafe { self.iter_gcunsafe() } {
             if index == 0 {
                 return v;
@@ -210,7 +210,7 @@ impl List {
 
     pub unsafe fn iter_gcunsafe(&self) -> ListIteratorGCUnsafe {
         ListIteratorGCUnsafe {
-            cur: FPtr::new(self),
+            cur: Ref::new(self),
         }
     }
 
@@ -275,11 +275,11 @@ impl Reachable<List> {
 }
 
 pub struct ListIteratorGCUnsafe {
-    cur: FPtr<List>,
+    cur: Ref<List>,
 }
 
 impl std::iter::Iterator for ListIteratorGCUnsafe {
-    type Item = FPtr<Value>;
+    type Item = Ref<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur.as_ref().is_nil() {
@@ -305,7 +305,7 @@ impl ListIterator {
 }
 
 impl std::iter::Iterator for ListIterator {
-    type Item = FPtr<Value>;
+    type Item = Ref<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur.as_ref().is_nil() {
@@ -335,7 +335,7 @@ impl ListIteratorWithInfo {
 }
 
 impl std::iter::Iterator for ListIteratorWithInfo {
-    type Item = (FPtr<Value>, ListIteratorInfo);
+    type Item = (Ref<Value>, ListIteratorInfo);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur.as_ref().is_nil() {
@@ -393,22 +393,22 @@ impl ListBuilder {
         self.len += 1;
     }
 
-    pub fn get(self) -> FPtr<List> {
+    pub fn get(self) -> Ref<List> {
         let result = if let Some(start) = self.start {
             start.take()
         } else {
-            list::List::nil().into_fptr()
+            list::List::nil().into_ref()
         };
 
         result
     }
 
-    pub fn get_with_size(self) -> (FPtr<List>, usize) {
+    pub fn get_with_size(self) -> (Ref<List>, usize) {
         (
             if let Some(start) = self.start {
                 start.take()
             } else {
-                list::List::nil().into_fptr()
+                list::List::nil().into_ref()
             }
             , self.len
         )
@@ -416,28 +416,28 @@ impl ListBuilder {
 
 }
 
-fn func_cons(obj: &mut Object) -> FPtr<Value> {
+fn func_cons(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg::<Value>(0, obj);
     let tail = vm::refer_arg::<List>(1, obj);
     list::List::alloc(&v.reach(obj), &tail.reach(obj), obj).into_value()
 }
 
-fn func_is_list(obj: &mut Object) -> FPtr<Value> {
+fn func_is_list(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg(0, obj);
     if v.is_type(list::List::typeinfo()) {
         v.clone()
     } else {
-        bool::Bool::false_().into_fptr().into_value()
+        bool::Bool::false_().into_ref().into_value()
     }
 }
 
-fn func_list_len(obj: &mut Object) -> FPtr<Value> {
+fn func_list_len(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg::<List>(0, obj);
 
     number::Integer::alloc(v.as_ref().count() as i64, obj).into_value()
 }
 
-fn func_list_ref(obj: &mut Object) -> FPtr<Value> {
+fn func_list_ref(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg::<List>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj);
 
@@ -489,10 +489,10 @@ static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("cons", &FPtr::new(&FUNC_CONS.value));
-    obj.define_global_value("list?", &FPtr::new(&FUNC_IS_LIST.value));
-    obj.define_global_value("list-len", &FPtr::new(&FUNC_LIST_LEN.value));
-    obj.define_global_value("list-ref", &FPtr::new(&FUNC_LIST_REF.value));
+    obj.define_global_value("cons", &Ref::new(&FUNC_CONS.value));
+    obj.define_global_value("list?", &Ref::new(&FUNC_IS_LIST.value));
+    obj.define_global_value("list-len", &Ref::new(&FUNC_LIST_LEN.value));
+    obj.define_global_value("list-ref", &Ref::new(&FUNC_LIST_REF.value));
 }
 
 pub mod literal {

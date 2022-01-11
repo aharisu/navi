@@ -31,7 +31,7 @@ impl NaviType for NString {
         NonNullConst::new_unchecked(&STRING_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         Self::alloc(&self.as_string(), allocator)
     }
 }
@@ -45,12 +45,12 @@ impl NString {
         std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<A: Allocator>(str: &String, allocator : &mut A) -> FPtr<NString> {
+    pub fn alloc<A: Allocator>(str: &String, allocator : &mut A) -> Ref<NString> {
         Self::alloc_inner(str, allocator)
     }
 
     //NStringとSymbol,Keywordクラス共有のアロケーション用関数。TはNSTringもしくはSymbol、Keywordのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType, A: Allocator>(str: &String, allocator : &mut A) -> FPtr<T> {
+    pub(crate) fn alloc_inner<T: NaviType, A: Allocator>(str: &String, allocator : &mut A) -> Ref<T> {
         let len_inbytes = str.len();
         let ptr = allocator.alloc_with_additional_size::<T>(len_inbytes);
 
@@ -61,7 +61,7 @@ impl NString {
             std::ptr::copy_nonoverlapping(str.as_bytes().as_ptr(), ptr, len_inbytes);
         }
 
-        ptr.into_fptr()
+        ptr.into_ref()
     }
 
     #[inline]

@@ -5,7 +5,7 @@ use crate::value::*;
 use crate::ptr::*;
 
 pub struct Context {
-    frames: Vec<Vec<(FPtr<symbol::Symbol>, FPtr<Value>)>>,
+    frames: Vec<Vec<(Ref<symbol::Symbol>, Ref<Value>)>>,
 }
 
 impl Context {
@@ -19,7 +19,7 @@ impl Context {
         self.frames.is_empty()
     }
 
-    pub fn add_to_current_frame(&mut self, symbol: &FPtr<symbol::Symbol>, value: &FPtr<Value>) -> bool{
+    pub fn add_to_current_frame(&mut self, symbol: &Ref<symbol::Symbol>, value: &Ref<Value>) -> bool{
         if let Some(frame) = self.frames.last_mut() {
             frame.push((symbol.clone(), value.clone()));
             true
@@ -30,9 +30,9 @@ impl Context {
     }
 
     pub fn push_local_frame(&mut self, frame: &[(&symbol::Symbol, &Value)]) {
-        let mut vec = Vec::<(FPtr<symbol::Symbol>, FPtr<Value>)>::new();
+        let mut vec = Vec::<(Ref<symbol::Symbol>, Ref<Value>)>::new();
         for (symbol, v) in frame {
-            vec.push((FPtr::new(symbol), FPtr::new(v)));
+            vec.push((Ref::new(symbol), Ref::new(v)));
         }
 
         self.frames.push(vec);
@@ -42,7 +42,7 @@ impl Context {
         self.frames.pop();
     }
 
-    pub fn find_local_value(&self, symbol: &symbol::Symbol) -> Option<FPtr<Value>> {
+    pub fn find_local_value(&self, symbol: &symbol::Symbol) -> Option<Ref<Value>> {
         //ローカルフレームから対応する値を探す
         for frame in self.frames.iter().rev() {
             //後で定義されたものを優先して使用するために逆順で探す
@@ -58,7 +58,7 @@ impl Context {
         None
     }
 
-    pub(crate) fn for_each_all_alived_value(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+    pub(crate) fn for_each_all_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
         //ローカルフレーム内で保持している値
         for frame in self.frames.iter_mut() {
             for (sym, v) in frame.iter_mut() {

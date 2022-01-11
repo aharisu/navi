@@ -29,7 +29,7 @@ impl <T: NaviType> UIPtr<T> {
         self.pointer
     }
 
-    pub fn into_fptr(self) -> FPtr<T> {
+    pub fn into_ref(self) -> Ref<T> {
         self.pointer.into()
     }
 }
@@ -50,16 +50,16 @@ pub trait ValueHolder<T: NaviType> {
 //
 //
 //
-// Floating Pointer
+// Reference
 //
 #[repr(transparent)]
-pub struct FPtr<T: NaviType + ?Sized> {
+pub struct Ref<T: NaviType + ?Sized> {
     pointer: *mut T,
 }
 
-impl <T: NaviType> FPtr<T> {
+impl <T: NaviType> Ref<T> {
     pub fn new(value: &T) -> Self {
-        FPtr::from(value as *const T as *mut T)
+        Ref::from(value as *const T as *mut T)
     }
 
     pub fn capture(self, obj: &mut Object) -> Cap<T> {
@@ -70,15 +70,15 @@ impl <T: NaviType> FPtr<T> {
         self.capture(obj).into_reachable()
     }
 
-    pub fn cast_value(&self) -> &FPtr<Value> {
+    pub fn cast_value(&self) -> &Ref<Value> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn cast_mut_value(&mut self) -> &mut FPtr<Value> {
+    pub fn cast_mut_value(&mut self) -> &mut Ref<Value> {
         unsafe { std::mem::transmute(self) }
     }
 
-    pub fn into_value(self) -> FPtr<Value> {
+    pub fn into_value(self) -> Ref<Value> {
         self.cast_value().clone()
     }
 
@@ -113,8 +113,8 @@ impl <T: NaviType> FPtr<T> {
 
 }
 
-impl FPtr<Value> {
-    pub fn try_cast<U: NaviType>(&self) -> Option<&FPtr<U>> {
+impl Ref<Value> {
+    pub fn try_cast<U: NaviType>(&self) -> Option<&Ref<U>> {
         if self.as_ref().is::<U>() {
             Some( unsafe { self.cast_unchecked() } )
 
@@ -123,7 +123,7 @@ impl FPtr<Value> {
         }
     }
 
-    pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut FPtr<U>> {
+    pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut Ref<U>> {
         if self.as_ref().is::<U>() {
             Some( unsafe { self.cast_mut_unchecked() } )
 
@@ -132,11 +132,11 @@ impl FPtr<Value> {
         }
     }
 
-    pub unsafe fn cast_unchecked<U: NaviType>(&self) -> &FPtr<U> {
+    pub unsafe fn cast_unchecked<U: NaviType>(&self) -> &Ref<U> {
         std::mem::transmute(self)
     }
 
-    pub unsafe fn cast_mut_unchecked<U: NaviType>(&mut self) -> &mut FPtr<U> {
+    pub unsafe fn cast_mut_unchecked<U: NaviType>(&mut self) -> &mut Ref<U> {
         std::mem::transmute(self)
     }
 
@@ -150,13 +150,13 @@ impl FPtr<Value> {
     }
 }
 
-impl <T: NaviType> From<*mut T> for FPtr<T> {
+impl <T: NaviType> From<*mut T> for Ref<T> {
     fn from(item: *mut T) -> Self {
-       FPtr { pointer: item }
+       Ref { pointer: item }
     }
 }
 
-impl <T: NaviType> ValueHolder<T> for FPtr<T>{
+impl <T: NaviType> ValueHolder<T> for Ref<T>{
     fn has_replytype(&self) -> bool {
         crate::value::has_replytype(self)
     }
@@ -174,13 +174,13 @@ impl <T: NaviType> ValueHolder<T> for FPtr<T>{
     }
 }
 
-impl <T: NaviType> Clone for FPtr<T> {
+impl <T: NaviType> Clone for Ref<T> {
     fn clone(&self) -> Self {
         self.raw_ptr().into()
     }
 }
 
-impl <T: NaviType> std::fmt::Debug for FPtr<T> {
+impl <T: NaviType> std::fmt::Debug for Ref<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self.as_ref(), f)
     }
@@ -193,18 +193,18 @@ impl <T: NaviType> std::fmt::Debug for FPtr<T> {
 //
 #[repr(transparent)]
 pub struct Cap<T: NaviType> {
-    pointer: NonNull<FPtr<T>>,
+    pointer: NonNull<Ref<T>>,
 }
 
 impl <T:NaviType> Cap<T> {
-    pub fn new(ptr: *mut FPtr<T>) -> Cap<T> {
+    pub fn new(ptr: *mut Ref<T>) -> Cap<T> {
         Cap {
              pointer: NonNull::new(ptr).unwrap(),
         }
     }
 
     pub fn clone(&self, obj: &mut Object) -> Self {
-        FPtr::from(self.raw_ptr()).capture(obj)
+        Ref::from(self.raw_ptr()).capture(obj)
     }
 
     pub fn cast_value(&self) -> &Cap<Value> {
@@ -213,11 +213,11 @@ impl <T:NaviType> Cap<T> {
         }
     }
 
-    pub fn make(&self) -> FPtr<T> {
+    pub fn make(&self) -> Ref<T> {
         (unsafe { self.pointer.as_ref() }).clone()
     }
 
-    pub fn take(self) -> FPtr<T> {
+    pub fn take(self) -> Ref<T> {
         unsafe { std::ptr::read(self.pointer.as_ptr()) }
     }
 
@@ -225,19 +225,19 @@ impl <T:NaviType> Cap<T> {
         Reachable::new_capture(self)
     }
 
-    pub fn ptr(&self) -> *mut FPtr<T> {
+    pub fn ptr(&self) -> *mut Ref<T> {
         unsafe { self.pointer.clone().as_ptr() }
     }
 
-    pub fn refer(&self) -> &FPtr<T> {
+    pub fn refer(&self) -> &Ref<T> {
         unsafe { &*(self.ptr()) }
     }
 
-    pub fn mut_refer(&mut self) -> &mut FPtr<T> {
+    pub fn mut_refer(&mut self) -> &mut Ref<T> {
         unsafe { &mut *(self.ptr()) }
     }
 
-    pub(crate) fn update_pointer(&mut self, ptr: FPtr<T>) {
+    pub(crate) fn update_pointer(&mut self, ptr: Ref<T>) {
         unsafe {
             self.pointer.as_mut().update_pointer(ptr.raw_ptr());
         }
@@ -339,10 +339,10 @@ impl <T: NaviType> Reachable<T> {
         Reachable::Capture(cap)
     }
 
-    pub fn make(&self) -> FPtr<T> {
+    pub fn make(&self) -> Ref<T> {
         match self {
             Self::Static(ptr) => {
-                (*ptr).into()
+                Ref::from(*ptr)
             },
             Self::Capture(cap) => {
                 cap.make()
@@ -350,18 +350,7 @@ impl <T: NaviType> Reachable<T> {
         }
     }
 
-    pub fn into_cap(self, obj: &mut Object) -> Cap<T> {
-        match self {
-            Self::Static(ptr) => {
-                FPtr::from(ptr).capture(obj)
-            },
-            Self::Capture(cap) => {
-                cap
-            },
-        }
-    }
-
-    pub fn into_fptr(self) -> FPtr<T> {
+    pub fn into_ref(self) -> Ref<T> {
         match self {
             Self::Static(ptr) => {
                 ptr.into()

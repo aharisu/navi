@@ -6,7 +6,7 @@ mod map;
 //TODO Worldはざっくりいうとグローバル変数空間
 
 pub struct World {
-    area: crate::object::world::map::PatriciaTree<FPtr<Value>>,
+    area: crate::object::world::map::PatriciaTree<Ref<Value>>,
 }
 
 impl World {
@@ -16,21 +16,21 @@ impl World {
         }
     }
 
-    pub fn set<K>(&mut self, key: K, v: &FPtr<Value>)
+    pub fn set<K>(&mut self, key: K, v: &Ref<Value>)
     where
         K: AsRef<str>,
     {
         self.area.add(key, v.clone())
     }
 
-    pub fn get<K>(&self, key: K) -> Option<&FPtr<Value>>
+    pub fn get<K>(&self, key: K) -> Option<&Ref<Value>>
     where
         K: AsRef<str>
     {
         self.area.get(key)
     }
 
-    pub(crate) fn for_each_all_value<F: Fn(&mut FPtr<Value>)>(&mut self, callback: F) {
+    pub(crate) fn for_each_all_value<F: Fn(&mut Ref<Value>)>(&mut self, callback: F) {
         self.area.for_each_all_value(callback);
     }
 
@@ -43,7 +43,7 @@ mod tests {
     use crate::{value::*};
     use crate::ptr::*;
 
-    fn world_get(symbol: &symbol::Symbol, obj: &Object) -> FPtr<Value> {
+    fn world_get(symbol: &symbol::Symbol, obj: &Object) -> Ref<Value> {
         let result = obj.find_global_value(symbol);
         assert!(result.is_some());
         result.unwrap()

@@ -66,7 +66,7 @@ pub enum StartHeapSize {
 }
 
 pub trait GCRootValueHolder {
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8));
+    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8));
 }
 
 pub struct Heap {
@@ -595,7 +595,7 @@ impl Heap {
         //生きているオブジェクトの内部で保持したままのアドレスを、
         //再配置後のアドレスで上書きする
 
-        fn update_child_pointer(child: &mut FPtr<Value>, arg_ptr: *mut u8) {
+        fn update_child_pointer(child: &mut Ref<Value>, arg_ptr: *mut u8) {
             let arg = unsafe { GCCompactionArg::from_ptr(arg_ptr) };
             let value = child.as_ref();
 

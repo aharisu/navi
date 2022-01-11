@@ -35,7 +35,7 @@ impl NaviType for Integer {
         NonNullConst::new_unchecked(&INTEGER_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         Self::alloc(self.num, allocator)
     }
 }
@@ -53,14 +53,14 @@ impl Integer {
         || std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<A: Allocator>(num: i64, allocator : &mut A) -> FPtr<Integer> {
+    pub fn alloc<A: Allocator>(num: i64, allocator : &mut A) -> Ref<Integer> {
         let ptr = allocator.alloc::<Integer>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Integer { num: num });
         }
 
-        ptr.into_fptr()
+        ptr.into_ref()
     }
 
     pub fn get(&self) -> i64 {
@@ -133,7 +133,7 @@ impl NaviType for Real {
         NonNullConst::new_unchecked(&REAL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         Self::alloc(self.num, allocator)
     }
 }
@@ -150,14 +150,14 @@ impl Real {
         || std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<A: Allocator>(num: f64, allocator : &mut A) -> FPtr<Real> {
+    pub fn alloc<A: Allocator>(num: f64, allocator : &mut A) -> Ref<Real> {
         let ptr = allocator.alloc::<Real>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Real { num: num });
         }
 
-        ptr.into_fptr()
+        ptr.into_ref()
     }
 
 }
@@ -223,7 +223,7 @@ impl NaviType for Number {
         NonNullConst::new_unchecked(&NUMBER_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
         //Number型のインスタンスは存在しないため、cloneが呼ばれることはない。
         unreachable!()
     }
@@ -256,7 +256,7 @@ fn number_to(v: &Value) -> Num {
     }
 }
 
-fn func_add(obj: &mut Object) -> FPtr<Value> {
+fn func_add(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg::<Value>(0, obj);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -293,7 +293,7 @@ fn func_add(obj: &mut Object) -> FPtr<Value> {
     }
 }
 
-fn func_abs(obj: &mut Object) -> FPtr<Value> {
+fn func_abs(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg(0, obj);
 
     match number_to(v.as_ref()) {
@@ -324,6 +324,6 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("+", &FPtr::new(&FUNC_ADD.value));
-    obj.define_global_value("abs", &FPtr::new(&FUNC_ABS.value));
+    obj.define_global_value("+", &Ref::new(&FUNC_ADD.value));
+    obj.define_global_value("abs", &Ref::new(&FUNC_ABS.value));
 }

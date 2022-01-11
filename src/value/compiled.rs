@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 
 pub struct Code {
     program: Vec<u8>,
-    constants: Vec<FPtr<Value>>,
+    constants: Vec<Ref<Value>>,
 }
 
 static CODE_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -27,7 +27,7 @@ impl NaviType for Code {
         NonNullConst::new_unchecked(&CODE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         unsafe {
             let program = self.program.clone();
@@ -42,7 +42,7 @@ impl NaviType for Code {
                 constants: constants,
             });
 
-            ptr.into_fptr()
+            ptr.into_ref()
         }
     }
 }
@@ -53,18 +53,18 @@ impl Code {
         std::ptr::eq(&CODE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
         self.constants.iter_mut().for_each(|v| callback(v, arg));
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Value>>, allocator: &mut A) -> FPtr<Self> {
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Value>>, allocator: &mut A) -> Ref<Self> {
         let ptr = allocator.alloc::<Code>();
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Self::new(program, constants))
         }
 
-        ptr.into_fptr()
+        ptr.into_ref()
     }
 
     pub fn new(program: Vec<u8>, constants: Vec<Cap<Value>>) -> Self {
@@ -82,11 +82,11 @@ impl Code {
         &self.program[..]
     }
 
-    pub fn get_constant(&self, index: usize) -> FPtr<Value> {
+    pub fn get_constant(&self, index: usize) -> Ref<Value> {
         self.constants[index].clone()
     }
 
-    pub fn get_constant_slice(&self, start: usize, end: usize) -> &[FPtr<Value>] {
+    pub fn get_constant_slice(&self, start: usize, end: usize) -> &[Ref<Value>] {
         &self.constants[start..end]
     }
 
@@ -139,10 +139,10 @@ impl NaviType for Closure {
         NonNullConst::new_unchecked(&CLOSURE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         let program = self.code.program.clone();
-        let constants:Vec<FPtr<Value>> = self.code.constants.iter()
+        let constants:Vec<Ref<Value>> = self.code.constants.iter()
             .map(|c| Value::clone_inner(c.as_ref(), allocator))
             .collect()
             ;
@@ -157,11 +157,11 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
         self.code.child_traversal(arg, callback);
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[FPtr<Value>], num_args: usize, allocator: &mut A) -> FPtr<Self> {
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Value>], num_args: usize, allocator: &mut A) -> Ref<Self> {
         let ptr = allocator.alloc::<Closure>();
 
         let constants = constants.into_iter()
@@ -179,17 +179,17 @@ impl Closure {
             })
         }
 
-        ptr.into_fptr()
+        ptr.into_ref()
     }
 
     pub fn arg_descriptor(&self) -> usize {
         self.num_args
     }
 
-    pub fn code(&self) -> FPtr<Code> {
+    pub fn code(&self) -> Ref<Code> {
         //structの先頭にあるCodeフィールドの参照とselfの参照は(ポインタレベルでは)同一視できるはず。
         //Codeへの参照をReachableで確保することでClosure自体もGCされないようにする
-        FPtr::new(&self.code)
+        Ref::new(&self.code)
     }
 }
 

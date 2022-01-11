@@ -31,7 +31,7 @@ impl NaviType for ObjectRef {
         NonNullConst::new_unchecked(&OBJECT_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         let mailbox = self.mailbox.clone();
         Self::alloc(self.object_id, mailbox, allocator)
     }
@@ -43,7 +43,7 @@ impl ObjectRef {
         std::ptr::eq(&OBJECT_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &mut A) -> FPtr<ObjectRef> {
+    pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &mut A) -> Ref<ObjectRef> {
         let ptr = allocator.alloc::<ObjectRef>();
         let obj = ObjectRef {
             object_id,
@@ -53,7 +53,7 @@ impl ObjectRef {
             std::ptr::write(ptr.as_ptr(), obj);
         }
 
-        ptr.into_fptr()
+        ptr.into_ref()
     }
 
     pub fn mailbox(&self) -> Arc<Mutex<MailBox>> {
@@ -93,7 +93,7 @@ impl Debug for ObjectRef {
     }
 }
 
-fn func_spawn(obj: &mut Object) -> FPtr<Value> {
+fn func_spawn(obj: &mut Object) -> Ref<Value> {
     let standalone = object::new_object();
 
     let id = standalone.object().id();
@@ -105,7 +105,7 @@ fn func_spawn(obj: &mut Object) -> FPtr<Value> {
     ObjectRef::alloc(id, mailbox, obj).into_value()
 }
 
-fn func_send(obj: &mut Object) -> FPtr<Value> {
+fn func_send(obj: &mut Object) -> Ref<Value> {
     let target_obj = vm::refer_arg::<ObjectRef>(0, obj).reach(obj);
     let message = vm::refer_arg::<Value>(1, obj).reach(obj);
 
@@ -132,8 +132,8 @@ static FUNC_SEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("spawn", &FPtr::new(&FUNC_SPAWN.value));
-    obj.define_global_value("send", &FPtr::new(&FUNC_SEND.value));
+    obj.define_global_value("spawn", &Ref::new(&FUNC_SPAWN.value));
+    obj.define_global_value("send", &Ref::new(&FUNC_SEND.value));
 }
 
 #[cfg(test)]
@@ -142,7 +142,7 @@ mod tests {
     use crate::read::*;
 
 
-    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> FPtr<T> {
+    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
         let mut reader = Reader::new(program.chars().peekable());
         let result = crate::read::read(&mut reader, obj);
         assert!(result.is_ok());
@@ -159,7 +159,7 @@ mod tests {
         result.unwrap().clone()
     }
 
-    fn get_reply_value(reply: &mut Cap<reply::Reply>, obj: &mut Object) -> FPtr<Value> {
+    fn get_reply_value(reply: &mut Cap<reply::Reply>, obj: &mut Object) -> Ref<Value> {
         loop {
             if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
                 return result

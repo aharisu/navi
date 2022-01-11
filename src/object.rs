@@ -89,21 +89,21 @@ impl <'a> Allocator for AnyAllocator<'a> {
 
 struct ObjectGCRootValues {
     //object-switchで切り替えた時の、切り替え前オブジェクト。
-    prev_object:Option<FPtr<ObjectRef>>,
+    prev_object:Option<Ref<ObjectRef>>,
 
     world: world::World,
 
     ctx: Context,
     vm_state: VMState,
 
-    captures: FixedSizeAllocator<FPtr<Value>>,
+    captures: FixedSizeAllocator<Ref<Value>>,
 
-    receiver_vec: Vec<(FPtr<Value>, FPtr<list::List>)>,
-    receiver_closure: Option<FPtr<compiled::Closure>>,
+    receiver_vec: Vec<(Ref<Value>, Ref<list::List>)>,
+    receiver_closure: Option<Ref<compiled::Closure>>,
 }
 
 impl mm::GCRootValueHolder for ObjectGCRootValues {
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
         self.ctx.for_each_all_alived_value(arg, callback);
         self.vm_state.for_each_all_alived_value(arg, callback);
 
@@ -112,7 +112,7 @@ impl mm::GCRootValueHolder for ObjectGCRootValues {
         }
 
         //グローバルスペース内で保持している値
-        self.world.for_each_all_value(|v :&mut FPtr<Value>| {
+        self.world.for_each_all_value(|v :&mut Ref<Value>| {
             callback(v, arg);
         });
 
@@ -188,18 +188,18 @@ impl Object {
         self.id
     }
 
-    pub fn make_object_ref<A: Allocator>(&self, allocator: &mut A) -> Option<FPtr<ObjectRef>> {
+    pub fn make_object_ref<A: Allocator>(&self, allocator: &mut A) -> Option<Ref<ObjectRef>> {
         self.mailbox.upgrade()
             .map(|mailbox| {
                 object_ref::ObjectRef::alloc(self.id,  mailbox, allocator)
             })
     }
 
-    pub fn set_prev_object(&mut self, prev_object: &FPtr<ObjectRef>) {
+    pub fn set_prev_object(&mut self, prev_object: &Ref<ObjectRef>) {
         self.values.prev_object = Some(prev_object.clone());
     }
 
-    pub fn take_prev_object(&mut self) -> Option<FPtr<ObjectRef>> {
+    pub fn take_prev_object(&mut self) -> Option<Ref<ObjectRef>> {
         self.values.prev_object.take()
     }
 
@@ -249,7 +249,7 @@ impl Object {
         }
     }
 
-    pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: &Reachable<Value>) -> FPtr<Value> {
+    pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: &Reachable<Value>) -> Ref<Value> {
         if let Some(mailbox) = self.mailbox.upgrade() {
             //戻り値を受け取るために自分自身のメールボックスをメッセージ送信相手に渡す
             let reply_token = target_obj.as_ref().recv_message(message, mailbox);
@@ -261,11 +261,11 @@ impl Object {
             //mailboxが取得できない場合は、自分自身のオブジェクトが削除されようとしているとき。
             //処理を継続できないため無効な値を返して処理を終了させる
             //TODO エラー値を返したい
-            bool::Bool::false_().into_value().into_fptr()
+            bool::Bool::false_().into_ref().into_value()
         }
     }
 
-    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<FPtr<Value>> {
+    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<Ref<Value>> {
         if let Some(mailbox) = self.mailbox.upgrade() {
             let mut mailbox = mailbox.lock().unwrap();
             mailbox.check_reply(reply_token)
@@ -281,7 +281,7 @@ impl Object {
             //mailboxが取得できない場合は、自分自身のオブジェクトが削除されようとしているとき。
             //処理を継続できないため無効な値を返して処理を終了させる
             //TODO エラー値を返したい
-            Some(bool::Bool::false_().into_value().into_fptr())
+            Some(bool::Bool::false_().into_ref().into_value())
         }
     }
 
@@ -392,7 +392,7 @@ impl Object {
         obj.apply_message_finish(result, data.reply_to_mailbox, data.reply_token);
     }
 
-    fn apply_message_finish(&mut self, result: Result<FPtr<Value>, vm::ExecError>
+    fn apply_message_finish(&mut self, result: Result<Ref<Value>, vm::ExecError>
         , reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) {
 
         match result {
@@ -440,7 +440,7 @@ impl Object {
         &mut self.values.vm_state
     }
 
-    pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<FPtr<Value>> {
+    pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<Ref<Value>> {
         //ローカルフレーム上になければ、グローバルスペースから探す
         if let Some(v) = self.values.world.get(symbol) {
             Some(v.clone())
@@ -449,7 +449,7 @@ impl Object {
         }
     }
 
-    pub fn define_global_value<Key: AsRef<str>, V: NaviType>(&mut self, key: Key, v: &FPtr<V>) {
+    pub fn define_global_value<Key: AsRef<str>, V: NaviType>(&mut self, key: Key, v: &Ref<V>) {
         self.values.world.set(key, v.cast_value())
     }
 
@@ -464,10 +464,10 @@ impl Object {
         reply::register_global(self);
     }
 
-    pub fn capture<T: NaviType>(&mut self, v: FPtr<T>) -> Cap<T> {
+    pub fn capture<T: NaviType>(&mut self, v: Ref<T>) -> Cap<T> {
         unsafe {
             let ptr = self.values.captures.alloc();
-            let ptr = ptr as *mut FPtr<T>;
+            let ptr = ptr as *mut Ref<T>;
 
             let mut cap = Cap::new(ptr);
             cap.update_pointer(v);
@@ -479,7 +479,7 @@ impl Object {
     pub(crate) fn release_capture<T: NaviType>(cap: &Cap<T>) {
         unsafe {
             let ptr = cap.cast_value().ptr();
-            FixedSizeAllocator::<FPtr<Value>>::free(ptr);
+            FixedSizeAllocator::<Ref<Value>>::free(ptr);
         }
     }
 

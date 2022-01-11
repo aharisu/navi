@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display};
 pub struct Func {
     name: String,
     params: Vec<Param>,
-    body:  fn(&mut Object) -> FPtr<Value>,
+    body:  fn(&mut Object) -> Ref<Value>,
     num_require: u8,
     num_optional: u8,
     has_rest: bool,
@@ -67,15 +67,15 @@ impl NaviType for Func {
         NonNullConst::new_unchecked(&FUNC_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
         //Funcのインスタンスはヒープ上に作られることがないため、自分自身を返す
-        FPtr::new(self)
+        Ref::new(self)
     }
 }
 
 impl Func {
 
-    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&mut Object) -> FPtr<Value>) -> Func {
+    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&mut Object) -> Ref<Value>) -> Func {
         let mut num_require = 0;
         let mut num_optional = 0;
         let mut has_rest = false;
@@ -120,7 +120,7 @@ impl Func {
         self.has_rest
     }
 
-    pub fn apply(&self, obj: &mut Object) -> FPtr<Value> {
+    pub fn apply(&self, obj: &mut Object) -> Ref<Value> {
         (self.body)(obj)
     }
 }

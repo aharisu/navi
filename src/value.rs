@@ -9,7 +9,7 @@ macro_rules! new_typeinfo {
                 None => None
             },
             eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Value, &Value) -> bool>($eq_func) },
-            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut crate::object::AnyAllocator) -> FPtr<$t>, fn(&Value, &mut crate::object::AnyAllocator) -> FPtr<Value>>($clone_func) },
+            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut crate::object::AnyAllocator) -> Ref<$t>, fn(&Value, &mut crate::object::AnyAllocator) -> Ref<Value>>($clone_func) },
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
             finalize: match $finalize_func {
@@ -21,7 +21,7 @@ macro_rules! new_typeinfo {
                 None => None
              },
             child_traversal_func: match $child_traversal_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t, *mut u8, fn(&mut FPtr<Value>, *mut u8)), fn(&mut Value, *mut u8, fn(&mut FPtr<Value>, *mut u8))>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t, *mut u8, fn(&mut Ref<Value>, *mut u8)), fn(&mut Value, *mut u8, fn(&mut Ref<Value>, *mut u8))>(func) }),
                 None => None
              },
             check_reply_func: match $check_reply_func {
@@ -116,7 +116,7 @@ pub fn value_is_pointer(v: &Value) -> bool {
     pointer_kind(v as *const Value) == PtrKind::Ptr
 }
 
-pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) -> FPtr<T> {
+pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) -> Ref<T> {
     //クローンを行う値のトータルのサイズを計測
     //リストや配列など内部に値を保持している場合は再帰的にすべての値のサイズも計測されている
     let total_size = mm::Heap::calc_total_size(v.cast_value().as_ref());
@@ -171,42 +171,42 @@ pub fn check_reply(cap: &mut Cap<Value>, obj: &mut Object) -> bool {
     }
 }
 
-pub fn has_replytype<T: NaviType>(ptr: &FPtr<T>) -> bool {
+pub fn has_replytype<T: NaviType>(ptr: &Ref<T>) -> bool {
     let value = ptr_to_usize(ptr.raw_ptr());
     //最下位bitが1ならReply値、もしくは内部でReplyを持つ値。
     value & 1 == 1
 }
 
-pub fn set_has_replytype_flag<T: NaviType>(ptr: &mut FPtr<T>) {
+pub fn set_has_replytype_flag<T: NaviType>(ptr: &mut Ref<T>) {
     //最下位bitに1を立てる
     ptr.update_pointer(usize_to_ptr(ptr_to_usize(ptr.raw_ptr()) | 1));
 }
 
-pub fn clear_has_replytype_flag<T: NaviType>(ptr: &mut FPtr<T>) {
+pub fn clear_has_replytype_flag<T: NaviType>(ptr: &mut Ref<T>) {
     //最下位bitの1を降ろす
     ptr.update_pointer(usize_to_ptr(ptr_to_usize(ptr.raw_ptr()) & !1));
 }
 
 #[inline]
-pub fn ptr_value<T: NaviType>(ptr: &FPtr<T>) -> *mut T {
+pub fn ptr_value<T: NaviType>(ptr: &Ref<T>) -> *mut T {
     //最下位bitをマスクしてからポインタを参照する
     usize_to_ptr::<T>(ptr_to_usize(ptr.raw_ptr()) & !1)
 }
 
 #[inline]
-pub fn refer_value<'a, 'b, T: NaviType>(ptr: &'a FPtr<T>) -> &'b T {
+pub fn refer_value<'a, 'b, T: NaviType>(ptr: &'a Ref<T>) -> &'b T {
     unsafe { &*ptr_value(ptr) }
 }
 
 #[inline]
-pub fn mut_refer_value<'a, 'b, T: NaviType>(ptr: &'a mut FPtr<T>) -> &'b mut T {
+pub fn mut_refer_value<'a, 'b, T: NaviType>(ptr: &'a mut Ref<T>) -> &'b mut T {
     //最下位bitをマスクしてからポインタを参照する
     unsafe { &mut *ptr_value(ptr) }
 }
 
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> NonNullConst<TypeInfo>;
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self>;
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self>;
 }
 
 #[allow(dead_code)]
@@ -215,12 +215,12 @@ pub struct TypeInfo {
     pub fixed_size: usize,
     pub variable_size_func: Option<fn(&Value) -> usize>,
     pub eq_func: fn(&Value, &Value) -> bool,
-    pub clone_func: fn(&Value, &mut AnyAllocator) -> FPtr<Value>,
+    pub clone_func: fn(&Value, &mut AnyAllocator) -> Ref<Value>,
     pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: fn(&TypeInfo) -> bool,
     pub finalize: Option<fn(&mut Value)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
-    pub child_traversal_func: Option<fn(&mut Value, *mut u8, fn(&mut FPtr<Value>, *mut u8))>,
+    pub child_traversal_func: Option<fn(&mut Value, *mut u8, fn(&mut Ref<Value>, *mut u8))>,
     pub check_reply_func: Option<fn(&mut Cap<Value>, &mut Object) -> bool>,
 }
 
@@ -245,14 +245,14 @@ impl NaviType for Value {
         NonNullConst::new_unchecked(&VALUE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         if value_is_pointer(self) {
             let typeinfo = get_typeinfo(self);
            (unsafe { typeinfo.as_ref() }.clone_func)(self, allocator)
 
         } else {
             //Immidiate Valueの場合はそのまま返す
-            FPtr::new(self)
+            Ref::new(self)
         }
     }
 }
@@ -335,16 +335,16 @@ impl Value {
     }
 }
 
-fn func_equal(obj: &mut Object) -> FPtr<Value> {
+fn func_equal(obj: &mut Object) -> Ref<Value> {
     let left = vm::refer_arg::<Value>(0, obj);
     let right = vm::refer_arg::<Value>(1, obj);
 
     let result = left.as_ref().eq(right.as_ref());
 
     if result {
-        bool::Bool::true_().into_fptr().into_value()
+        bool::Bool::true_().into_ref().into_value()
     } else {
-        bool::Bool::false_().into_fptr().into_value()
+        bool::Bool::false_().into_ref().into_value()
     }
 }
 
@@ -360,7 +360,7 @@ static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("=", &FPtr::new(&FUNC_EQUAL.value));
+    obj.define_global_value("=", &Ref::new(&FUNC_EQUAL.value));
 }
 
 pub mod literal {
@@ -405,7 +405,7 @@ mod tests {
         assert!(!v.as_ref().is::<string::NString>());
     }
 
-    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> FPtr<T> {
+    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
         let mut reader = Reader::new(program.chars().peekable());
         let result = crate::read::read(&mut reader, obj);
         assert!(result.is_ok());
@@ -433,7 +433,7 @@ mod tests {
         };
         assert_eq!(result.as_ref(), result2.as_ref());
 
-        result.into_fptr()
+        result.into_ref()
     }
 
 

@@ -26,9 +26,9 @@ impl NaviType for MatchFail {
         NonNullConst::new_unchecked(&MATCHFAIL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
         //MatchFail型の値は常にImmidiate Valueなのでそのまま返す
-        FPtr::new(self)
+        Ref::new(self)
     }
 }
 
@@ -72,7 +72,7 @@ enum PatKind {
 
 type MatchClause = (Vec<Reachable<Value>>, Reachable<List>);
 
-pub fn translate(args: &Reachable<List>, obj: &mut Object) -> FPtr<List> {
+pub fn translate(args: &Reachable<List>, obj: &mut Object) -> Ref<List> {
     //パターンリストを扱いやすいようにそれぞれVecに分解
     let patterns = {
         let mut vec = Vec::<MatchClause>::new();
@@ -132,8 +132,8 @@ pub fn translate(args: &Reachable<List>, obj: &mut Object) -> FPtr<List> {
     builder_catch.get()
 }
 
-fn translate_inner(exprs: Vec<Reachable<Value>>, patterns: Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
-    fn trans(kind: PatKind, exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
+fn translate_inner(exprs: Vec<Reachable<Value>>, patterns: Vec<MatchClause>, obj: &mut Object) -> Ref<Value> {
+    fn trans(kind: PatKind, exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> Ref<Value> {
         match kind {
             PatKind::List => {
                 translate_container_match(exprs, patterns
@@ -253,8 +253,8 @@ fn pattern_grouping(patterns: Vec<MatchClause>) -> Vec<(PatKind, Vec<MatchClause
 
 fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>
     , is_type_func: &Reachable<Func>, len_func: &Reachable<Func>, ref_func: &Reachable<Func>
-    , pattern_len_func: fn(&T) -> usize, pattern_ref_func: fn(&T, usize) -> FPtr<Value>
-    , obj: &mut Object) -> FPtr<Value> {
+    , pattern_len_func: fn(&T) -> usize, pattern_ref_func: fn(&T, usize) -> Ref<Value>
+    , obj: &mut Object) -> Ref<Value> {
 
     //長さごとにパターンを集めたVec
     let mut group: Vec<(usize, Vec<MatchClause>)>  = Vec::new();
@@ -394,7 +394,7 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Value>>, pattern
     builder_if.get().into_value()
 }
 
-fn translate_literal(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
+fn translate_literal(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> Ref<Value> {
     let mut group = Vec::<(Reachable<Value>, Vec<MatchClause>)>::new();
 
     //同じリテラルごとにグルーピングを行う
@@ -453,7 +453,7 @@ fn translate_literal(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>,
     builder_cond.get().into_value()
 }
 
-fn translate_bind(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
+fn translate_bind(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> Ref<Value> {
     let mut exprs: Vec<Reachable<Value>> = exprs.iter().map(|cap| cap.clone(obj)).collect();
     let target = exprs.pop().unwrap();
 
@@ -515,7 +515,7 @@ fn translate_bind(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, ob
     builder_catch.get().into_value()
 }
 
-fn translate_empty(_exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> FPtr<Value> {
+fn translate_empty(_exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>, obj: &mut Object) -> Ref<Value> {
     let (_, body) = patterns.first().unwrap();
 
     let body = body.clone(obj);
@@ -526,7 +526,7 @@ fn clone_veccap(vec: &[Reachable<Value>], obj: &mut Object) -> Vec<Reachable<Val
     vec.iter().map(|cap| cap.clone(obj)).collect()
 }
 
-fn cons_list2(v1: &Reachable<Value>, v2: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
+fn cons_list2(v1: &Reachable<Value>, v2: &Reachable<Value>, obj: &mut Object) -> Ref<Value> {
     let mut builder = ListBuilder::new(obj);
     builder.append(v1, obj);
     builder.append(v2, obj);
@@ -534,7 +534,7 @@ fn cons_list2(v1: &Reachable<Value>, v2: &Reachable<Value>, obj: &mut Object) ->
     builder.get().into_value()
 }
 
-fn cons_list3(v1: &Reachable<Value>, v2: &Reachable<Value>, v3: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
+fn cons_list3(v1: &Reachable<Value>, v2: &Reachable<Value>, v3: &Reachable<Value>, obj: &mut Object) -> Ref<Value> {
     let mut builder = ListBuilder::new(obj);
     builder.append(v1, obj);
     builder.append(v2, obj);
@@ -543,7 +543,7 @@ fn cons_list3(v1: &Reachable<Value>, v2: &Reachable<Value>, v3: &Reachable<Value
     builder.get().into_value()
 }
 
-fn cons_cond_fail(obj: &mut Object) -> FPtr<Value> {
+fn cons_cond_fail(obj: &mut Object) -> Ref<Value> {
     let mut builder = ListBuilder::new(obj);
     //TODO よく使うシンボルはsatic領域に確保してアロケーションを避ける
     cap_append!(builder, symbol::Symbol::alloc("else", obj).into_value(), obj);
@@ -551,7 +551,7 @@ fn cons_cond_fail(obj: &mut Object) -> FPtr<Value> {
     builder.get().into_value()
 }
 
-fn syntax_fail_catch(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_fail_catch(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
 
     for sexp in args.iter(obj) {
         let e = crate::eval::eval(&sexp.reach(obj), obj);
@@ -560,7 +560,7 @@ fn syntax_fail_catch(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Val
         }
     }
 
-    MatchFail::fail().into_fptr().into_value()
+    MatchFail::fail().into_ref().into_value()
 }
 
 static SYNTAX_FAIL_CATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {

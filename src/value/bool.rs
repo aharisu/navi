@@ -24,9 +24,9 @@ impl NaviType for Bool {
         NonNullConst::new_unchecked(&BOOL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
         //Bool型の値は常にImmidiate Valueなのでそのまま返す
-        FPtr::new(self)
+        Ref::new(self)
     }
 }
 

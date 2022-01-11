@@ -5,8 +5,8 @@ use std::fmt::{Debug, Display};
 
 
 pub struct Closure {
-    params: FPtr<array::Array<symbol::Symbol>>,
-    body: FPtr<list::List>,
+    params: Ref<array::Array<symbol::Symbol>>,
+    body: Ref<list::List>,
 }
 
 static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -29,7 +29,7 @@ impl NaviType for Closure {
         NonNullConst::new_unchecked(&CLOSURE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         unsafe {
             let params = array::Array::<symbol::Symbol>::clone_inner(self.params.as_ref(), allocator).into_reachable();
@@ -46,12 +46,12 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, arg: *mut u8)) {
         callback(self.params.cast_mut_value(), arg);
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(params: &Reachable<array::Array<symbol::Symbol>>, body: &Reachable<list::List>, allocator: &mut A) -> FPtr<Self> {
+    pub fn alloc<A: Allocator>(params: &Reachable<array::Array<symbol::Symbol>>, body: &Reachable<list::List>, allocator: &mut A) -> Ref<Self> {
         let ptr = allocator.alloc::<Closure>();
 
         unsafe {
@@ -61,10 +61,10 @@ impl Closure {
             })
         }
 
-        ptr.into_fptr()
+        ptr.into_ref()
     }
 
-    pub fn process_arguments_descriptor(&self, args_iter: impl Iterator<Item = FPtr<Value>>, _obj: &mut Object) -> bool {
+    pub fn process_arguments_descriptor(&self, args_iter: impl Iterator<Item = Ref<Value>>, _obj: &mut Object) -> bool {
         //TODO 各種パラメータ指定の処理(:option, :rest)
 
         let count = args_iter.count();
@@ -75,7 +75,7 @@ impl Closure {
         }
     }
 
-    pub fn apply(&self, args_iter: impl Iterator<Item=FPtr<Value>>, obj: &mut Object) -> FPtr<Value> {
+    pub fn apply(&self, args_iter: impl Iterator<Item=Ref<Value>>, obj: &mut Object) -> Ref<Value> {
         //ローカルフレームを構築
         let mut frame = Vec::<(&symbol::Symbol, &Value)>::new();
 

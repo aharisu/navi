@@ -22,18 +22,18 @@ impl ReplyToken {
 }
 
 pub struct MessageData {
-    pub message: FPtr<Value>,
+    pub message: Ref<Value>,
     pub reply_to_mailbox: Arc<Mutex<MailBox>>,
     pub reply_token: ReplyToken,
 }
 
 struct MailBoxGCRootValues {
     pub inbox: Vec<MessageData>,
-    pub result_box: Vec<(ReplyToken, FPtr<Value>)>,
+    pub result_box: Vec<(ReplyToken, Ref<Value>)>,
 }
 
 impl mm::GCRootValueHolder for MailBoxGCRootValues {
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
         self.inbox.iter_mut().for_each(|data| callback(&mut data.message, arg));
         self.result_box.iter_mut().for_each(|(_, result)| callback(result, arg));
     }
@@ -112,7 +112,7 @@ impl MailBox {
         self.values.result_box.push((reply_token, result));
     }
 
-    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<FPtr<Value>> {
+    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<Ref<Value>> {
         self.values.result_box.iter().position(|(token, _)| reply_token == *token)
             .map(|index| {
                 let (_, result) = self.values.result_box.swap_remove(index);

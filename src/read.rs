@@ -16,7 +16,7 @@ fn readerror(msg: String) -> ReadError {
     ReadError { msg: msg}
 }
 
-pub type ReadResult = Result<FPtr<Value>, ReadError>;
+pub type ReadResult = Result<Ref<Value>, ReadError>;
 
 pub struct Reader<'i> {
     input: Peekable<Chars<'i>>,
@@ -74,7 +74,7 @@ fn read_tuple(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     Ok(tuple::Tuple::from_list(&list.reach(obj), None, obj).into_value())
 }
 
-fn read_sequence(end_char:char, reader: &mut Reader, obj: &mut Object) -> Result<FPtr<list::List>, ReadError> {
+fn read_sequence(end_char:char, reader: &mut Reader, obj: &mut Object) -> Result<Ref<list::List>, ReadError> {
     //skip first char
     reader.input.next();
 
@@ -192,8 +192,8 @@ fn read_keyword(reader: &mut Reader, obj: &mut Object) -> ReadResult {
 fn read_symbol(reader: &mut Reader, obj: &mut Object) -> ReadResult {
     match read_word(reader, obj) {
         Ok(str) => match &*str {
-            "true" =>Ok(bool::Bool::true_().into_fptr().into_value()),
-            "false" =>Ok(bool::Bool::false_().into_fptr().into_value()),
+            "true" =>Ok(bool::Bool::true_().into_ref().into_value()),
+            "false" =>Ok(bool::Bool::false_().into_ref().into_value()),
             _ => Ok(symbol::Symbol::alloc(&str, obj).into_value()),
         }
         Err(err) => Err(err),
@@ -297,21 +297,21 @@ mod tests {
         assert!(result.is_err());
     }
 
-    fn read<T: NaviType>(program: &str, obj: &mut Object) -> FPtr<T> {
+    fn read<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
         //let mut heap = navi::mm::Heap::new(1024, name.to_string());
         let mut reader = make_reader(program);
 
         read_with_ctx(&mut reader, obj)
     }
 
-    fn read_with_ctx<T: NaviType>(reader: &mut Reader, obj: &mut Object) -> FPtr<T> {
+    fn read_with_ctx<T: NaviType>(reader: &mut Reader, obj: &mut Object) -> Ref<T> {
         let result = crate::read::read(reader, obj);
         assert!(result.is_ok());
 
         let result = result.unwrap();
         let result = result.as_ref().try_cast::<T>();
         assert!(result.is_some());
-        FPtr::new(result.unwrap())
+        Ref::new(result.unwrap())
     }
 
     #[test]

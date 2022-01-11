@@ -16,7 +16,7 @@ macro_rules! cap_eval {
     };
 }
 
-pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
+pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> Ref<Value> {
     if let Some(code) = sexp.try_cast::<compiled::Code>() {
         vm::code_execute(code, vm::WorkTimeLimit::Inf, obj).unwrap()
 
@@ -97,7 +97,7 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
     } else if let Some(tuple) = sexp.try_cast::<tuple::Tuple>() {
         let len = tuple.as_ref().len();
         if len == 0 {
-            tuple::Tuple::unit().into_fptr().into_value()
+            tuple::Tuple::unit().into_ref().into_value()
 
         } else {
             let mut builder = ArrayBuilder::<Value>::new(len, obj);
@@ -121,7 +121,7 @@ mod tests {
     use crate::value::*;
     use crate::ptr::*;
 
-    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> FPtr<T> {
+    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
         let mut reader = Reader::new(program.chars().peekable());
         let result = crate::read::read(&mut reader, obj);
         assert!(result.is_ok());
@@ -148,7 +148,7 @@ mod tests {
         };
         assert_eq!(result.as_ref(), result2.as_ref());
 
-        result.into_fptr()
+        result.into_ref()
     }
 
 

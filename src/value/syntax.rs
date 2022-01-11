@@ -21,8 +21,8 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    body: fn(&Reachable<List>, &mut Object) -> FPtr<Value>,
-    transform_body: fn(&Reachable<List>, &mut compile::CCtx, &mut Object) -> FPtr<crate::value::iform::IForm>,
+    body: fn(&Reachable<List>, &mut Object) -> Ref<Value>,
+    transform_body: fn(&Reachable<List>, &mut compile::CCtx, &mut Object) -> Ref<crate::value::iform::IForm>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -45,17 +45,17 @@ impl NaviType for Syntax {
         NonNullConst::new_unchecked(&SYNTAX_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
         //Syntaxのインスタンスはヒープ上に作られることがないため、自分自身を返す
-        FPtr::new(self)
+        Ref::new(self)
     }
 }
 
 impl Syntax {
 
     pub fn new<T: Into<String>>(name: T, require: usize, optional: usize, has_rest: bool
-        , body: fn(&Reachable<list::List>, &mut Object) -> FPtr<Value>
-        , translate_body: fn(&Reachable<list::List>, &mut crate::compile::CCtx, &mut Object) -> FPtr<iform::IForm>,
+        , body: fn(&Reachable<list::List>, &mut Object) -> Ref<Value>
+        , translate_body: fn(&Reachable<list::List>, &mut crate::compile::CCtx, &mut Object) -> Ref<iform::IForm>,
     ) -> Self {
         Syntax {
             name: name.into(),
@@ -82,11 +82,11 @@ impl Syntax {
         }
     }
 
-    pub fn apply(&self, args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+    pub fn apply(&self, args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
         (self.body)(&args, obj)
     }
 
-    pub fn transform(&self, args: &Reachable<List>, ctx: &mut compile::CCtx, obj: &mut Object) -> FPtr<iform::IForm> {
+    pub fn transform(&self, args: &Reachable<List>, ctx: &mut compile::CCtx, obj: &mut Object) -> Ref<iform::IForm> {
         (self.transform_body)(args, ctx, obj)
     }
 
@@ -112,7 +112,7 @@ impl Debug for Syntax {
     }
 }
 
-fn syntax_if(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_if(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     let pred = cap_eval!(args.as_ref().head(), obj);
     let pred = is_true(pred.as_ref());
 
@@ -123,19 +123,19 @@ fn syntax_if(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
     } else {
         let args = args.as_ref().tail();
         if args.as_ref().is_nil() {
-            bool::Bool::false_().into_fptr().into_value()
+            bool::Bool::false_().into_ref().into_value()
         } else {
             cap_eval!(args.as_ref().head(), obj)
         }
     }
 }
 
-fn syntax_begin(args: &Reachable<List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_begin(args: &Reachable<List>, obj: &mut Object) -> Ref<Value> {
     do_begin(args, obj)
 }
 
-pub(crate) fn do_begin(body: &Reachable<List>, obj: &mut Object) -> FPtr<Value> {
-    let mut last: Option<FPtr<Value>> = None;
+pub(crate) fn do_begin(body: &Reachable<List>, obj: &mut Object) -> Ref<Value> {
+    let mut last: Option<Ref<Value>> = None;
     for sexp in body.iter(obj) {
         //ここのFPtrはあえてCaptureしない
         //beginは最後に評価した式の結果だけを返せばいいので、
@@ -147,11 +147,11 @@ pub(crate) fn do_begin(body: &Reachable<List>, obj: &mut Object) -> FPtr<Value> 
     if let Some(last) = last {
         last
     } else {
-        tuple::Tuple::unit().into_fptr().into_value()
+        tuple::Tuple::unit().into_ref().into_value()
     }
 }
 
-fn syntax_cond(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_cond(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     for (sexp, info) in args.iter_with_info(obj) {
         let sexp = sexp.reach(obj);
 
@@ -180,10 +180,10 @@ fn syntax_cond(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
         }
     }
 
-    bool::Bool::false_().into_fptr().into_value()
+    bool::Bool::false_().into_ref().into_value()
 }
 
-fn syntax_def_recv(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_def_recv(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     if obj.context().is_toplevel() {
         let pat = args.as_ref().head().reach(obj);
         let body = args.as_ref().tail().reach(obj);
@@ -192,13 +192,13 @@ fn syntax_def_recv(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value
         obj.add_receiver(&pat, &body);
 
         //どの値を返すべき？
-        bool::Bool::true_().into_fptr().into_value()
+        bool::Bool::true_().into_ref().into_value()
     } else {
         panic!("def-recv allow only top-level context")
     }
 }
 
-pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     let params = args.as_ref().head();
     if let Some(params) = params.try_cast::<list::List>() {
         let params = params.clone().reach(obj);
@@ -228,7 +228,7 @@ pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> FPtr
     }
 }
 
-fn syntax_local(args: &Reachable<List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_local(args: &Reachable<List>, obj: &mut Object) -> Ref<Value> {
     //空のフレームを追加
     let frame: Vec<(&Symbol, &Value)> = Vec::new();
     ////ローカルフレームを環境にプッシュ
@@ -242,7 +242,7 @@ fn syntax_local(args: &Reachable<List>, obj: &mut Object) -> FPtr<Value> {
     result
 }
 
-fn syntax_let(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_let(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     let symbol = args.as_ref().head().reach(obj);
     if let Some(symbol) = symbol.try_cast::<Symbol>() {
         let value = args.as_ref().tail().as_ref().head().reach(obj);
@@ -258,25 +258,25 @@ fn syntax_let(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
     }
 }
 
-fn syntax_quote(args: &Reachable<list::List>, _obj: &mut Object) -> FPtr<Value> {
+fn syntax_quote(args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
     let sexp = args.as_ref().head();
     sexp
 }
 
-fn syntax_unquote(_args: &Reachable<list::List>, _obj: &mut Object) -> FPtr<Value> {
+fn syntax_unquote(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
     unimplemented!()
 }
 
-fn syntax_bind(_args: &Reachable<list::List>, _obj: &mut Object) -> FPtr<Value> {
+fn syntax_bind(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
     unimplemented!()
 }
 
-fn syntax_and(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
-    let mut last: Option<FPtr<Value>> = None;
+fn syntax_and(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
+    let mut last: Option<Ref<Value>> = None;
     for sexp in args.iter(obj) {
         let result = cap_eval!(sexp, obj);
         if is_true(result.as_ref()) == false {
-            return bool::Bool::false_().into_fptr().into_value();
+            return bool::Bool::false_().into_ref().into_value();
         }
 
         last = Some(result);
@@ -285,11 +285,11 @@ fn syntax_and(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
     if let Some(last) = last {
         last
     } else {
-        bool::Bool::true_().into_fptr().into_value()
+        bool::Bool::true_().into_ref().into_value()
     }
 }
 
-fn syntax_or(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_or(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     for sexp in args.iter(obj) {
         let result = cap_eval!(sexp, obj);
         if is_true(result.as_ref()) {
@@ -297,24 +297,24 @@ fn syntax_or(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
         }
     }
 
-    bool::Bool::false_().into_fptr().into_value()
+    bool::Bool::false_().into_ref().into_value()
 }
 
-fn syntax_match(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
+fn syntax_match(args: &Reachable<list::List>, obj: &mut Object) -> Ref<Value> {
     //パターン部が一つもなければUnitを返す
     if args.as_ref().is_nil() {
-        tuple::Tuple::unit().into_fptr().into_value()
+        tuple::Tuple::unit().into_ref().into_value()
     } else {
         let match_expr = r#match::translate(args, obj).into_value();
         cap_eval!(match_expr, obj)
     }
 }
 
-fn syntax_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> FPtr<Value> {
+fn syntax_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
     unimplemented!()
 }
 
-fn syntax_return_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> FPtr<Value> {
+fn syntax_return_object_switch(_args: &Reachable<list::List>, _obj: &mut Object) -> Ref<Value> {
     unimplemented!()
 }
 
@@ -379,21 +379,21 @@ static SYNTAX_RETURN_OBJECT_SWITCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("if", &FPtr::new(&SYNTAX_IF.value));
-    obj.define_global_value("begin", &FPtr::new(&SYNTAX_BEGIN.value));
-    obj.define_global_value("cond", &FPtr::new(&SYNTAX_COND.value));
-    obj.define_global_value("def-recv", &FPtr::new(&SYNTAX_DEF_RECV.value));
-    obj.define_global_value("fun", &FPtr::new(&SYNTAX_FUN.value));
-    obj.define_global_value("local", &FPtr::new(&SYNTAX_LOCAL.value));
-    obj.define_global_value("let", &FPtr::new(&SYNTAX_LET.value));
-    obj.define_global_value("quote", &FPtr::new(&SYNTAX_QUOTE.value));
-    obj.define_global_value("unquote", &FPtr::new(&SYNTAX_UNQUOTE.value));
-    obj.define_global_value("bind", &FPtr::new(&SYNTAX_BIND.value));
-    obj.define_global_value("match", &FPtr::new(&SYNTAX_MATCH.value));
-    obj.define_global_value("and", &FPtr::new(&SYNTAX_AND.value));
-    obj.define_global_value("or", &FPtr::new(&SYNTAX_OR.value));
-    obj.define_global_value("object-switch", &FPtr::new(&SYNTAX_OBJECT_SWITCH.value));
-    obj.define_global_value("return-object-switch", &FPtr::new(&SYNTAX_RETURN_OBJECT_SWITCH.value));
+    obj.define_global_value("if", &Ref::new(&SYNTAX_IF.value));
+    obj.define_global_value("begin", &Ref::new(&SYNTAX_BEGIN.value));
+    obj.define_global_value("cond", &Ref::new(&SYNTAX_COND.value));
+    obj.define_global_value("def-recv", &Ref::new(&SYNTAX_DEF_RECV.value));
+    obj.define_global_value("fun", &Ref::new(&SYNTAX_FUN.value));
+    obj.define_global_value("local", &Ref::new(&SYNTAX_LOCAL.value));
+    obj.define_global_value("let", &Ref::new(&SYNTAX_LET.value));
+    obj.define_global_value("quote", &Ref::new(&SYNTAX_QUOTE.value));
+    obj.define_global_value("unquote", &Ref::new(&SYNTAX_UNQUOTE.value));
+    obj.define_global_value("bind", &Ref::new(&SYNTAX_BIND.value));
+    obj.define_global_value("match", &Ref::new(&SYNTAX_MATCH.value));
+    obj.define_global_value("and", &Ref::new(&SYNTAX_AND.value));
+    obj.define_global_value("or", &Ref::new(&SYNTAX_OR.value));
+    obj.define_global_value("object-switch", &Ref::new(&SYNTAX_OBJECT_SWITCH.value));
+    obj.define_global_value("return-object-switch", &Ref::new(&SYNTAX_RETURN_OBJECT_SWITCH.value));
 }
 
 pub mod literal {

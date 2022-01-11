@@ -24,7 +24,7 @@ pub struct CCtx<'a> {
     toplevel: bool,
 }
 
-pub fn compile(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<compiled::Code> {
+pub fn compile(sexp: &Reachable<Value>, obj: &mut Object) -> Ref<compiled::Code> {
     let mut frames = Vec::new();
     let mut ctx = CCtx {
         frames: &mut frames,
@@ -40,7 +40,7 @@ pub fn compile(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<compiled::Code
 //
 // pass 1
 // Covnerts S expression into intermediates form (IForm).
-fn pass_transform(sexp: &Reachable<Value>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+fn pass_transform(sexp: &Reachable<Value>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     if let Some(list) = sexp.try_cast::<List>() {
         if list.as_ref().is_nil() {
             IFormConst::alloc(sexp, obj).into_iform()
@@ -112,7 +112,7 @@ fn lookup_localvar<'a>(symbol: &Symbol, ctx: &'a mut CCtx) -> LookupResult<'a> {
 }
 
 
-fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Option<FPtr<Value>> {
+fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Option<Ref<Value>> {
     match lookup_localvar(symbol, ctx) {
         LookupResult::Var(lvar) => {
             //ローカル変数が、グローバル変数を束縛していたら
@@ -136,13 +136,13 @@ fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Op
     }
 }
 
-fn transform_symbol(symbol: &Reachable<Symbol>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+fn transform_symbol(symbol: &Reachable<Symbol>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     match lookup_localvar(symbol.as_ref(), ctx) {
         LookupResult::Var(_lvar) => {
             IFormLRef::alloc(symbol, obj).into_iform()
         }
         LookupResult::Const(constant) => {
-            FPtr::new(constant).into_iform()
+            Ref::new(constant).into_iform()
         }
         LookupResult::Notfound => {
             IFormGRef::alloc(symbol, obj).into_iform()
@@ -150,7 +150,7 @@ fn transform_symbol(symbol: &Reachable<Symbol>, ctx: &mut CCtx, obj: &mut Object
     }
 }
 
-fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let app = list.as_ref().head();
 
     //Syntaxを適用しているなら、Syntaxを適用して変換する
@@ -190,7 +190,7 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     IFormCall::alloc(&app, &args, obj).into_iform()
 }
 
-fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -210,7 +210,7 @@ fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Ob
     IFormContainer::alloc(&args, iform::ContainerKind::Tuple, obj).into_iform()
 }
 
-fn transform_array(array: &Reachable<array::Array<Value>>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+fn transform_array(array: &Reachable<array::Array<Value>>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -230,7 +230,7 @@ fn transform_array(array: &Reachable<array::Array<Value>>, ctx: &mut CCtx, obj: 
     IFormContainer::alloc(&args, iform::ContainerKind::Array, obj).into_iform()
 }
 
-fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let syntax = syntax.as_ref();
 
     //TODO 引数の数や型のチェック
@@ -239,7 +239,7 @@ fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mu
     syntax.transform(args, ctx, obj)
 }
 
-pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -264,8 +264,8 @@ pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object
     IFormIf::alloc(&pred, &true_, &false_, obj).into_iform()
 }
 
-pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
-    fn cond_inner(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+    fn cond_inner(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
         let is_last = args.as_ref().tail().as_ref().is_nil();
 
         let clause = args.as_ref().head();
@@ -316,7 +316,7 @@ pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Obje
     }
 }
 
-fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     //Beginは現在のコンテキスト(トップレベルや末尾文脈)をそのまま引き継いで各式を評価します
 
     let size = body.as_ref().count();
@@ -330,11 +330,11 @@ fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     IFormSeq::alloc(&builder.get().reach(obj), obj).into_iform()
 }
 
-pub(crate) fn syntax_begin(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub(crate) fn syntax_begin(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     transform_begin(args, ctx, obj)
 }
 
-pub fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     //def-recvはトップレベルのコンテキストで使用可能(letやfunで作成されたローカルフレーム内では使用不可能)
     if ctx.frames.is_empty() {
         let pat = args.as_ref().head().reach(obj);
@@ -346,7 +346,7 @@ pub fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object)
     }
 }
 
-pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let params = args.as_ref().head().reach(obj);
     if let Some(params) = params.try_cast::<List>() {
         let mut builder_params = ArrayBuilder::<Symbol>::new(params.as_ref().count(), obj);
@@ -390,7 +390,7 @@ pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
 
 }
 
-pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     //ローカルフレームを作成する
     let frame: Vec<LocalVar> = Vec::new();
 
@@ -410,7 +410,7 @@ pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
     IFormLocal::alloc(&body, obj).into_iform()
 }
 
-pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     if ctx.toplevel == false {
         panic!("The let syntax is allowed in top level context.");
     }
@@ -439,23 +439,23 @@ pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
     }
 }
 
-pub fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let val = args.as_ref().head().reach(obj);
     IFormConst::alloc(&val, obj).into_iform()
 }
 
 
 #[allow(unused_variables)]
-pub fn syntax_unquote(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_unquote(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     unimplemented!()
 }
 
 #[allow(unused_variables)]
-pub fn syntax_bind(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_bind(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     unimplemented!()
 }
 
-pub fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     //パターン部が一つもなければUnitを返す
     if args.as_ref().is_nil() {
         IFormConst::alloc(&tuple::Tuple::unit().into_value(), obj).into_iform()
@@ -465,7 +465,7 @@ pub fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
     }
 }
 
-pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -489,7 +489,7 @@ pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Objec
     IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::MatchSuccess, obj).into_iform()
 }
 
-pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -512,7 +512,7 @@ pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
     }
 }
 
-pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -535,7 +535,7 @@ pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FP
     }
 }
 
-pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
     //TODO 末尾文脈でのみ許可するようにしたい
 
@@ -552,7 +552,7 @@ pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &
     }
 }
 
-pub fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> FPtr<IForm> {
+pub fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
     //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
     //TODO 末尾文脈でのみ許可するようにしたい
 
@@ -587,7 +587,7 @@ mod codegen {
     }
 
     impl <'a> CGCtx<'a> {
-        pub fn add_constant(&mut self, v: FPtr<Value>, obj: &mut Object) -> usize {
+        pub fn add_constant(&mut self, v: Ref<Value>, obj: &mut Object) -> usize {
             //同じ値が既に存在しているなら
             if let Some((index, _)) = self.constants.iter().enumerate()
                     .find(|(_index, constant)|  constant.as_ref() == v.as_ref()) {
@@ -609,7 +609,7 @@ mod codegen {
     //
     //
 
-    pub fn code_generate(iform: &Reachable<IForm>, obj: &mut Object) -> FPtr<compiled::Code> {
+    pub fn code_generate(iform: &Reachable<IForm>, obj: &mut Object) -> Ref<compiled::Code> {
         let mut constants:Vec<Cap<Value>> = Vec::new();
         let mut frames:Vec<Vec<Cap<Symbol>>> = Vec::new();
 
@@ -796,8 +796,9 @@ mod codegen {
         write_u8(iform.as_ref().len_params() as u8, &mut ctx.buf);
 
         let mut new_frame: Vec<Cap<Symbol>> = Vec::new();
+        //TODO ダミーシンボルめんどくさい。
         //クロージャフレームの最初にはクロージャ自身が入っているためダミーのシンボルを先頭に追加
-        new_frame.push(super::literal::app_symbol().into_cap(obj));
+        new_frame.push(super::literal::app_symbol().make().capture(obj));
 
         for index in 0 ..  iform.as_ref().len_params() {
             new_frame.push(iform.as_ref().get_param(index).capture(obj));

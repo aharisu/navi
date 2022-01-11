@@ -30,7 +30,7 @@ impl <T:NaviType> NaviType for Array<T> {
         NonNullConst::new_unchecked(&ARRAY_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         let size = self.len;
         let mut array = Self::alloc(size, allocator);
 
@@ -51,14 +51,14 @@ impl <T:NaviType> NaviType for Array<T> {
 impl <T: NaviType> Array<T> {
     fn size_of(&self) -> usize {
         std::mem::size_of::<Array<T>>()
-            + self.len * std::mem::size_of::<FPtr<Value>>()
+            + self.len * std::mem::size_of::<Ref<Value>>()
     }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Value>, *mut u8)) {
         for index in 0..self.len {
             callback(self.get_inner(index).cast_mut_value(), arg);
         }
@@ -89,13 +89,13 @@ impl <T: NaviType> Array<T> {
         true
     }
 
-    fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> FPtr<Array<T>> {
-        let ptr = allocator.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<FPtr<Value>>());
+    fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> Ref<Array<T>> {
+        let ptr = allocator.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<Ref<Value>>());
         unsafe {
             std::ptr::write(ptr.as_ptr(), Array { len: size, _type: PhantomData})
         }
 
-        ptr.into_fptr()
+        ptr.into_ref()
     }
 
     fn set_uncheck(&mut self, v: *mut T, index: usize) {
@@ -108,7 +108,7 @@ impl <T: NaviType> Array<T> {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut FPtr<T>;
+            let storage_ptr = ptr as *mut Ref<T>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
@@ -116,11 +116,11 @@ impl <T: NaviType> Array<T> {
         };
     }
 
-    pub fn get(&self, index: usize) -> FPtr<T> {
+    pub fn get(&self, index: usize) -> Ref<T> {
         self.get_inner(index).clone()
     }
 
-    fn get_inner<'a>(&'a self, index: usize) -> &'a mut FPtr<T> {
+    fn get_inner<'a>(&'a self, index: usize) -> &'a mut Ref<T> {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -130,7 +130,7 @@ impl <T: NaviType> Array<T> {
             //ポインタをArray構造体の後ろに移す
             let ptr = ptr.add(1);
             //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut FPtr<T>;
+            let storage_ptr = ptr as *mut Ref<T>;
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
 
@@ -151,7 +151,7 @@ impl <T: NaviType> Array<T> {
 }
 
 impl Array<Value> {
-    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> FPtr<Array<Value>> {
+    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> Ref<Array<Value>> {
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
@@ -171,7 +171,7 @@ impl Array<Value> {
     }
 }
 
-impl <T: NaviType> FPtr<Array<T>> {
+impl <T: NaviType> Ref<Array<T>> {
 
     fn set<V: ValueHolder<T>>(&mut self, v: &V, index: usize) {
         self.as_mut().set_uncheck(v.raw_ptr(), index);
@@ -236,7 +236,7 @@ pub struct ArrayIteratorGCUnsafe<'a, T: NaviType> {
 }
 
 impl <'a, T: NaviType> std::iter::Iterator for ArrayIteratorGCUnsafe<'a, T> {
-    type Item = FPtr<T>;
+    type Item = Ref<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.ary.len() <= self.index {
@@ -264,7 +264,7 @@ pub struct ArrayIterator<'a, T: NaviType> {
 }
 
 impl <'a, T: NaviType> std::iter::Iterator for ArrayIterator<'a, T> {
-    type Item = FPtr<T>;
+    type Item = Ref<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.ary.as_ref().len() <= self.index {
@@ -305,27 +305,27 @@ impl <T: NaviType> ArrayBuilder<T> {
         self.index += 1;
     }
 
-    pub fn get(self) -> FPtr<Array<T>> {
+    pub fn get(self) -> Ref<Array<T>> {
         self.ary.take()
     }
 }
 
-fn func_is_array(obj: &mut Object) -> FPtr<Value> {
+fn func_is_array(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg::<Value>(0, obj);
     if v.as_ref().is_type(array::Array::<Value>::typeinfo()) {
         v.clone()
     } else {
-        bool::Bool::false_().into_fptr().into_value()
+        bool::Bool::false_().into_ref().into_value()
     }
 }
 
-fn func_array_len(obj: &mut Object) -> FPtr<Value> {
+fn func_array_len(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg::<Array<Value>>(0, obj);
 
     number::Integer::alloc(v.as_ref().len() as i64, obj).into_value()
 }
 
-fn func_array_ref(obj: &mut Object) -> FPtr<Value> {
+fn func_array_ref(obj: &mut Object) -> Ref<Value> {
     let v = vm::refer_arg::<Array<Value>>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj);
 
@@ -366,9 +366,9 @@ static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("array?", &FPtr::new(&FUNC_IS_ARRAY.value));
-    obj.define_global_value("array-len", &FPtr::new(&FUNC_ARRAY_LEN.value));
-    obj.define_global_value("array-ref", &FPtr::new(&FUNC_ARRAY_REF.value));
+    obj.define_global_value("array?", &Ref::new(&FUNC_IS_ARRAY.value));
+    obj.define_global_value("array-len", &Ref::new(&FUNC_ARRAY_LEN.value));
+    obj.define_global_value("array-ref", &Ref::new(&FUNC_ARRAY_REF.value));
 }
 
 pub mod literal {
