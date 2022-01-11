@@ -27,6 +27,19 @@ pub struct MessageData {
     pub reply_token: ReplyToken,
 }
 
+struct MailBoxGCRootValues {
+    pub inbox: Vec<MessageData>,
+    pub result_box: Vec<(ReplyToken, FPtr<Value>)>,
+}
+
+impl mm::GCRootValueHolder for MailBoxGCRootValues {
+    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+        self.inbox.iter_mut().for_each(|data| callback(&mut data.message, arg));
+        self.result_box.iter_mut().for_each(|(_, result)| callback(result, arg));
+    }
+}
+
+
 // 実装メモ
 // ※ Objectがスケジューラに割り当てられている時の参照図
 //
@@ -47,36 +60,37 @@ pub struct MailBox {
     //関連しているObjectがスケジューラに紐づけられている時に値が設定される。
     //Objectの初期化時やスケジューラから切り離されている時はNoneになる。
     obj: Option<Arc<RefCell<Object>>>,
-    heap: RefCell<Heap>,
+    heap: Heap,
 
-    inbox: Vec<MessageData>,
     reply_token: ReplyToken,
-    result_box: Vec<(ReplyToken, FPtr<Value>)>,
+    values: MailBoxGCRootValues,
 }
 
 impl MailBox {
     pub(super) fn new() -> Self {
         MailBox {
             obj:None,
-            heap: RefCell::new(Heap::new(mm::StartHeapSize::Small)),
+            heap: Heap::new(mm::StartHeapSize::Small),
 
             reply_token: ReplyToken::new(),
-            inbox: Vec::new(),
-            result_box: Vec::new(),
+            values: MailBoxGCRootValues {
+                inbox: Vec::new(),
+                result_box: Vec::new(),
+            }
         }
     }
 
     pub fn recv_message(&mut self, msg: &Reachable<Value>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
         //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
-        let allocator = AnyAllocator::MailBox(self);
-        let msg = crate::value::value_clone(msg, &allocator);
+        let mut allocator = AnyAllocator::MailBox(self);
+        let msg = crate::value::value_clone(msg, &mut allocator);
 
         //返信を送受信するためのtx/rxを作成
         let reply_token = self.reply_token;
         self.reply_token = self.reply_token.next();
 
         //受け取ったメッセージを内部バッファに保存する
-        self.inbox.push(MessageData {
+        self.values.inbox.push(MessageData {
             message: msg,
             reply_to_mailbox: reply_to_mailbox,
             reply_token: reply_token,
@@ -87,21 +101,21 @@ impl MailBox {
     }
 
     pub fn pop_inbox(&mut self) -> Option<MessageData> {
-        self.inbox.pop()
+        self.values.inbox.pop()
     }
 
     pub fn recv_reply(&mut self, result: &Reachable<Value>, reply_token: ReplyToken) {
         //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
-        let allocator = AnyAllocator::MailBox(self);
-        let result = crate::value::value_clone(result, &allocator);
+        let mut allocator = AnyAllocator::MailBox(self);
+        let result = crate::value::value_clone(result, &mut allocator);
 
-        self.result_box.push((reply_token, result));
+        self.values.result_box.push((reply_token, result));
     }
 
     pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<FPtr<Value>> {
-        self.result_box.iter().position(|(token, _)| reply_token == *token)
+        self.values.result_box.iter().position(|(token, _)| reply_token == *token)
             .map(|index| {
-                let (_, result) = self.result_box.swap_remove(index);
+                let (_, result) = self.values.result_box.swap_remove(index);
                 result
             })
     }
@@ -125,35 +139,28 @@ impl PartialEq for MailBox {
     }
 }
 
-impl mm::GCRootValueHolder for MailBox {
-    fn for_each_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
-        self.inbox.iter().for_each(|data| callback(&data.message, arg));
-        self.result_box.iter().for_each(|(_, result)| callback(result, arg));
-    }
-}
-
 impl Allocator for MailBox {
-    fn alloc<T: NaviType>(&self) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc(self)
+    fn alloc<T: NaviType>(&mut self) -> UIPtr<T> {
+        self.heap.alloc(&mut self.values)
     }
 
-    fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc_with_additional_size(additional_size, self)
+    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> UIPtr<T> {
+        self.heap.alloc_with_additional_size(additional_size, &mut self.values)
     }
 
-    fn force_allocation_space(&self, size: usize) {
-        self.heap.borrow_mut().force_allocation_space(size, self);
+    fn force_allocation_space(&mut self, size: usize) {
+        self.heap.force_allocation_space(size, &mut self.values);
     }
 
     fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
-        self.heap.borrow().is_in_heap_object(v)
+        self.heap.is_in_heap_object(v)
     }
 
-    fn do_gc(&self) {
-        self.heap.borrow_mut().gc(self)
+    fn do_gc(&mut self) {
+        self.heap.gc(&mut self.values)
     }
 
     fn heap_used(&self) -> usize {
-        self.heap.borrow().used()
+        self.heap.used()
     }
 }

@@ -9,7 +9,7 @@ macro_rules! new_typeinfo {
                 None => None
             },
             eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Value, &Value) -> bool>($eq_func) },
-            clone_func: unsafe { std::mem::transmute::<fn(&$t, &crate::object::AnyAllocator) -> FPtr<$t>, fn(&Value, &crate::object::AnyAllocator) -> FPtr<Value>>($clone_func) },
+            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut crate::object::AnyAllocator) -> FPtr<$t>, fn(&Value, &mut crate::object::AnyAllocator) -> FPtr<Value>>($clone_func) },
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
             finalize: match $finalize_func {
@@ -21,7 +21,7 @@ macro_rules! new_typeinfo {
                 None => None
              },
             child_traversal_func: match $child_traversal_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t, *mut u8, fn(&FPtr<Value>, *mut u8)), fn(&Value, *mut u8, fn(&FPtr<Value>, *mut u8))>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t, *mut u8, fn(&mut FPtr<Value>, *mut u8)), fn(&mut Value, *mut u8, fn(&mut FPtr<Value>, *mut u8))>(func) }),
                 None => None
              },
             check_reply_func: match $check_reply_func {
@@ -50,16 +50,21 @@ pub mod reply;
 
 
 use crate::object::{Object, Allocator, AnyAllocator};
-use crate::object::mm::{self, GCAllocationStruct};
+use crate::object::mm::{self, GCAllocationStruct, ptr_to_usize, usize_to_ptr};
 use crate::util::non_null_const::*;
 use crate::{ptr::*, vm};
 
 use crate::value::func::*;
 use once_cell::sync::Lazy;
 
+//xxxx xxxx xxxx xx0r pointer value(r = 1: has Reply type. r = 0: do not have Reply type.)
+//xxxx xxxx xxxx x110 fixnum
+//xxxx xxxx xxx1 0010 tagged value
+
+
 // [tagged value]
 // Nil, true, false, ...
-const IMMIDATE_TAGGED_VALUE: usize = 0b0000_1111;
+const IMMIDATE_TAGGED_VALUE: usize = 0b0001_0010;
 
 
 const fn tagged_value(tag: usize) -> usize {
@@ -111,7 +116,7 @@ pub fn value_is_pointer(v: &Value) -> bool {
     pointer_kind(v as *const Value) == PtrKind::Ptr
 }
 
-pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &AnyAllocator) -> FPtr<T> {
+pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) -> FPtr<T> {
     //クローンを行う値のトータルのサイズを計測
     //リストや配列など内部に値を保持している場合は再帰的にすべての値のサイズも計測されている
     let total_size = mm::Heap::calc_total_size(v.cast_value().as_ref());
@@ -119,11 +124,6 @@ pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &AnyAllocator) -> F
     allocator.force_allocation_space(total_size);
 
     NaviType::clone_inner(v.as_ref(), allocator)
-}
-
-pub fn cast_value<T: NaviType>(v: &T) -> &Value {
-    //任意のNaviTypeの参照からValueへの参照への変換は安全なので無理やりキャスト
-    unsafe { std::mem::transmute(v) }
 }
 
 pub fn get_typeinfo<T: NaviType>(this: &T) -> NonNullConst<TypeInfo>{
@@ -162,22 +162,51 @@ pub fn check_reply(cap: &mut Cap<Value>, obj: &mut Object) -> bool {
             false
         }
     } else {
-        call_check_reply(cap, obj)
+        let typeinfo = get_typeinfo(cap.as_ref());
+        let typeinfo = unsafe { typeinfo.as_ref() };
+        match typeinfo.check_reply_func {
+            Some(func) => func(cap, obj),
+            None => true,
+        }
     }
 }
 
-pub(in crate::value) fn call_check_reply(cap: &mut Cap<Value>, obj: &mut Object) -> bool {
-    let typeinfo = get_typeinfo(cap.as_ref());
-    let typeinfo = unsafe { typeinfo.as_ref() };
-    match typeinfo.check_reply_func {
-        Some(func) => func(cap, obj),
-        None => true,
-    }
+pub fn has_replytype<T: NaviType>(ptr: &FPtr<T>) -> bool {
+    let value = ptr_to_usize(ptr.raw_ptr());
+    //最下位bitが1ならReply値、もしくは内部でReplyを持つ値。
+    value & 1 == 1
+}
+
+pub fn set_has_replytype_flag<T: NaviType>(ptr: &mut FPtr<T>) {
+    //最下位bitに1を立てる
+    ptr.update_pointer(usize_to_ptr(ptr_to_usize(ptr.raw_ptr()) | 1));
+}
+
+pub fn clear_has_replytype_flag<T: NaviType>(ptr: &mut FPtr<T>) {
+    //最下位bitの1を降ろす
+    ptr.update_pointer(usize_to_ptr(ptr_to_usize(ptr.raw_ptr()) & !1));
+}
+
+#[inline]
+pub fn ptr_value<T: NaviType>(ptr: &FPtr<T>) -> *mut T {
+    //最下位bitをマスクしてからポインタを参照する
+    usize_to_ptr::<T>(ptr_to_usize(ptr.raw_ptr()) & !1)
+}
+
+#[inline]
+pub fn refer_value<'a, 'b, T: NaviType>(ptr: &'a FPtr<T>) -> &'b T {
+    unsafe { &*ptr_value(ptr) }
+}
+
+#[inline]
+pub fn mut_refer_value<'a, 'b, T: NaviType>(ptr: &'a mut FPtr<T>) -> &'b mut T {
+    //最下位bitをマスクしてからポインタを参照する
+    unsafe { &mut *ptr_value(ptr) }
 }
 
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> NonNullConst<TypeInfo>;
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self>;
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self>;
 }
 
 #[allow(dead_code)]
@@ -186,12 +215,12 @@ pub struct TypeInfo {
     pub fixed_size: usize,
     pub variable_size_func: Option<fn(&Value) -> usize>,
     pub eq_func: fn(&Value, &Value) -> bool,
-    pub clone_func: fn(&Value, &AnyAllocator) -> FPtr<Value>,
+    pub clone_func: fn(&Value, &mut AnyAllocator) -> FPtr<Value>,
     pub print_func: fn(&Value, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: fn(&TypeInfo) -> bool,
     pub finalize: Option<fn(&mut Value)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
-    pub child_traversal_func: Option<fn(&Value, *mut u8, fn(&FPtr<Value>, *mut u8))>,
+    pub child_traversal_func: Option<fn(&mut Value, *mut u8, fn(&mut FPtr<Value>, *mut u8))>,
     pub check_reply_func: Option<fn(&mut Cap<Value>, &mut Object) -> bool>,
 }
 
@@ -216,7 +245,7 @@ impl NaviType for Value {
         NonNullConst::new_unchecked(&VALUE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         if value_is_pointer(self) {
             let typeinfo = get_typeinfo(self);
            (unsafe { typeinfo.as_ref() }.clone_func)(self, allocator)
@@ -331,7 +360,7 @@ static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("=", &FUNC_EQUAL.value);
+    obj.define_global_value("=", &FPtr::new(&FUNC_EQUAL.value));
 }
 
 pub mod literal {

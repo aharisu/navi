@@ -45,7 +45,7 @@ impl NaviType for Syntax {
         NonNullConst::new_unchecked(&SYNTAX_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
         //Syntaxのインスタンスはヒープ上に作られることがないため、自分自身を返す
         FPtr::new(self)
     }
@@ -209,7 +209,7 @@ pub(crate) fn syntax_fun(args: &Reachable<list::List>, obj: &mut Object) -> FPtr
         for param in params.iter(obj) {
             match param.try_cast::<symbol::Symbol>() {
                 Some(symbol) => {
-                    builder_params.push(symbol.as_ref(), obj);
+                    builder_params.push(symbol, obj);
                 }
                 None => {
                     panic!("parameter require symbol. But got {:?}", param.as_ref())
@@ -246,13 +246,13 @@ fn syntax_let(args: &Reachable<list::List>, obj: &mut Object) -> FPtr<Value> {
     let symbol = args.as_ref().head().reach(obj);
     if let Some(symbol) = symbol.try_cast::<Symbol>() {
         let value = args.as_ref().tail().as_ref().head().reach(obj);
-        let value = eval(&value, obj).reach(obj);
+        let value = eval(&value, obj);
 
-        if obj.context().add_to_current_frame(symbol, &value) == false {
-            obj.define_global_value(symbol.as_ref(), value.as_ref())
+        if obj.context().add_to_current_frame(&symbol.make(), &value) == false {
+            obj.define_global_value(symbol.as_ref(), &value)
         }
 
-        value.into_fptr()
+        value
     } else {
         panic!("let variable require symbol. But got {}", symbol.as_ref());
     }
@@ -379,21 +379,21 @@ static SYNTAX_RETURN_OBJECT_SWITCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("if", &SYNTAX_IF.value);
-    obj.define_global_value("begin", &SYNTAX_BEGIN.value);
-    obj.define_global_value("cond", &SYNTAX_COND.value);
-    obj.define_global_value("def-recv", &SYNTAX_DEF_RECV.value);
-    obj.define_global_value("fun", &SYNTAX_FUN.value);
-    obj.define_global_value("local", &SYNTAX_LOCAL.value);
-    obj.define_global_value("let", &SYNTAX_LET.value);
-    obj.define_global_value("quote", &SYNTAX_QUOTE.value);
-    obj.define_global_value("unquote", &SYNTAX_UNQUOTE.value);
-    obj.define_global_value("bind", &SYNTAX_BIND.value);
-    obj.define_global_value("match", &SYNTAX_MATCH.value);
-    obj.define_global_value("and", &SYNTAX_AND.value);
-    obj.define_global_value("or", &SYNTAX_OR.value);
-    obj.define_global_value("object-switch", &SYNTAX_OBJECT_SWITCH.value);
-    obj.define_global_value("return-object-switch", &SYNTAX_RETURN_OBJECT_SWITCH.value);
+    obj.define_global_value("if", &FPtr::new(&SYNTAX_IF.value));
+    obj.define_global_value("begin", &FPtr::new(&SYNTAX_BEGIN.value));
+    obj.define_global_value("cond", &FPtr::new(&SYNTAX_COND.value));
+    obj.define_global_value("def-recv", &FPtr::new(&SYNTAX_DEF_RECV.value));
+    obj.define_global_value("fun", &FPtr::new(&SYNTAX_FUN.value));
+    obj.define_global_value("local", &FPtr::new(&SYNTAX_LOCAL.value));
+    obj.define_global_value("let", &FPtr::new(&SYNTAX_LET.value));
+    obj.define_global_value("quote", &FPtr::new(&SYNTAX_QUOTE.value));
+    obj.define_global_value("unquote", &FPtr::new(&SYNTAX_UNQUOTE.value));
+    obj.define_global_value("bind", &FPtr::new(&SYNTAX_BIND.value));
+    obj.define_global_value("match", &FPtr::new(&SYNTAX_MATCH.value));
+    obj.define_global_value("and", &FPtr::new(&SYNTAX_AND.value));
+    obj.define_global_value("or", &FPtr::new(&SYNTAX_OR.value));
+    obj.define_global_value("object-switch", &FPtr::new(&SYNTAX_OBJECT_SWITCH.value));
+    obj.define_global_value("return-object-switch", &FPtr::new(&SYNTAX_RETURN_OBJECT_SWITCH.value));
 }
 
 pub mod literal {

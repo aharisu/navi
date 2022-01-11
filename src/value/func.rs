@@ -67,7 +67,7 @@ impl NaviType for Func {
         NonNullConst::new_unchecked(&FUNC_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
         //Funcのインスタンスはヒープ上に作られることがないため、自分自身を返す
         FPtr::new(self)
     }

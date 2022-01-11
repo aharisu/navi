@@ -19,9 +19,9 @@ impl Context {
         self.frames.is_empty()
     }
 
-    pub fn add_to_current_frame(&mut self, symbol: &Reachable<symbol::Symbol>, value: &Reachable<Value>) -> bool{
+    pub fn add_to_current_frame(&mut self, symbol: &FPtr<symbol::Symbol>, value: &FPtr<Value>) -> bool{
         if let Some(frame) = self.frames.last_mut() {
-            frame.push((FPtr::new(symbol.as_ref()), FPtr::new(value.as_ref())));
+            frame.push((symbol.clone(), value.clone()));
             true
         } else {
             //ローカルフレームがなければfalseを返す
@@ -58,11 +58,11 @@ impl Context {
         None
     }
 
-    pub(crate) fn for_each_all_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
+    pub(crate) fn for_each_all_alived_value(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
         //ローカルフレーム内で保持している値
-        for frame in self.frames.iter() {
-            for (sym, v) in frame.iter() {
-                callback(sym.cast_value(), arg);
+        for frame in self.frames.iter_mut() {
+            for (sym, v) in frame.iter_mut() {
+                callback(sym.cast_mut_value(), arg);
                 callback(v, arg);
             }
         }

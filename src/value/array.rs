@@ -30,7 +30,7 @@ impl <T:NaviType> NaviType for Array<T> {
         NonNullConst::new_unchecked(&ARRAY_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         let size = self.len;
         let mut array = Self::alloc(size, allocator);
 
@@ -41,7 +41,7 @@ impl <T:NaviType> NaviType for Array<T> {
             let cloned = Value::clone_inner(child.as_ref(), allocator);
             let cloned = unsafe { cloned.cast_unchecked::<T>() };
 
-            array.as_mut().set(cloned.as_ref(), index);
+            array.as_mut().set_uncheck(cloned.raw_ptr(), index);
         }
 
         array
@@ -58,38 +58,39 @@ impl <T: NaviType> Array<T> {
         std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
         for index in 0..self.len {
-            callback(self.get_inner(index).cast_value(), arg);
+            callback(self.get_inner(index).cast_mut_value(), arg);
         }
     }
 
     fn check_reply(cap: &mut Cap<Array<Value>>, obj: &mut Object) -> bool {
         for index in 0.. cap.as_ref().len {
-            let mut child_v = cap.as_ref().get(index).capture(obj);
+            let child_v = cap.as_ref().get_inner(index);
+            //子要素がReply型を持っている場合は
+            if child_v.has_replytype() {
 
-            if let Some(reply) = child_v.try_cast_mut::<reply::Reply>() {
-                if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
-                    cap.as_mut().set(result.as_ref(), index);
+                //返信がないか確認する
+                let mut child_v = child_v.clone().capture(obj);
+                if value::check_reply(&mut child_v, obj) {
+                    //返信があった場合は、内部ポインタを返信結果の値に上書きする
+                    cap.as_ref().get_inner(index).update_pointer(child_v.raw_ptr());
+
                 } else {
-
-                    //Replyがまだ返信を受け取っていなかったのでfalseを返す
-                    return false;
-                }
-
-            } else {
-                //子要素にReplyを含む値が残っている場合は、全体をfalseにする
-                if value::call_check_reply(&mut child_v, obj) == false {
+                    //子要素にReplyを含む値が残っている場合は、全体をfalseにする
                     return false;
                 }
             }
         }
 
+        //内部にReply型を含まなくなったのでフラグを下す
+        value::clear_has_replytype_flag(cap.mut_refer());
+
         true
     }
 
-    fn alloc<A: Allocator>(size: usize, obj: &A) -> FPtr<Array<T>> {
-        let ptr = obj.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<FPtr<Value>>());
+    fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> FPtr<Array<T>> {
+        let ptr = allocator.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<FPtr<Value>>());
         unsafe {
             std::ptr::write(ptr.as_ptr(), Array { len: size, _type: PhantomData})
         }
@@ -97,8 +98,7 @@ impl <T: NaviType> Array<T> {
         ptr.into_fptr()
     }
 
-    fn set(&mut self, v: &T, index: usize)
-    {
+    fn set_uncheck(&mut self, v: *mut T, index: usize) {
         if self.len <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -112,7 +112,7 @@ impl <T: NaviType> Array<T> {
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
-            std::ptr::write(storage_ptr, FPtr::new(v));
+            std::ptr::write(storage_ptr, v.into());
         };
     }
 
@@ -148,7 +148,6 @@ impl <T: NaviType> Array<T> {
             index: 0,
         }
     }
-
 }
 
 impl Array<Value> {
@@ -160,11 +159,27 @@ impl Array<Value> {
 
         let mut array = Self::alloc(size, obj);
         for (index, v) in list.iter(obj).enumerate() {
-            array.as_mut().set(v.as_ref(), index);
+            array.as_mut().set_uncheck(v.raw_ptr(), index);
+        }
+
+        //listがReplyを持っている場合は、返す値にもReplyを持っているフラグを立てる
+        if list.has_replytype() {
+            value::set_has_replytype_flag(&mut array)
         }
 
         array
     }
+}
+
+impl <T: NaviType> FPtr<Array<T>> {
+
+    fn set<V: ValueHolder<T>>(&mut self, v: &V, index: usize) {
+        self.as_mut().set_uncheck(v.raw_ptr(), index);
+        if v.has_replytype() {
+            value::set_has_replytype_flag(self);
+        }
+    }
+
 }
 
 impl <T: NaviType> Eq for Array<T> { }
@@ -273,9 +288,9 @@ impl <T: NaviType> ArrayBuilder<T> {
 
         //pushが完了するまでにGCが動作する可能性があるため、あらかじめ全領域をダミーの値で初期化する
         //ヌルポインタを使用しているがGCの動作に問題はない。
-        let dummy_value = FPtr::<T>::from_ptr(std::ptr::null_mut()).as_ref();
+        let dummy_value = std::ptr::null_mut();
         for index in 0..size {
-            ary.as_mut().set(dummy_value, index);
+            ary.as_mut().set_uncheck(dummy_value, index);
         }
 
         ArrayBuilder {
@@ -284,8 +299,9 @@ impl <T: NaviType> ArrayBuilder<T> {
         }
     }
 
-    pub fn push(&mut self, v: &T, _obj: &mut Object) {
-        self.ary.as_mut().set(v, self.index);
+    pub fn push<V: ValueHolder<T>>(&mut self, v: &V, _obj: &mut Object) {
+        self.ary.mut_refer().set(v, self.index);
+
         self.index += 1;
     }
 
@@ -350,9 +366,9 @@ static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("array?", &FUNC_IS_ARRAY.value);
-    obj.define_global_value("array-len", &FUNC_ARRAY_LEN.value);
-    obj.define_global_value("array-ref", &FUNC_ARRAY_REF.value);
+    obj.define_global_value("array?", &FPtr::new(&FUNC_IS_ARRAY.value));
+    obj.define_global_value("array-len", &FPtr::new(&FUNC_ARRAY_LEN.value));
+    obj.define_global_value("array-ref", &FPtr::new(&FUNC_ARRAY_REF.value));
 }
 
 pub mod literal {

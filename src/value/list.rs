@@ -31,7 +31,7 @@ impl NaviType for List {
         NonNullConst::new_unchecked(&LIST_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         if self.is_nil() {
             //Nilの場合はImmidiate Valueなのでそのまま返す
             FPtr::new(self)
@@ -54,39 +54,41 @@ impl List {
         std::ptr::eq(&LIST_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, arg: *mut u8)) {
-        callback(&self.v, arg);
-        callback(self.next.cast_value(), arg);
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, arg: *mut u8)) {
+        callback(&mut self.v, arg);
+        callback(self.next.cast_mut_value(), arg);
     }
 
     fn check_reply(cap: &mut Cap<List>, obj: &mut Object) -> bool {
-        if cap.as_ref().is_nil() {
-            true
-        } else {
-            //headにReplyを含んだ値がないかチェック
+        //headにReplyを含んだ値がないかチェック
+        if cap.as_ref().v.has_replytype() {
             let mut head = cap.as_ref().head().capture(obj);
+            if value::check_reply(&mut head, obj) {
+                cap.as_mut().v.update_pointer(head.raw_ptr());
 
-            //headがReply自身か？
-            if let Some(reply) = head.try_cast_mut::<reply::Reply>() {
-                //Replyから返信を取得
-                if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
-                    //返信の値でheadを上書き
-                    cap.as_mut().v = result.clone();
-
-                } else {
-                    //Replyがまだ返信を受け取っていなかったのでfalseを返す
-                    return false;
-                }
             } else {
-                //headがReply以外の値の場合、値の中にReplyを含んでいないかチェック
-                if value::call_check_reply(&mut head, obj) == false {
-                    return false;
-                }
+                //Replyがまだ返信を受け取っていなかったのでfalseを返す
+                return false;
             }
-
-            //Tailリストの中にReplyが含まれていないかを再帰的にチェック
-            Self::check_reply(&mut cap.as_ref().tail().capture(obj), obj)
         }
+
+        //nextにReplyを含んだ値がないかチェック
+        if cap.as_ref().next.has_replytype() {
+            //Replyを含んでいる場合は再帰的に確認していく
+            let mut tail = cap.as_ref().tail().capture(obj);
+            if Self::check_reply(&mut tail, obj) {
+                cap.as_mut().next.update_pointer(tail.raw_ptr());
+
+            } else {
+                //Replyがまだ返信を受け取っていなかったのでfalseを返す
+                return false;
+            }
+        }
+
+        //内部にReply型を含まなくなったのでフラグを下す
+        value::clear_has_replytype_flag(cap.mut_refer());
+
+        true
     }
 
     pub fn nil() -> Reachable<List> {
@@ -97,31 +99,41 @@ impl List {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Value>, next: &Reachable<List>, allocator: &A) -> FPtr<List> {
+    pub fn alloc<A: Allocator>(v: &Reachable<Value>, next: &Reachable<List>, allocator: &mut A) -> FPtr<List> {
         let ptr = allocator.alloc::<List>();
         unsafe {
             //確保したメモリ内に値を書き込む
             std::ptr::write(ptr.as_ptr(), List {
-                v: FPtr::new(v.as_ref()),
-                next: FPtr::new(next.as_ref()),
+                v: v.raw_ptr().into(),
+                next: next.raw_ptr().into(),
                 })
         }
 
-        ptr.into_fptr()
+        let mut result = ptr.into_fptr();
+        if v.has_replytype() || next.has_replytype() {
+            value::set_has_replytype_flag(&mut result);
+        }
+
+        result
     }
 
-    pub fn alloc_tail(v: &Reachable<Value>, obj: &mut Object) -> FPtr<List> {
-        let ptr = obj.alloc::<List>();
+    pub fn alloc_tail<A: Allocator>(v: &Reachable<Value>, allocator: &mut A) -> FPtr<List> {
+        let ptr = allocator.alloc::<List>();
 
         unsafe {
             //確保したメモリ内に値を書き込む
             std::ptr::write(ptr.as_ptr(), List {
-                v: FPtr::new(v.as_ref()),
+                v: v.raw_ptr().into(),
                 next: Self::nil().into_fptr(),
                 })
         }
 
-        ptr.into_fptr()
+        let mut result = ptr.into_fptr();
+        if v.has_replytype() {
+            value::set_has_replytype_flag(&mut result);
+        }
+
+        result
     }
 
     pub fn head(&self) -> FPtr<Value> {
@@ -287,7 +299,7 @@ pub struct ListIterator {
 impl ListIterator {
     pub fn new(list: &Reachable<List>, obj: &mut Object) -> Self {
         ListIterator {
-            cur: FPtr::new(list.as_ref()).capture(obj)
+            cur: list.make().capture(obj),
         }
     }
 }
@@ -317,7 +329,7 @@ pub struct ListIteratorWithInfo {
 impl ListIteratorWithInfo {
     pub fn new(list: &Reachable<List>, obj: &mut Object) -> Self {
         ListIteratorWithInfo {
-            cur: FPtr::new(list.as_ref()).capture(obj)
+            cur: list.make().capture(obj),
         }
     }
 }
@@ -373,7 +385,7 @@ impl ListBuilder {
 
         } else {
             let end = self.end.as_mut().unwrap();
-            end.as_mut().next = cell.clone();
+            end.as_mut().next.update_pointer(cell.raw_ptr());
 
             end.update_pointer(cell);
         }
@@ -477,10 +489,10 @@ static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("cons", &FUNC_CONS.value);
-    obj.define_global_value("list?", &FUNC_IS_LIST.value);
-    obj.define_global_value("list-len", &FUNC_LIST_LEN.value);
-    obj.define_global_value("list-ref", &FUNC_LIST_REF.value);
+    obj.define_global_value("cons", &FPtr::new(&FUNC_CONS.value));
+    obj.define_global_value("list?", &FPtr::new(&FUNC_IS_LIST.value));
+    obj.define_global_value("list-len", &FPtr::new(&FUNC_LIST_LEN.value));
+    obj.define_global_value("list-ref", &FPtr::new(&FUNC_LIST_REF.value));
 }
 
 pub mod literal {

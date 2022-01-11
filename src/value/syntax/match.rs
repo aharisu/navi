@@ -26,7 +26,7 @@ impl NaviType for MatchFail {
         NonNullConst::new_unchecked(&MATCHFAIL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
         //MatchFail型の値は常にImmidiate Valueなのでそのまま返す
         FPtr::new(self)
     }
@@ -404,7 +404,7 @@ fn translate_literal(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>,
 
         //ReachableはCloneを実装していないため自動クローンしない。
         //値のMoveが必要なので新しいReachableを作成する
-        let body = FPtr::new(body.as_ref()).reach(obj);
+        let body = body.clone(obj);
 
         if let Some((_, clauses)) = group.iter_mut().find(|(v, _)| v.as_ref() == literal_pat.as_ref()) {
             clauses.push((pat, body));
@@ -435,7 +435,7 @@ fn translate_literal(exprs: &Vec<Reachable<Value>>, patterns: &Vec<MatchClause>,
         //ReachableはCloneを実装していないため自動クローンしない。
         //値のMoveが必要なので新しいReachableを作成する
         let exprs = exprs.iter()
-            .map(|cap| FPtr::new(cap.as_ref()).reach(obj))
+            .map(|expr| expr.clone(obj))
             .collect()
             ;
         //((equal? target literal) next-match)

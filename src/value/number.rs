@@ -35,7 +35,7 @@ impl NaviType for Integer {
         NonNullConst::new_unchecked(&INTEGER_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         Self::alloc(self.num, allocator)
     }
 }
@@ -53,7 +53,7 @@ impl Integer {
         || std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<A: Allocator>(num: i64, allocator : &A) -> FPtr<Integer> {
+    pub fn alloc<A: Allocator>(num: i64, allocator : &mut A) -> FPtr<Integer> {
         let ptr = allocator.alloc::<Integer>();
 
         unsafe {
@@ -133,7 +133,7 @@ impl NaviType for Real {
         NonNullConst::new_unchecked(&REAL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         Self::alloc(self.num, allocator)
     }
 }
@@ -150,7 +150,7 @@ impl Real {
         || std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<A: Allocator>(num: f64, allocator : &A) -> FPtr<Real> {
+    pub fn alloc<A: Allocator>(num: f64, allocator : &mut A) -> FPtr<Real> {
         let ptr = allocator.alloc::<Real>();
 
         unsafe {
@@ -223,7 +223,7 @@ impl NaviType for Number {
         NonNullConst::new_unchecked(&NUMBER_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
         //Number型のインスタンスは存在しないため、cloneが呼ばれることはない。
         unreachable!()
     }
@@ -324,6 +324,6 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("+", &FUNC_ADD.value);
-    obj.define_global_value("abs", &FUNC_ABS.value);
+    obj.define_global_value("+", &FPtr::new(&FUNC_ADD.value));
+    obj.define_global_value("abs", &FPtr::new(&FUNC_ABS.value));
 }

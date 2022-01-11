@@ -27,7 +27,7 @@ impl NaviType for Code {
         NonNullConst::new_unchecked(&CODE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         unsafe {
             let program = self.program.clone();
@@ -53,11 +53,11 @@ impl Code {
         std::ptr::eq(&CODE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, arg: *mut u8)) {
-        self.constants.iter().for_each(|v| callback(v, arg));
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, arg: *mut u8)) {
+        self.constants.iter_mut().for_each(|v| callback(v, arg));
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Value>>, allocator: &A) -> FPtr<Self> {
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Value>>, allocator: &mut A) -> FPtr<Self> {
         let ptr = allocator.alloc::<Code>();
 
         unsafe {
@@ -139,7 +139,7 @@ impl NaviType for Closure {
         NonNullConst::new_unchecked(&CLOSURE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         let program = self.code.program.clone();
         let constants:Vec<FPtr<Value>> = self.code.constants.iter()
@@ -157,11 +157,11 @@ impl Closure {
         std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, arg: *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, arg: *mut u8)) {
         self.code.child_traversal(arg, callback);
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[FPtr<Value>], num_args: usize, allocator: &A) -> FPtr<Self> {
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[FPtr<Value>], num_args: usize, allocator: &mut A) -> FPtr<Self> {
         let ptr = allocator.alloc::<Closure>();
 
         let constants = constants.into_iter()

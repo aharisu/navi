@@ -568,10 +568,10 @@ mod tests {
 
             let mut builder = ArrayBuilder::<Value>::new(4, ans_obj);
 
-            builder.push(_1.as_ref(), ans_obj);
-            builder.push(_3_14.as_ref(), ans_obj);
-            builder.push(hohoho.as_ref(), ans_obj);
-            builder.push(symbol.as_ref(), ans_obj);
+            builder.push(&_1, ans_obj);
+            builder.push(&_3_14, ans_obj);
+            builder.push(&hohoho, ans_obj);
+            builder.push(&symbol, ans_obj);
             let ans = builder.get().reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());

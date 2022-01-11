@@ -22,7 +22,7 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
 
     } else if let Some(sexp) = sexp.try_cast::<list::List>() {
         if sexp.as_ref().is_nil() {
-            FPtr::new(sexp.as_ref()).into_value()
+            sexp.make().into_value()
 
         } else {
             //リスト先頭の式を評価
@@ -90,7 +90,7 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
         let mut builder = ArrayBuilder::<Value>::new(ary.as_ref().len(), obj);
         for sexp in ary.iter() {
             let v = cap_eval!(sexp, obj);
-            builder.push(v.as_ref(), obj)
+            builder.push(&v, obj)
         }
         builder.get().into_value()
 
@@ -104,13 +104,13 @@ pub fn eval(sexp: &Reachable<Value>, obj: &mut Object) -> FPtr<Value> {
             for index in 0..len {
                 let sexp = tuple.as_ref().get(index).reach(obj);
                 let v = eval(&sexp, obj);
-                builder.push(v.as_ref(), obj)
+                builder.push(&v, obj)
             }
             tuple::Tuple::from_array(&builder.get().reach(obj), obj).into_value()
         }
 
     } else {
-        FPtr::new(sexp.as_ref())
+        sexp.make()
     }
 }
 

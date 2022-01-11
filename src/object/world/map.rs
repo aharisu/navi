@@ -11,10 +11,9 @@ pub struct Node<T: Debug> {
 }
 
 impl <T: Debug> Node<T> {
-    pub fn value_as_ref(&self) -> Option<&T> {
-        self.value.as_ref()
+    pub fn value_as_mut(&mut self) -> Option<&mut T> {
+        self.value.as_mut()
     }
-
 }
 
 impl <T: Debug> PatriciaTree<T> {
@@ -299,7 +298,24 @@ impl <T: Debug> PatriciaTree<T> {
             _ => unreachable!()
         }
     }
+    
+    pub fn for_each_all_value<F: Fn(&mut T)>(&mut self, callback: F) {
+        fn rec<T: Debug, F: Fn(&mut T)>(node: &mut Node<T>, callback: &F) {
+            if let Some(v) = node.value_as_mut() {
+                callback(v);
+            }
 
+            for c in node.children.iter_mut() {
+                rec(c, callback);
+            }
+        }
+
+        for root in self.children.iter_mut() {
+            rec(root, &callback);
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn to_vec_preorder<'a>(&'a self) -> Vec::<&'a Node<T>> {
         fn rec<'a, T: Debug>(node: &'a Node<T>, acc: &mut Vec::<&'a Node<T>>) {
             acc.push(node);

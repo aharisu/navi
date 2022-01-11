@@ -3,6 +3,7 @@
 use std::ptr::NonNull;
 
 use crate::object::Object;
+use crate::object::mm::usize_to_ptr;
 use crate::util::non_null_const::NonNullConst;
 use crate::value::{NaviType, Value, TypeInfo};
 
@@ -29,7 +30,7 @@ impl <T: NaviType> UIPtr<T> {
     }
 
     pub fn into_fptr(self) -> FPtr<T> {
-        FPtr::from_ptr(self.pointer)
+        self.pointer.into()
     }
 }
 
@@ -40,7 +41,8 @@ impl <T: NaviType> Clone for UIPtr<T> {
 }
 
 pub trait ValueHolder<T: NaviType> {
-    fn as_ptr(&self) -> *mut T;
+    fn has_replytype(&self) -> bool;
+    fn raw_ptr(&self) -> *mut T;
     fn as_ref<'a, 'b>(&'a self) -> &'b T;
     fn as_mut<'a, 'b>(&'a mut self) -> &'b mut T;
 }
@@ -57,11 +59,7 @@ pub struct FPtr<T: NaviType + ?Sized> {
 
 impl <T: NaviType> FPtr<T> {
     pub fn new(value: &T) -> Self {
-        Self::from_ptr(value as *const T as *mut T)
-    }
-
-    pub fn from_ptr(ptr: *mut T) -> Self {
-        FPtr { pointer: ptr }
+        FPtr::from(value as *const T as *mut T)
     }
 
     pub fn capture(self, obj: &mut Object) -> Cap<T> {
@@ -73,7 +71,11 @@ impl <T: NaviType> FPtr<T> {
     }
 
     pub fn cast_value(&self) -> &FPtr<Value> {
-        unsafe { &*(self as *const FPtr<T> as *const FPtr<Value>) }
+        unsafe { std::mem::transmute(self) }
+    }
+
+    pub fn cast_mut_value(&mut self) -> &mut FPtr<Value> {
+        unsafe { std::mem::transmute(self) }
     }
 
     pub fn into_value(self) -> FPtr<Value> {
@@ -85,13 +87,30 @@ impl <T: NaviType> FPtr<T> {
         Reachable::new_static(&*self.pointer)
     }
 
-    pub fn update_pointer(&self, new_ptr: *mut T) {
+    pub fn update_pointer(&mut self, new_ptr: *mut T) {
         if self.pointer != new_ptr {
             unsafe {
-                std::ptr::write(&self.pointer as *const *mut T as *mut *mut T, new_ptr);
+                std::ptr::write(&mut self.pointer, new_ptr);
             }
         }
     }
+
+    pub(crate) fn gc_update_pointer(&mut self, new_ptr: *mut T) {
+        //GC時専用のポインタ更新関数
+        //GC時に呼ばれる場合は、もともとのReplyフラグを保持して更新する
+        if self.pointer != new_ptr {
+            let has_reply = self.has_replytype();
+
+            unsafe {
+                std::ptr::write(&mut self.pointer, new_ptr);
+            }
+
+            if has_reply {
+                crate::value::set_has_replytype_flag(self);
+            }
+        }
+    }
+
 }
 
 impl FPtr<Value> {
@@ -106,7 +125,7 @@ impl FPtr<Value> {
 
     pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut FPtr<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_unchecked_mut() } )
+            Some( unsafe { self.cast_mut_unchecked() } )
 
         } else {
             None
@@ -117,7 +136,7 @@ impl FPtr<Value> {
         std::mem::transmute(self)
     }
 
-    pub unsafe fn cast_unchecked_mut<U: NaviType>(&mut self) -> &mut FPtr<U> {
+    pub unsafe fn cast_mut_unchecked<U: NaviType>(&mut self) -> &mut FPtr<U> {
         std::mem::transmute(self)
     }
 
@@ -131,23 +150,33 @@ impl FPtr<Value> {
     }
 }
 
+impl <T: NaviType> From<*mut T> for FPtr<T> {
+    fn from(item: *mut T) -> Self {
+       FPtr { pointer: item }
+    }
+}
+
 impl <T: NaviType> ValueHolder<T> for FPtr<T>{
-    fn as_ptr(&self) -> *mut T {
+    fn has_replytype(&self) -> bool {
+        crate::value::has_replytype(self)
+    }
+
+    fn raw_ptr(&self) -> *mut T {
         self.pointer
     }
 
     fn as_ref<'a, 'b>(&'a self) -> &'b T {
-        unsafe { & *(self.pointer) }
+        crate::value::refer_value(self)
     }
 
     fn as_mut<'a, 'b>(&'a mut self) -> &'b mut T {
-        unsafe { &mut *(self.pointer) }
+        crate::value::mut_refer_value(self)
     }
 }
 
 impl <T: NaviType> Clone for FPtr<T> {
     fn clone(&self) -> Self {
-        Self::from_ptr(self.as_ptr())
+        self.raw_ptr().into()
     }
 }
 
@@ -175,13 +204,17 @@ impl <T:NaviType> Cap<T> {
     }
 
     pub fn clone(&self, obj: &mut Object) -> Self {
-        FPtr::new(self.as_ref()).capture(obj)
+        FPtr::from(self.raw_ptr()).capture(obj)
     }
 
     pub fn cast_value(&self) -> &Cap<Value> {
         unsafe {
             std::mem::transmute(self)
         }
+    }
+
+    pub fn make(&self) -> FPtr<T> {
+        (unsafe { self.pointer.as_ref() }).clone()
     }
 
     pub fn take(self) -> FPtr<T> {
@@ -196,9 +229,17 @@ impl <T:NaviType> Cap<T> {
         unsafe { self.pointer.clone().as_ptr() }
     }
 
+    pub fn refer(&self) -> &FPtr<T> {
+        unsafe { &*(self.ptr()) }
+    }
+
+    pub fn mut_refer(&mut self) -> &mut FPtr<T> {
+        unsafe { &mut *(self.ptr()) }
+    }
+
     pub(crate) fn update_pointer(&mut self, ptr: FPtr<T>) {
         unsafe {
-            self.pointer.as_ref().update_pointer(ptr.as_ptr());
+            self.pointer.as_mut().update_pointer(ptr.raw_ptr());
         }
     }
 }
@@ -241,9 +282,15 @@ impl Cap<Value> {
 }
 
 impl <T: NaviType> ValueHolder<T> for Cap<T>{
-    fn as_ptr(&self) -> *mut T {
+    fn has_replytype(&self) -> bool {
         unsafe {
-            self.pointer.as_ref().as_ptr()
+            self.pointer.as_ref().has_replytype()
+        }
+    }
+
+    fn raw_ptr(&self) -> *mut T {
+        unsafe {
+            self.pointer.as_ref().raw_ptr()
         }
     }
 
@@ -283,8 +330,7 @@ impl <T: NaviType> Reachable<T> {
     }
 
     pub fn new_immidiate(value: usize) -> Self {
-        let ptr = value as *mut usize;
-        let ptr = ptr as *mut T;
+        let ptr = usize_to_ptr::<T>(value);
 
         Reachable::Static(ptr)
     }
@@ -293,10 +339,32 @@ impl <T: NaviType> Reachable<T> {
         Reachable::Capture(cap)
     }
 
+    pub fn make(&self) -> FPtr<T> {
+        match self {
+            Self::Static(ptr) => {
+                (*ptr).into()
+            },
+            Self::Capture(cap) => {
+                cap.make()
+            },
+        }
+    }
+
+    pub fn into_cap(self, obj: &mut Object) -> Cap<T> {
+        match self {
+            Self::Static(ptr) => {
+                FPtr::from(ptr).capture(obj)
+            },
+            Self::Capture(cap) => {
+                cap
+            },
+        }
+    }
+
     pub fn into_fptr(self) -> FPtr<T> {
         match self {
             Self::Static(ptr) => {
-                FPtr::from_ptr(ptr)
+                ptr.into()
             },
             Self::Capture(cap) => {
                 cap.take()
@@ -377,13 +445,20 @@ impl Reachable<Value> {
 }
 
 impl <T: NaviType> ValueHolder<T> for Reachable<T> {
-    fn as_ptr(&self) -> *mut T {
+    fn has_replytype(&self) -> bool {
+        match self {
+            Self::Static(_) => false,
+            Self::Capture(cap) => cap.has_replytype(),
+        }
+    }
+
+    fn raw_ptr(&self) -> *mut T {
         match self {
             Self::Static(ptr) => {
                 *ptr
             },
             Self::Capture(cap) => {
-                cap.as_ptr()
+                cap.raw_ptr()
             },
         }
     }

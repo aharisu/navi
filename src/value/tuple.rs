@@ -27,7 +27,7 @@ impl NaviType for Tuple {
         NonNullConst::new_unchecked(&TUPLE_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         if self.is_unit() {
             //UnitはImmidiate Valueなのでそのまま返す
             FPtr::new(self)
@@ -40,7 +40,7 @@ impl NaviType for Tuple {
                 //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
                 let cloned = Value::clone_inner(child.as_ref(), allocator);
 
-                tuple.as_mut().set(cloned.as_ref(), index);
+                tuple.as_mut().set_uncheck(cloned.raw_ptr(), index);
             }
 
             tuple
@@ -59,39 +59,34 @@ impl Tuple {
         std::ptr::eq(&TUPLE_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
         for index in 0..self.len {
             callback(self.get_inner(index), arg);
         }
     }
 
     fn check_reply(cap: &mut Cap<Tuple>, obj: &mut Object) -> bool {
-        if cap.as_ref().is_unit() {
-            true
-
-        } else {
-            for index in 0.. cap.as_ref().len {
-                let mut child_v = cap.as_ref().get(index).capture(obj);
-
-                if let Some(reply) = child_v.try_cast_mut::<reply::Reply>() {
-                    if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
-                        cap.as_mut().set(result.as_ref(), index);
-                    } else {
-
-                        //Replyがまだ返信を受け取っていなかったのでfalseを返す
-                        return false;
-                    }
+        for index in 0.. cap.as_ref().len {
+            let child_v = cap.as_ref().get(index);
+            //子要素がReply型を持っている場合は
+            if child_v.has_replytype() {
+                //返信がないか確認する
+                let mut child_v = child_v.clone().capture(obj);
+                if value::check_reply(&mut child_v, obj) {
+                    //返信があった場合は、内部ポインタを返信結果の値に上書きする
+                    cap.as_ref().get_inner(index).update_pointer(child_v.raw_ptr());
 
                 } else {
                     //子要素にReplyを含む値が残っている場合は、全体をfalseにする
-                    if value::call_check_reply(&mut child_v, obj) == false {
-                        return false;
-                    }
+                    return false;
                 }
             }
-
-            true
         }
+
+        //内部にReply型を含まなくなったのでフラグを下す
+        value::clear_has_replytype_flag(cap.mut_refer());
+
+        true
     }
 
 
@@ -105,7 +100,7 @@ impl Tuple {
         std::ptr::eq(self as *const Self, IMMIDATE_UNIT as *const Self)
     }
 
-    fn alloc<A: Allocator>(size: usize, allocator: &A) -> FPtr<Tuple> {
+    fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> FPtr<Tuple> {
         let ptr = allocator.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<FPtr<Value>>());
 
         unsafe {
@@ -115,7 +110,7 @@ impl Tuple {
         ptr.into_fptr()
     }
 
-    fn set(&mut self, v: &Value, index: usize) {
+    fn set_uncheck(&mut self, v: *mut Value, index: usize) {
         if self.len() <= index {
             panic!("out of bounds {}: {:?}", index, self)
         }
@@ -129,7 +124,7 @@ impl Tuple {
             //保存領域内の指定indexに移動
             let storage_ptr = storage_ptr.add(index);
             //指定indexにポインタを書き込む
-            std::ptr::write(storage_ptr, FPtr::new(v));
+            std::ptr::write(storage_ptr, v.into());
         };
     }
 
@@ -172,7 +167,12 @@ impl Tuple {
         } else {
             let mut tuple = Self::alloc(len, obj);
             for index in 0..len {
-                tuple.as_mut().set(ary.as_ref().get(index).as_ref(), index);
+                tuple.as_mut().set_uncheck(ary.as_ref().get(index).raw_ptr(), index);
+            }
+
+            //listがReplyを持っている場合は、返す値にもReplyを持っているフラグを立てる
+            if ary.has_replytype() {
+                value::set_has_replytype_flag(&mut tuple)
             }
 
             tuple
@@ -192,13 +192,29 @@ impl Tuple {
         } else {
             let mut tuple = Self::alloc(size, obj);
             for (index, v) in list.iter(obj).enumerate() {
-                tuple.as_mut().set(v.as_ref(), index);
+                tuple.as_mut().set_uncheck(v.raw_ptr(), index);
+            }
+
+            //listがReplyを持っている場合は、返す値にもReplyを持っているフラグを立てる
+            if list.has_replytype() {
+                value::set_has_replytype_flag(&mut tuple)
             }
 
             tuple
         }
     }
 }
+
+impl FPtr<Tuple> {
+
+    fn set<V: ValueHolder<Value>>(&mut self, v: &V, index: usize) {
+        self.as_mut().set_uncheck(v.raw_ptr(), index);
+        if v.has_replytype() {
+            value::set_has_replytype_flag(self);
+        }
+    }
+}
+
 
 impl Eq for Tuple { }
 
@@ -254,10 +270,9 @@ impl TupleBuilder {
         let mut tuple = Tuple::alloc(size, obj);
 
         //pushが完了するまでにGCが動作する可能性があるため、あらかじめ全領域をダミーの値で初期化する
-        //ヌルポインタを使用しているがGCの動作に問題はない。
-        let dummy_value = bool::Bool::false_().into_value().as_ref();
+        let dummy_value = bool::Bool::false_().into_value().raw_ptr();
         for index in 0..size {
-            tuple.as_mut().set(dummy_value, index);
+            tuple.as_mut().set_uncheck(dummy_value, index);
         }
 
         TupleBuilder {
@@ -266,8 +281,8 @@ impl TupleBuilder {
         }
     }
 
-    pub fn push(&mut self, v: &Value, _obj: &mut Object) {
-        self.tuple.as_mut().set(v, self.index);
+    pub fn push<V: ValueHolder<Value>>(&mut self, v: &V, _obj: &mut Object) {
+        self.tuple.mut_refer().set(v, self.index);
         self.index += 1;
     }
 
@@ -331,9 +346,9 @@ static FUNC_TUPLE_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("tuple?", &FUNC_IS_TUPLE.value);
-    obj.define_global_value("tuple-len", &FUNC_TUPLE_LEN.value);
-    obj.define_global_value("tuple-ref", &FUNC_TUPLE_REF.value);
+    obj.define_global_value("tuple?", &FPtr::new(&FUNC_IS_TUPLE.value));
+    obj.define_global_value("tuple-len", &FPtr::new(&FUNC_TUPLE_LEN.value));
+    obj.define_global_value("tuple-ref", &FPtr::new(&FUNC_TUPLE_REF.value));
 }
 
 pub mod literal {

@@ -31,7 +31,7 @@ impl NaviType for Symbol {
         NonNullConst::new_unchecked(&SYMBOL_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         Self::alloc(self.as_ref(), allocator)
     }
 }
@@ -45,11 +45,11 @@ impl Symbol {
         std::ptr::eq(&SYMBOL_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &A) -> FPtr<Symbol> {
+    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> FPtr<Symbol> {
         string::NString::alloc_inner::<Symbol, A>(&str.into(), allocator)
     }
 
-    pub fn gensym<T :Into<String>, A: Allocator>(name: T, allocator: &A) -> FPtr<Symbol> {
+    pub fn gensym<T :Into<String>, A: Allocator>(name: T, allocator: &mut A) -> FPtr<Symbol> {
         let count = GENSYM_COUNTER.fetch_add(1, Ordering::SeqCst);
         let name = name.into() + "_" + &count.to_string();
         Self::alloc(&name, allocator)

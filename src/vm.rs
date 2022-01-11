@@ -164,7 +164,7 @@ impl VMState {
     pub fn new() -> Self {
         VMState {
             reductions: 0,
-            code: FPtr::from_ptr(std::ptr::null_mut()), //ダミーのためにヌルポインターで初期化
+            code: FPtr::from(std::ptr::null_mut()), //ダミーのためにヌルポインターで初期化
             suspend_pc: 0,
             acc: bool::Bool::false_().into_value().into_fptr(),
             stack: VMStack::new(1024 * 3),
@@ -179,21 +179,19 @@ impl VMState {
         self.reductions
     }
 
-    pub fn for_each_all_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
-        if self.code.as_ptr().is_null() == false {
-            callback(self.code.cast_value(), arg);
+    pub fn for_each_all_alived_value(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+        if self.code.raw_ptr().is_null() == false {
+            callback(self.code.cast_mut_value(), arg);
         }
 
-        if self.acc.as_ptr().is_null() == false {
-            callback(&self.acc, arg);
-        }
+        callback(&mut self.acc, arg);
 
         {
             let mut cont = self.cont;
             while cont.is_null() == false {
                 unsafe {
-                    if let Some(code) = (*cont).code.as_ref() {
-                        callback(code.cast_value(), arg);
+                    if let Some(code) = (*cont).code.as_mut() {
+                        callback(code.cast_mut_value(), arg);
                     }
 
                     cont = (*cont).prev;
@@ -212,7 +210,7 @@ impl VMState {
                     let frame_ptr = env.add(1) as *mut FPtr<Value>;
                     for index in 0 .. len {
                         let cell = frame_ptr.add(index as usize);
-                        let v = &*cell;
+                        let v = &mut *cell;
                         callback(v, arg);
                     }
 
@@ -266,7 +264,7 @@ fn app_call(app: &Reachable<Value>, args_iter: impl Iterator<Item=FPtr<Value>>
         let code = Reachable::new_static(&code);
 
         //accにFuncオブジェクトを設定
-        obj.vm_state().acc = FPtr::new(app.as_ref());
+        obj.vm_state().acc = app.make();
         //関数呼び出しの準備段階の実行は、実行時間に制限を設けない
         code_execute(&code, WorkTimeLimit::Inf, obj).unwrap();
     }
@@ -303,7 +301,7 @@ fn app_call(app: &Reachable<Value>, args_iter: impl Iterator<Item=FPtr<Value>>
 
 pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
     //実行対象のコードを設定
-    obj.vm_state().code = FPtr::new(code.as_ref());
+    obj.vm_state().code = code.make();
     obj.vm_state().suspend_pc = 0;
 
     loop {
@@ -492,7 +490,7 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
             | tag::CONST_IMMIDIATE => {
                 let data = read_usize(&mut program);
                 let ptr = usize_to_ptr::<Value>(data);
-                obj.vm_state().acc = FPtr::from_ptr(ptr);
+                obj.vm_state().acc = ptr.into();
             }
             tag::PUSH_ARG => {
                 let mut arg = obj.vm_state().acc.clone();
@@ -513,16 +511,18 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                             None
                         };
                     if let Some(param) = param {
-                        if param.force {
-                            // reply check
+                        // reply check
+                        if param.force && arg.has_replytype() {
                             //スタック領域内のFPtrをCapとして扱わせる
                             let mut cap = Cap::new(&mut arg as *mut FPtr<Value>);
-                            //値にReply待ちがないかを確認
+                            //返信がないかを確認
                             let ok = crate::value::check_reply(&mut cap, obj);
                             //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
                             std::mem::forget(cap);
+
+                            //まだ返信がない場合は、
                             if  ok == false {
-                                //もう一度、PUSH_ARGが実行できるように現在位置-1をresume後のPCとする
+                                //もう一度PUSH_ARGが実行できるように、現在位置-1をresume後のPCとする
                                 obj.vm_state().suspend_pc = (program.position() - 1) as usize;
 
                                 //引数の値にReply待ちを含んでいるため、返信を待つ
@@ -565,8 +565,8 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                 let symbol = obj.vm_state().code.as_ref().get_constant(const_index as usize);
                 let symbol = unsafe { symbol.cast_unchecked::<symbol::Symbol>() };
 
-                let acc = obj.vm_state().acc.as_ref();
-                obj.define_global_value(symbol.as_ref(), acc);
+                let acc = obj.vm_state().acc.clone();
+                obj.define_global_value(symbol.as_ref(), &acc);
 
                 reduce!(5);
             }
@@ -592,7 +592,7 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
 
                     //現在のオブジェクトに対応するObjectRefを作成
                     //※このObjectRefはSwitch先のオブジェクトのヒープに作成される
-                    let prev_object = obj.make_object_ref(standalone.object()).unwrap();
+                    let prev_object = obj.make_object_ref(standalone.mut_object()).unwrap();
                     //return-object-switchでもどれるようにするために移行元のオブジェクトを保存
                     standalone.mut_object().set_prev_object(&prev_object);
 
@@ -708,7 +708,7 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                     if num_args_remain < func.as_ref().num_optional() {
                         //Optionalに対応する引数がない場合は、足りない分だけUnitをデフォルト値として追加する
                         for _ in 0..(func.as_ref().num_optional() - num_args_remain) {
-                            let_local!(FPtr::new(tuple::Tuple::unit().cast_value().as_ref()));
+                            let_local!(tuple::Tuple::unit().into_value().make());
                         }
                     }
                     num_args_remain = num_args_remain.saturating_sub(func.as_ref().num_optional());
@@ -716,7 +716,7 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                     if num_args_remain == 0 {
                         if func.as_ref().has_rest() {
                             //restなパラメータに対応する引数がなければnilをデフォルトとして追加
-                            let_local!(FPtr::new(list::List::nil().cast_value().as_ref()));
+                            let_local!(list::List::nil().into_value().make());
                         }
 
                     } else {
@@ -756,7 +756,7 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                     let size = unsafe { (*obj.vm_state().env).size } - 1;
                     let mut builder = array::ArrayBuilder::<Value>::new(size, obj);
                     for index in 0..size {
-                        builder.push(refer_local_var(obj.vm_state().env, index).as_ref(), obj);
+                        builder.push(&refer_local_var(obj.vm_state().env, index), obj);
                     }
                     let args = builder.get().reach(obj);
 
@@ -814,8 +814,8 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                 let size = unsafe { (*obj.vm_state().env).size };
                 let mut builder = tuple::TupleBuilder::new(size, obj);
                 for index in 0..size {
-                    let arg = refer_local_var(obj.vm_state().env, index).as_ref();
-                    builder.push(arg, obj);
+                    let arg = refer_local_var(obj.vm_state().env, index);
+                    builder.push(&arg, obj);
                 }
 
                 obj.vm_state().acc = builder.get().into_value();
@@ -832,8 +832,8 @@ fn execute(obj: &mut Object) -> Result<FPtr<Value>, ExecError> {
                 let size = unsafe { (*obj.vm_state().env).size };
                 let mut builder = array::ArrayBuilder::<Value>::new(size, obj);
                 for index in 0..size {
-                    let arg = refer_local_var(obj.vm_state().env, index).as_ref();
-                    builder.push(arg, obj);
+                    let arg = refer_local_var(obj.vm_state().env, index);
+                    builder.push(&arg, obj);
                 }
 
                 obj.vm_state().acc = builder.get().into_value();

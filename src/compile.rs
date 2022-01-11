@@ -89,6 +89,7 @@ fn lookup_localvar<'a>(symbol: &Symbol, ctx: &'a mut CCtx) -> LookupResult<'a> {
                     } else if let Some(constant) = init_form.try_cast::<IFormConst>() {
                         //ローカル変数が定数を束縛していたら直接定数を返す
 
+                        //TODO ここas_ref()で値の参照を直接返しているが問題はないのか？FPtrやCapの参照で取り扱わなくて大丈夫？
                         return LookupResult::Const(constant.as_ref());
                     } else {
                         //それ以外の場合は調査不能なのでlvarを返す
@@ -181,7 +182,7 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     list.as_ref().tail().reach(obj).iter(obj)
         .for_each(|v| {
             let iform = pass_transform(&v.reach(obj), &mut ctx, obj);
-            builder_args.push(iform.as_ref(), obj);
+            builder_args.push(&iform, obj);
         });
     let args = builder_args.get().reach(obj);
 
@@ -200,7 +201,7 @@ fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Ob
 
     for index in 0..count {
         let iform = pass_transform(&tuple.as_ref().get(index).reach(obj), &mut ctx, obj);
-        builder_args.push(iform.as_ref(), obj);
+        builder_args.push(&iform, obj);
     }
 
     let args = builder_args.get().reach(obj);
@@ -220,7 +221,7 @@ fn transform_array(array: &Reachable<array::Array<Value>>, ctx: &mut CCtx, obj: 
 
     for index in 0..count {
         let iform = pass_transform(&array.as_ref().get(index).reach(obj), &mut ctx, obj);
-        builder_args.push(iform.as_ref(), obj);
+        builder_args.push(&iform, obj);
     }
 
     let args = builder_args.get().reach(obj);
@@ -323,7 +324,7 @@ fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
 
     for sexp in body.iter(obj) {
         let iform = pass_transform(&sexp.reach(obj), ctx, obj);
-        builder.push(iform.as_ref(), obj);
+        builder.push(&iform, obj);
     }
 
     IFormSeq::alloc(&builder.get().reach(obj), obj).into_iform()
@@ -354,7 +355,7 @@ pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
         //TODO keywordやrest引数の処理
         for param in params.iter(obj) {
             if let Some(symbol) = param.try_cast::<Symbol>() {
-                builder_params.push(symbol.as_ref() , obj);
+                builder_params.push(symbol , obj);
                 local_frame.push(LocalVar {
                     name: symbol.clone().capture(obj),
                     init_form: None,
@@ -427,8 +428,8 @@ pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
         //現在のローカルフレームに新しく定義した変数を追加
         if let Some(cur_frame) = ctx.frames.last_mut() {
             cur_frame.push(LocalVar {
-                    name: FPtr::new(symbol.as_ref()).capture(obj),
-                    init_form: Some(FPtr::new(iform.as_ref()).capture(obj)),
+                    name: symbol.make().capture(obj),
+                    init_form: Some(iform.make().capture(obj)),
                 });
         }
 
@@ -482,7 +483,7 @@ pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Objec
 
     for sexp in args.iter(obj) {
         let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
-        builder.push(iform.as_ref(), obj);
+        builder.push(&iform, obj);
     }
 
     IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::MatchSuccess, obj).into_iform()
@@ -504,7 +505,7 @@ pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> F
 
         for sexp in args.iter(obj) {
             let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
-            builder.push(iform.as_ref(), obj);
+            builder.push(&iform, obj);
         }
 
         IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::And, obj).into_iform()
@@ -527,7 +528,7 @@ pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> FP
 
         for sexp in args.iter(obj) {
             let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
-            builder.push(iform.as_ref(), obj);
+            builder.push(&iform, obj);
         }
 
         IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::Or, obj).into_iform()
@@ -796,7 +797,7 @@ mod codegen {
 
         let mut new_frame: Vec<Cap<Symbol>> = Vec::new();
         //クロージャフレームの最初にはクロージャ自身が入っているためダミーのシンボルを先頭に追加
-        new_frame.push(FPtr::new(crate::compile::literal::app_symbol().as_ref()).capture(obj));
+        new_frame.push(super::literal::app_symbol().into_cap(obj));
 
         for index in 0 ..  iform.as_ref().len_params() {
             new_frame.push(iform.as_ref().get_param(index).capture(obj));

@@ -4,6 +4,9 @@ use crate::value::*;
 
 use std::fmt::{Debug, Display};
 
+//TODO 返信をメールボックスから受け取る前にReplyの値が削除されてしまうと
+//一生メールボックス内に返信が残り続けてしまう。どうにかして解決しないと。
+
 pub struct Reply {
     reply_token: ReplyToken,
     reply_value: Option<FPtr<Value>>,
@@ -29,7 +32,7 @@ impl NaviType for Reply {
         NonNullConst::new_unchecked(&REPLY_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, _allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> FPtr<Self> {
         unreachable!()
     }
 }
@@ -39,8 +42,8 @@ impl Reply {
         std::ptr::eq(&REPLY_TYPEINFO, other_typeinfo)
     }
 
-    fn child_traversal(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
-        match self.reply_value.as_ref() {
+    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+        match self.reply_value.as_mut() {
             Some(value) => {
                 callback(value, arg);
             },
@@ -76,7 +79,7 @@ impl Reply {
         unreachable!()
     }
 
-    pub fn alloc<A: Allocator>(token: ReplyToken, allocator: &A) -> FPtr<Reply> {
+    pub fn alloc<A: Allocator>(token: ReplyToken, allocator: &mut A) -> FPtr<Reply> {
         let ptr = allocator.alloc::<Reply>();
 
         unsafe {
@@ -86,7 +89,11 @@ impl Reply {
             });
         }
 
-        ptr.into_fptr()
+        let mut result = ptr.into_fptr();
+        //Reply型を持つポインタとして目印のフラグを立てる。
+        crate::value::set_has_replytype_flag(&mut result);
+
+        result
     }
 }
 
@@ -130,5 +137,5 @@ static FUNC_FORCE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("force", &FUNC_FORCE.value);
+    obj.define_global_value("force", &FPtr::new(&FUNC_FORCE.value));
 }

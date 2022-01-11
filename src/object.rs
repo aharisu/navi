@@ -28,37 +28,37 @@ use self::mailbox::*;
 
 
 pub trait Allocator {
-    fn alloc<T: NaviType>(&self) -> UIPtr<T>;
-    fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T>;
-    fn force_allocation_space(&self, size: usize);
+    fn alloc<T: NaviType>(&mut self) -> UIPtr<T>;
+    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> UIPtr<T>;
+    fn force_allocation_space(&mut self, size: usize);
     fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool;
-    fn do_gc(&self);
+    fn do_gc(&mut self);
     fn heap_used(&self) -> usize;
 }
 
 //型パラメータがどうしても使えない場所で使用するAllocatorを実装する値を内包したenum
 //TypeInfo内で保持されるclone_innerで使用している。
 pub enum AnyAllocator<'a> {
-    Object(&'a Object),
-    MailBox(&'a MailBox),
+    Object(&'a mut Object),
+    MailBox(&'a mut MailBox),
 }
 
 impl <'a> Allocator for AnyAllocator<'a> {
-    fn alloc<T: NaviType>(&self) -> UIPtr<T> {
+    fn alloc<T: NaviType>(&mut self) -> UIPtr<T> {
         match self {
             AnyAllocator::Object(obj) => obj.alloc(),
             AnyAllocator::MailBox(mailbox) => mailbox.alloc(),
         }
     }
 
-    fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T> {
+    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> UIPtr<T> {
         match self {
             AnyAllocator::Object(obj) => obj.alloc_with_additional_size(additional_size),
             AnyAllocator::MailBox(mailbox) => mailbox.alloc_with_additional_size(additional_size),
         }
     }
 
-    fn force_allocation_space(&self, size: usize) {
+    fn force_allocation_space(&mut self, size: usize) {
         match self {
             AnyAllocator::Object(obj) => obj.force_allocation_space(size),
             AnyAllocator::MailBox(mailbox) => mailbox.force_allocation_space(size),
@@ -72,7 +72,7 @@ impl <'a> Allocator for AnyAllocator<'a> {
         }
     }
 
-    fn do_gc(&self) {
+    fn do_gc(&mut self) {
         match self {
             AnyAllocator::Object(obj) => obj.do_gc(),
             AnyAllocator::MailBox(mailbox) => mailbox.do_gc(),
@@ -87,6 +87,55 @@ impl <'a> Allocator for AnyAllocator<'a> {
     }
 }
 
+struct ObjectGCRootValues {
+    //object-switchで切り替えた時の、切り替え前オブジェクト。
+    prev_object:Option<FPtr<ObjectRef>>,
+
+    world: world::World,
+
+    ctx: Context,
+    vm_state: VMState,
+
+    captures: FixedSizeAllocator<FPtr<Value>>,
+
+    receiver_vec: Vec<(FPtr<Value>, FPtr<list::List>)>,
+    receiver_closure: Option<FPtr<compiled::Closure>>,
+}
+
+impl mm::GCRootValueHolder for ObjectGCRootValues {
+    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut FPtr<Value>, *mut u8)) {
+        self.ctx.for_each_all_alived_value(arg, callback);
+        self.vm_state.for_each_all_alived_value(arg, callback);
+
+        if let Some(prev_object) = self.prev_object.as_mut() {
+            callback(prev_object.cast_mut_value(), arg);
+        }
+
+        //グローバルスペース内で保持している値
+        self.world.for_each_all_value(|v :&mut FPtr<Value>| {
+            callback(v, arg);
+        });
+
+        //キャプチャーしているローカル変数
+        unsafe {
+            self.captures.for_each_used_value(|refer| {
+                callback(refer, arg);
+            });
+        }
+
+        //オブジェクトが持つメッセージレシーバーオブジェクト
+        self.receiver_vec.iter_mut().for_each(|(pat, body)| {
+            callback(pat, arg);
+            callback(body.cast_mut_value(), arg);
+        });
+
+        //レシーバークロージャ
+        if let Some(closure) = self.receiver_closure.as_mut() {
+            callback(closure.cast_mut_value(), arg);
+        }
+    }
+}
+
 pub struct Object {
     id: usize,
 
@@ -96,19 +145,9 @@ pub struct Object {
     mailbox: Weak<Mutex<MailBox>>,
     suspend_state: Option<(Arc<Mutex<MailBox>>, ReplyToken)>,
 
-    //object-switchで切り替えた時の、切り替え前オブジェクト。
-    prev_object:Option<FPtr<ObjectRef>>,
+    heap: Heap,
 
-    ctx: Context,
-    vm_state: VMState,
-
-    world: world::World,
-
-    heap: RefCell<Heap>,
-    captures: FixedSizeAllocator<FPtr<Value>>,
-
-    receiver_vec: Vec<(FPtr<Value>, FPtr<list::List>)>,
-    receiver_closure: Option<FPtr<compiled::Closure>>,
+    values: ObjectGCRootValues,
 }
 
 impl Object {
@@ -118,18 +157,21 @@ impl Object {
             mailbox: mailbox,
             suspend_state: None,
 
-            prev_object: None,
+            heap: Heap::new(mm::StartHeapSize::Default),
 
-            ctx: Context::new(),
-            vm_state: VMState::new(),
+            values: ObjectGCRootValues {
+                prev_object: None,
 
-            world: world::World::new(),
+                world: world::World::new(),
 
-            heap: RefCell::new(Heap::new(mm::StartHeapSize::Default)),
-            captures: FixedSizeAllocator::new(),
+                ctx: Context::new(),
+                vm_state: VMState::new(),
 
-            receiver_vec: Vec::new(),
-            receiver_closure: None,
+                captures: FixedSizeAllocator::new(),
+
+                receiver_vec: Vec::new(),
+                receiver_closure: None,
+            }
         };
         obj.register_core_global();
 
@@ -146,7 +188,7 @@ impl Object {
         self.id
     }
 
-    pub fn make_object_ref<A: Allocator>(&self, allocator: &A) -> Option<FPtr<ObjectRef>> {
+    pub fn make_object_ref<A: Allocator>(&self, allocator: &mut A) -> Option<FPtr<ObjectRef>> {
         self.mailbox.upgrade()
             .map(|mailbox| {
                 object_ref::ObjectRef::alloc(self.id,  mailbox, allocator)
@@ -154,11 +196,11 @@ impl Object {
     }
 
     pub fn set_prev_object(&mut self, prev_object: &FPtr<ObjectRef>) {
-        self.prev_object = Some(prev_object.clone());
+        self.values.prev_object = Some(prev_object.clone());
     }
 
     pub fn take_prev_object(&mut self) -> Option<FPtr<ObjectRef>> {
-        self.prev_object.take()
+        self.values.prev_object.take()
     }
 
     pub fn register_scheduler(standalone: StandaloneObject) -> Arc<Mutex<MailBox>> {
@@ -231,8 +273,8 @@ impl Object {
                     //MailBoxのロックを保持している間は、MailBox内ヒープのGCは発生しないため強制的にReachableに変換する。
                     let result = unsafe { result.into_reachable() };
                     //valはMailBox内のヒープに確保された値なので、Object内ヒープに値をクローンする
-                    let allocator = AnyAllocator::Object(self);
-                    crate::value::value_clone(&result, &allocator)
+                    let mut allocator = AnyAllocator::Object(self);
+                    crate::value::value_clone(&result, &mut allocator)
                 })
 
         } else {
@@ -245,11 +287,11 @@ impl Object {
 
     pub fn add_receiver(&mut self, pattern: &Reachable<Value>, body: &Reachable<list::List>) {
         //コンテキストが持つレシーバーリストに追加する
-        self.receiver_vec.push((FPtr::new(pattern.as_ref()), FPtr::new(body.as_ref())));
+        self.values.receiver_vec.push((pattern.make(), body.make()));
         //レシーブを実際に行う処理は遅延して構築する。
         //レシーバーのパターンはmatch構文のpatternに置き換えられる。
         //構築にはレシーバーパターンすべて必要になり、一つのレシーバーを追加するたびに再構築するのではコストが大きい。
-        self.receiver_closure = None;
+        self.values.receiver_closure = None;
     }
 
     pub fn do_work(&mut self, reduction_count: usize) {
@@ -270,8 +312,8 @@ impl Object {
 
                             //messageの値はMailBox内のヒープに割り当てられいる。
                             //メッセージの値を自分自身のヒープ内にコピーする
-                            let allocator = AnyAllocator::Object(self);
-                            data.message = crate::value::value_clone(&msg, &allocator);
+                            let mut allocator = AnyAllocator::Object(self);
+                            data.message = crate::value::value_clone(&msg, &mut allocator);
 
                             data
                         })
@@ -292,7 +334,7 @@ impl Object {
         let message = data.message.reach(obj);
 
         //レシーバーのパターンマッチ式がまだ構築されていなければ
-        if obj.receiver_closure.is_none() {
+        if obj.values.receiver_closure.is_none() {
             let mut builder_fun = ListBuilder::new(obj);
             //(fun)
             builder_fun.append(crate::value::syntax::literal::fun().cast_value(), obj);
@@ -310,7 +352,7 @@ impl Object {
                 //(match msg_var)
                 builder_match.append(literal::msg_symbol().cast_value(), obj);
 
-                for (pattern, body) in obj.receiver_vec.clone().into_iter() {
+                for (pattern, body) in obj.values.receiver_vec.clone().into_iter() {
                     //(pattern body)
                     let pattern = pattern.reach(obj);
                     let body = body.reach(obj);
@@ -332,16 +374,16 @@ impl Object {
             //実行結果は必ずコンパイル済みクロージャなのでuncheckedでキャスト
             let message_receiver = unsafe { message_receiver.cast_unchecked::<compiled::Closure>() }.clone();
 
-            obj.receiver_closure = Some(message_receiver);
+            obj.values.receiver_closure = Some(message_receiver);
 
             //TODO パターンマッチ生成部分でもreduction_countを一定減少させる
             reduction_count = reduction_count.saturating_sub(100);
         }
 
         //メッセージに対してパターンマッチングと対応する処理を実行するクロージャ
-        let closure = obj.receiver_closure.as_ref().unwrap().clone().reach(obj);
+        let closure = obj.values.receiver_closure.as_ref().unwrap().clone().reach(obj);
         //受信したメッセージを引数の形に変換
-        let args_iter = std::iter::once(FPtr::new(message.as_ref()));
+        let args_iter = std::iter::once(message.make());
         //VMの時間制限
         let limit = vm::WorkTimeLimit::Reductions(reduction_count);
 
@@ -390,25 +432,25 @@ impl Object {
     }
 
     pub fn context(&mut self) -> &mut Context {
-        &mut self.ctx
+        &mut self.values.ctx
     }
 
     #[inline(always)]
     pub fn vm_state(&mut self) -> &mut VMState {
-        &mut self.vm_state
+        &mut self.values.vm_state
     }
 
     pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<FPtr<Value>> {
         //ローカルフレーム上になければ、グローバルスペースから探す
-        if let Some(v) = self.world.get(symbol) {
+        if let Some(v) = self.values.world.get(symbol) {
             Some(v.clone())
         } else {
             None
         }
     }
 
-    pub fn define_global_value<Key: AsRef<str>, V: NaviType>(&mut self, key: Key, v: &V) {
-        self.world.set(key, cast_value(v))
+    pub fn define_global_value<Key: AsRef<str>, V: NaviType>(&mut self, key: Key, v: &FPtr<V>) {
+        self.values.world.set(key, v.cast_value())
     }
 
     fn register_core_global(&mut self) {
@@ -424,7 +466,7 @@ impl Object {
 
     pub fn capture<T: NaviType>(&mut self, v: FPtr<T>) -> Cap<T> {
         unsafe {
-            let ptr = self.captures.alloc();
+            let ptr = self.values.captures.alloc();
             let ptr = ptr as *mut FPtr<T>;
 
             let mut cap = Cap::new(ptr);
@@ -452,63 +494,29 @@ impl PartialEq for Object {
     }
 }
 
-impl mm::GCRootValueHolder for Object {
-    fn for_each_alived_value(&self, arg: *mut u8, callback: fn(&FPtr<Value>, *mut u8)) {
-        self.ctx.for_each_all_alived_value(arg, callback);
-        self.vm_state.for_each_all_alived_value(arg, callback);
-
-        if let Some(prev_object) = self.prev_object.as_ref() {
-            callback(prev_object.cast_value(), arg);
-        }
-
-        //グローバルスペース内で保持している値
-        for v in self.world.get_all_values().iter() {
-            callback(v, arg);
-        }
-
-        //キャプチャーしているローカル変数
-        unsafe {
-            self.captures.for_each_used_value(|refer| {
-                callback(refer, arg);
-            });
-        }
-
-        //オブジェクトが持つメッセージレシーバーオブジェクト
-        self.receiver_vec.iter().for_each(|(pat, body)| {
-            callback(pat, arg);
-            callback(body.cast_value(), arg);
-        });
-
-        //レシーバークロージャ
-        if let Some(closure) = self.receiver_closure.as_ref() {
-            callback(closure.cast_value(), arg);
-        }
-    }
-}
-
 impl Allocator for Object {
-    fn alloc<T: NaviType>(&self) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc(self)
+    fn alloc<T: NaviType>(&mut self) -> UIPtr<T> {
+        self.heap.alloc(&mut self.values)
     }
 
-    fn alloc_with_additional_size<T: NaviType>(&self, additional_size: usize) -> UIPtr<T> {
-        self.heap.borrow_mut().alloc_with_additional_size(additional_size, self)
+    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> UIPtr<T> {
+        self.heap.alloc_with_additional_size(additional_size, &mut self.values)
     }
 
-    fn force_allocation_space(&self, size: usize) {
-        self.heap.borrow_mut().force_allocation_space(size, self);
+    fn force_allocation_space(&mut self, size: usize) {
+        self.heap.force_allocation_space(size, &mut self.values);
     }
 
     fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
-        self.heap.borrow().is_in_heap_object(v)
+        self.heap.is_in_heap_object(v)
     }
 
-    fn do_gc(&self) {
-        self.heap.borrow_mut().gc(self)
+    fn do_gc(&mut self) {
+        self.heap.gc(&mut self.values)
     }
 
     fn heap_used(&self) -> usize {
-        self.heap.borrow().used()
+        self.heap.used()
     }
 }
 
@@ -585,7 +593,7 @@ fn object_switch_inner(cur_object: StandaloneObject, target_object: &ObjectRef, 
     if is_register_prev_object {
         //現在のオブジェクトに対応するObjectRefを作成
         //※このObjectRefはSwitch先のオブジェクトのヒープに作成される
-        let prev_object = cur_object.object().make_object_ref(&standalone.object).unwrap();
+        let prev_object = cur_object.object().make_object_ref(&mut standalone.object).unwrap();
         //return-object-switchでもどれるようにするために移行元のオブジェクトを保存
         standalone.object.set_prev_object(&prev_object);
     }

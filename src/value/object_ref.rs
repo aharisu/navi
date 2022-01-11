@@ -31,7 +31,7 @@ impl NaviType for ObjectRef {
         NonNullConst::new_unchecked(&OBJECT_TYPEINFO as *const TypeInfo)
     }
 
-    fn clone_inner(&self, allocator: &AnyAllocator) -> FPtr<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> FPtr<Self> {
         let mailbox = self.mailbox.clone();
         Self::alloc(self.object_id, mailbox, allocator)
     }
@@ -43,7 +43,7 @@ impl ObjectRef {
         std::ptr::eq(&OBJECT_TYPEINFO, other_typeinfo)
     }
 
-    pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &A) -> FPtr<ObjectRef> {
+    pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &mut A) -> FPtr<ObjectRef> {
         let ptr = allocator.alloc::<ObjectRef>();
         let obj = ObjectRef {
             object_id,
@@ -132,8 +132,8 @@ static FUNC_SEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 
 
 pub fn register_global(obj: &mut Object) {
-    obj.define_global_value("spawn", &FUNC_SPAWN.value);
-    obj.define_global_value("send", &FUNC_SEND.value);
+    obj.define_global_value("spawn", &FPtr::new(&FUNC_SPAWN.value));
+    obj.define_global_value("send", &FPtr::new(&FUNC_SEND.value));
 }
 
 #[cfg(test)]
@@ -151,6 +151,7 @@ mod tests {
 
         let code = crate::compile::compile(&sexp, obj).reach(obj);
         let result = vm::code_execute(&code, vm::WorkTimeLimit::Inf, obj).unwrap();
+        //dbg!(result.as_ref());
 
         let result = result.try_cast::<T>();
         assert!(result.is_some());
@@ -228,19 +229,23 @@ mod tests {
 
         {
             //ListはReply型の値をそのまま受け取る
-            let program = "(let l (cons (send obj 1) (cons (send obj 2) '())))";
+            let program = "(let l (cons (send obj 1) (cons 1 '())))";
             let ans = eval::<list::List>(program, standalone.mut_object());
             assert!(ans.as_ref().head().is::<reply::Reply>());
-            assert!(ans.as_ref().tail().as_ref().head().is::<reply::Reply>());
+            assert!(ans.as_ref().tail().as_ref().head().is::<number::Integer>());
 
             //値の取得もReplyのまま
             let program = "(list-ref l 0)";
             let ans = eval::<Value>(program, standalone.mut_object());
             assert!(ans.as_ref().is::<reply::Reply>());
 
-            let program = "(force (list-ref l 1))";
+            let program = "(force (list-ref l 0))";
             let ans = eval::<number::Integer>(program, standalone.mut_object());
-            assert_eq!(ans.as_ref().get(), 20);
+            assert_eq!(ans.as_ref().get(), 10);
+
+            let program = "(list-ref l 1)";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 1);
         }
 
         {
