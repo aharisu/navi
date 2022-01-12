@@ -851,11 +851,7 @@ mod codegen {
     }
 
     fn codegen_call(iform: &Reachable<IFormCall>, ctx: &mut CGCtx, obj: &mut Object) {
-        //push continuation
-        write_u8(vm::tag::PUSH_CONT, &mut ctx.buf);
-
-        //push env header
-        write_u8(vm::tag::PUSH_ARG_PREPARE_ENV, &mut ctx.buf);
+        write_u8(vm::tag::CALL_PREPARE, &mut ctx.buf);
 
         //eval app
         pass_codegen(&iform.as_ref().app().reach(obj), ctx, obj);
@@ -947,11 +943,7 @@ mod codegen {
     }
 
     fn codegen_container(iform: &Reachable<IFormContainer>, ctx: &mut CGCtx, obj: &mut Object) {
-        //push continuation
-        write_u8(vm::tag::PUSH_CONT, &mut ctx.buf);
-
-        //push env header
-        write_u8(vm::tag::PUSH_ARG_PREPARE_ENV, &mut ctx.buf);
+        write_u8(vm::tag::CALL_PREPARE, &mut ctx.buf);
 
         //eval and push argument
         let num_args = iform.as_ref().len_exprs();

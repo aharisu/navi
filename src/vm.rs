@@ -36,8 +36,7 @@ pub mod tag {
     pub const PUSH_EMPTY_ENV:u8 = 12;
     pub const CLOSURE:u8 = 13;
     pub const RETURN:u8 = 14;
-    pub const PUSH_CONT:u8 = 15;
-    pub const PUSH_ARG_PREPARE_ENV:u8 = 17;
+    pub const CALL_PREPARE:u8 = 15;
     pub const CALL:u8 = 18;
     pub const AND:u8 = 19;
     pub const OR:u8 = 20;
@@ -45,6 +44,7 @@ pub mod tag {
     pub const TUPLE:u8 = 22;
     pub const ARRAY:u8 = 23;
 
+    //miss number17
     //next number 26
 }
 
@@ -244,11 +244,8 @@ fn app_call(app: &Reachable<Any>, args_iter: impl Iterator<Item=Ref<Any>>
     {
         let mut buf: Vec<u8> = Vec::with_capacity(3);
 
-        //push continuation
-        write_u8(tag::PUSH_CONT, &mut buf);
-
-        //push env header
-        write_u8(tag::PUSH_ARG_PREPARE_ENV, &mut buf);
+        //関数の呼び出し前準備
+        write_u8(tag::CALL_PREPARE, &mut buf);
 
         let code = compiled::Code::new(buf, Vec::new());
         let code = Reachable::new_static(&code);
@@ -664,11 +661,8 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
             tag::RETURN => {
                 //Continuationに保存されている状態を復元
                 tag_return!();
-
             }
-            tag::PUSH_CONT => {
-                //let cont_offset = read_u16(&mut program);
-
+            tag::CALL_PREPARE => {
                 let new_cont = Continuation {
                     prev: obj.vm_state().cont,
                     code: None, //実行コードはCursorが所有権を持っているので実際にCallされる直前に設定する
@@ -678,8 +672,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                 };
                 //contポインタを新しく追加したポインタに差し替える
                 obj.vm_state().cont = push(new_cont, &mut obj.vm_state().stack);
-            }
-            tag::PUSH_ARG_PREPARE_ENV => {
+
                 let new_env = Environment {
                     up: std::ptr::null_mut(), //準備段階ではupポインタはNULLにする
                     size: 0,
