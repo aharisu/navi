@@ -20,7 +20,7 @@ static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
     Reply::eq,
     Reply::clone_inner,
     Display::fmt,
-    Reply::is_type,
+    None,
     None,
     None,
     Some(Reply::child_traversal),
@@ -28,8 +28,8 @@ static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Reply {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&REPLY_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &REPLY_TYPEINFO
     }
 
     fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -38,10 +38,6 @@ impl NaviType for Reply {
 }
 
 impl Reply {
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&REPLY_TYPEINFO, other_typeinfo)
-    }
-
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         match self.reply_value.as_mut() {
             Some(value) => {

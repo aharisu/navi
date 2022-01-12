@@ -19,17 +19,17 @@ pub enum ParamKind {
     Rest,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Param {
     pub name: String,
-    pub typeinfo: NonNullConst<TypeInfo>,
+    pub typeinfo: &'static TypeInfo,
     pub force: bool,
     pub kind: ParamKind,
     //TODO Optionalのデフォルト値
 }
 
 impl Param {
-    pub fn new<T: Into<String>>(name: T, kind: ParamKind, typeinfo: NonNullConst<TypeInfo>) -> Param {
+    pub fn new<T: Into<String>>(name: T, kind: ParamKind, typeinfo: &'static TypeInfo) -> Param {
         Param {
             name: name.into(),
             typeinfo: typeinfo,
@@ -37,7 +37,7 @@ impl Param {
             kind: kind,
         }
     }
-    pub fn new_no_force<T: Into<String>>(name: T, kind: ParamKind, typeinfo: NonNullConst<TypeInfo>) -> Param {
+    pub fn new_no_force<T: Into<String>>(name: T, kind: ParamKind, typeinfo: &'static TypeInfo) -> Param {
         Param {
             name: name.into(),
             typeinfo: typeinfo,
@@ -55,7 +55,7 @@ static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func::eq,
     Func::clone_inner,
     Display::fmt,
-    Func::is_type,
+    None,
     None,
     None,
     None,
@@ -63,8 +63,8 @@ static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Func {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&FUNC_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &FUNC_TYPEINFO
     }
 
     fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -95,10 +95,6 @@ impl Func {
             num_optional,
             has_rest,
         }
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&FUNC_TYPEINFO, other_typeinfo)
     }
 
     pub fn get_paramter(&self) -> &[Param] {

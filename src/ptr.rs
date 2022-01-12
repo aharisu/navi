@@ -4,7 +4,6 @@ use std::ptr::NonNull;
 
 use crate::object::Object;
 use crate::object::mm::usize_to_ptr;
-use crate::util::non_null_const::NonNullConst;
 use crate::value::{NaviType, TypeInfo};
 use crate::value::any::Any;
 
@@ -141,7 +140,7 @@ impl Ref<Any> {
         std::mem::transmute(self)
     }
 
-    pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
+    pub fn is_type(&self, other_typeinfo: &'static TypeInfo) -> bool {
         self.as_ref().is_type(other_typeinfo)
     }
 
@@ -272,7 +271,7 @@ impl Cap<Any> {
         std::mem::transmute(self)
     }
 
-    pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
+    pub fn is_type(&self, other_typeinfo: &'static TypeInfo) -> bool {
         self.as_ref().is_type(other_typeinfo)
     }
 
@@ -424,7 +423,7 @@ impl Reachable<Any> {
         std::mem::transmute(self)
     }
 
-    pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
+    pub fn is_type(&self, other_typeinfo: &'static TypeInfo) -> bool {
         self.as_ref().is_type(other_typeinfo)
     }
 

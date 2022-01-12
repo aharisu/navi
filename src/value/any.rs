@@ -10,7 +10,7 @@ static ANY_TYPEINFO : TypeInfo = new_typeinfo!(
     Any::_eq,
     Any::clone_inner,
     Any::_fmt,
-    Any::_is_type,
+    None,
     None,
     None,
     None,
@@ -18,14 +18,14 @@ static ANY_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Any {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&ANY_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &ANY_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
         if value_is_pointer(self) {
             let typeinfo = get_typeinfo(self);
-           (unsafe { typeinfo.as_ref() }.clone_func)(self, allocator)
+           (typeinfo.clone_func)(self, allocator)
 
         } else {
             //Immidiate Valueの場合はそのまま返す
@@ -38,14 +38,14 @@ impl Eq for Any {}
 
 impl PartialEq for Any {
     fn eq(&self, other: &Self) -> bool {
-        let self_typeinfo = unsafe { get_typeinfo(self).as_ref() };
-        let other_typeinfo = unsafe { get_typeinfo(other).as_ref() };
+        let self_typeinfo = get_typeinfo(self);
+        let other_typeinfo =get_typeinfo(other);
 
         //比較可能な型同士かを確認する関数を持っている場合は、処理を委譲する。
         //持っていない場合は同じ型同士の時だけ比較可能にする。
         let comparable = match self_typeinfo.is_comparable_func {
             Some(func) => func(other_typeinfo),
-            None => std::ptr::eq(self_typeinfo, other_typeinfo),
+            None => self_typeinfo == other_typeinfo,
         };
 
         if comparable {
@@ -60,7 +60,7 @@ impl std::fmt::Display for Any {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let self_typeinfo = get_typeinfo(self);
 
-        (unsafe { self_typeinfo.as_ref() }.print_func)(self, f)
+        (self_typeinfo.print_func)(self, f)
     }
 }
 
@@ -68,7 +68,7 @@ impl std::fmt::Debug for Any {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let self_typeinfo = get_typeinfo(self);
 
-        (unsafe { self_typeinfo.as_ref() }.print_func)(self, f)
+        (self_typeinfo.print_func)(self, f)
     }
 }
 
@@ -78,15 +78,18 @@ impl Any {
         self.is_type(other_typeinfo)
     }
 
-    pub fn is_type(&self, other_typeinfo: NonNullConst<TypeInfo>) -> bool {
-        if std::ptr::eq(&ANY_TYPEINFO, other_typeinfo.as_ptr()) {
+    pub fn is_type(&self, other_typeinfo: &TypeInfo) -> bool {
+        if &ANY_TYPEINFO == other_typeinfo {
             //is::<Any>()の場合、常に結果はtrue
             true
 
         } else {
             let self_typeinfo = get_typeinfo(self);
-
-            (unsafe { self_typeinfo.as_ref() }.is_type_func)(unsafe { other_typeinfo.as_ref() })
+            if let Some(func) = self_typeinfo.is_type_func {
+                func(other_typeinfo)
+            } else {
+                std::ptr::eq(self_typeinfo, other_typeinfo)
+            }
         }
     }
 
@@ -104,10 +107,6 @@ impl Any {
     }
 
     fn _fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unreachable!()
-    }
-
-    fn _is_type(_other_typeinfo: &TypeInfo) -> bool {
         unreachable!()
     }
 }
@@ -152,6 +151,35 @@ pub mod literal {
 mod tests {
     use crate::read::Reader;
     use crate::value::*;
+
+    #[test]
+    fn is_type() {
+        let mut obj = Object::new_for_test();
+        let obj = &mut obj;
+
+        //int
+        let v = number::Integer::alloc(10, obj).into_value();
+        assert!(v.as_ref().is::<number::Integer>());
+        assert!(v.as_ref().is::<number::Real>());
+        assert!(v.as_ref().is::<number::Number>());
+
+        //real
+        let v = number::Real::alloc(3.14, obj).into_value();
+        assert!(!v.as_ref().is::<number::Integer>());
+        assert!(v.as_ref().is::<number::Real>());
+        assert!(v.as_ref().is::<number::Number>());
+
+        //nil
+        let v = list::List::nil().into_value();
+        assert!(v.as_ref().is::<list::List>());
+        assert!(!v.as_ref().is::<string::NString>());
+
+        //list
+        let item = number::Integer::alloc(10, obj).into_value().reach(obj);
+        let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).into_value().reach(obj);
+        assert!(v.as_ref().is::<list::List>());
+        assert!(!v.as_ref().is::<string::NString>());
+    }
 
     fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
         let mut reader = Reader::new(program.chars().peekable());

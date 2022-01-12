@@ -3,12 +3,11 @@ use std::mem;
 use crate::ptr::*;
 use crate::value::{self, TypeInfo, NaviType};
 use crate::value::any::Any;
-use crate::util::non_null_const::*;
 
 //const POOL_SIZE : usize = 1024;
 
 pub(crate) struct GCHeader {
-    pub(crate) typeinfo: NonNullConst<TypeInfo>,
+    pub(crate) typeinfo: &'static TypeInfo,
 }
 
 unsafe impl Sync for GCHeader {}
@@ -33,7 +32,7 @@ impl <T: NaviType> GCAllocationStruct<T> {
 }
 
 impl <T> GCAllocationStruct<T> {
-    pub fn new_with_typeinfo(value: T, typeinfo: NonNullConst<TypeInfo>) -> GCAllocationStruct<T> {
+    pub fn new_with_typeinfo(value: T, typeinfo: &'static TypeInfo) -> GCAllocationStruct<T> {
         GCAllocationStruct {
             header: GCHeader {
                 typeinfo: typeinfo,
@@ -249,7 +248,7 @@ impl Heap {
     pub fn calc_total_size(v: &Any) -> usize {
         if value::value_is_pointer(v) {
             let header = Self::get_gc_header(v);
-            let typeinfo = unsafe { header.typeinfo.as_ref() };
+            let typeinfo = header.typeinfo;
 
             let size = Self::get_allocation_size(v, typeinfo);
             if let Some(func) = typeinfo.child_traversal_func {
@@ -333,9 +332,9 @@ impl Heap {
                 let v_ptr = ptr.add(std::mem::size_of::<GCHeader>());
                 let v = &*(v_ptr as *const Any);
 
-                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                let size = Self::get_allocation_size(v, header.typeinfo);
                 println!("[dump] {:<8}, size:{}, ptr:{:>4}, {:?}",
-                    header.typeinfo.as_ref().name,
+                    header.typeinfo.name,
                     size,
                     ptr.offset_from(self.pool_ptr),
                     v
@@ -362,9 +361,9 @@ impl Heap {
 
                 let (alive, forwarding) = Self::get_gc_flag(self.pool_ptr, ptr, flags);
 
-                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                let size = Self::get_allocation_size(v, header.typeinfo);
                 println!("[dump] {:<8}, size:{}, alive:{}, forwarding:{}, ptr:{:>4}, {:?}",
-                    header.typeinfo.as_ref().name,
+                    header.typeinfo.name,
                     size,
                     alive,
                     forwarding,
@@ -530,7 +529,7 @@ impl Heap {
 
         //対象オブジェクトが子オブジェクトを持っているなら、再帰的にマーク処理を行う
         let header = unsafe { & *(alloc_ptr as *const GCHeader as *mut GCHeader) };
-        let typeinfo = unsafe { header.typeinfo.as_ref() };
+        let typeinfo = header.typeinfo;
         if let Some(func) = typeinfo.child_traversal_func {
             //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
             func(v, arg.as_ptr(), |child, arg_ptr| {
@@ -569,7 +568,7 @@ impl Heap {
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
                 let v = &mut *(ptr.add(std::mem::size_of::<GCHeader>()) as *mut Any);
-                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                let size = Self::get_allocation_size(v, header.typeinfo);
 
                 let (alive, _) = Self::get_gc_flag(self.pool_ptr, ptr, flags);
 
@@ -581,7 +580,7 @@ impl Heap {
 
                 } else {
                     //マークがないオブジェクトは開放する
-                    if let Some(finalize) = header.typeinfo.as_ref().finalize {
+                    if let Some(finalize) = header.typeinfo.finalize {
                         finalize(v);
                     }
                 }
@@ -632,13 +631,13 @@ impl Heap {
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
                 let v = &mut *(ptr.add(std::mem::size_of::<GCHeader>()) as *mut Any);
-                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                let size = Self::get_allocation_size(v, header.typeinfo);
 
                 let (alive, _) = Self::get_gc_flag(arg.start_addr, ptr, arg.flags);
                 //対象オブジェクトがまだ生きていて、
                 if alive {
                     //内部で保持しているオブジェクトを持っている場合は
-                    if let Some(func) = header.typeinfo.as_ref().child_traversal_func {
+                    if let Some(func) = header.typeinfo.child_traversal_func {
                         func(v, arg.as_ptr(), update_child_pointer);
                     }
                 }
@@ -658,7 +657,7 @@ impl Heap {
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
                 let v = &*(ptr.add(std::mem::size_of::<GCHeader>()) as *const Any);
-                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                let size = Self::get_allocation_size(v, header.typeinfo);
 
                 let (alive, forwarding_index) = Self::get_gc_flag(start, ptr, flags);
 
@@ -722,7 +721,7 @@ impl Heap {
                 let header = &mut *(alloc_ptr as *mut GCHeader);
 
                 //新しい領域にオブジェクトをコピー
-                let size = Self::get_allocation_size(v, header.typeinfo.as_ref());
+                let size = Self::get_allocation_size(v, header.typeinfo);
                 let new_ptr = arg.free_ptr;
                 std::ptr::copy_nonoverlapping(alloc_ptr, new_ptr, size);
 
@@ -739,7 +738,7 @@ impl Heap {
                 let v = &mut *(new_ptr.add(mem::size_of::<GCHeader>()) as *mut Any);
 
                 //コピーしたオブジェクトが子オブジェクトを持っているなら、再帰的にコピー処理を行う
-                if let Some(func) = header.typeinfo.as_ref().child_traversal_func {
+                if let Some(func) = header.typeinfo.child_traversal_func {
                     func(v, arg.as_ptr(), |child, arg_ptr| {
                         let arg = GCCopyingArg::from_ptr(arg_ptr);
 
@@ -806,7 +805,7 @@ impl Drop for Heap {
 
             while ptr < end {
                 let header = &mut *(ptr as *mut GCHeader);
-                let typeinfo = header.typeinfo.as_ref();
+                let typeinfo = header.typeinfo;
 
                 let v = &mut *(ptr.add(std::mem::size_of::<GCHeader>()) as *mut Any);
                 let size = Self::get_allocation_size(v, typeinfo);
@@ -834,7 +833,7 @@ pub fn copy<T>(src: T, dest: &mut T) {
     std::mem::forget(src);
 }
 
-pub fn get_typeinfo<T: NaviType>(ptr: *const T) -> NonNullConst<TypeInfo> {
+pub fn get_typeinfo<T: NaviType>(ptr: *const T) -> &'static TypeInfo {
     let ptr = ptr as *const u8;
     let gc_header = unsafe {
         let gc_header_ptr = ptr.sub(mem::size_of::<GCHeader>());

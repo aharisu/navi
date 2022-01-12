@@ -12,7 +12,7 @@ static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Bool::eq,
     Bool::clone_inner,
     Display::fmt,
-    Bool::is_type,
+    None,
     None,
     None,
     None,
@@ -20,8 +20,8 @@ static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Bool {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&BOOL_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &BOOL_TYPEINFO
     }
 
     fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -32,10 +32,6 @@ impl NaviType for Bool {
 
 
 impl Bool {
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&BOOL_TYPEINFO, other_typeinfo)
-    }
 
     #[inline(always)]
     pub fn true_() -> Reachable<Bool> {

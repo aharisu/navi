@@ -52,7 +52,6 @@ pub mod reply;
 use crate::value::any::Any;
 use crate::object::{Object, Allocator, AnyAllocator};
 use crate::object::mm::{self, GCAllocationStruct, ptr_to_usize, usize_to_ptr};
-use crate::util::non_null_const::*;
 use crate::{ptr::*, vm};
 
 use crate::value::func::*;
@@ -128,7 +127,7 @@ pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) 
     NaviType::clone_inner(v.as_ref(), allocator)
 }
 
-pub fn get_typeinfo<T: NaviType>(this: &T) -> NonNullConst<TypeInfo>{
+pub fn get_typeinfo<T: NaviType>(this: &T) -> &'static TypeInfo{
     let ptr = this as *const T;
     match pointer_kind(ptr) {
         PtrKind::Nil => {
@@ -149,6 +148,11 @@ pub fn get_typeinfo<T: NaviType>(this: &T) -> NonNullConst<TypeInfo>{
     }
 }
 
+pub fn get_typename<T: NaviType>(this: &T) -> &'static str {
+    let typeinfo = get_typeinfo(this);
+    typeinfo.name
+}
+
 pub fn check_reply(cap: &mut Cap<Any>, obj: &mut Object) -> bool {
 
     if let Some(reply) = cap.try_cast_mut::<reply::Reply>() {
@@ -165,7 +169,6 @@ pub fn check_reply(cap: &mut Cap<Any>, obj: &mut Object) -> bool {
         }
     } else {
         let typeinfo = get_typeinfo(cap.as_ref());
-        let typeinfo = unsafe { typeinfo.as_ref() };
         match typeinfo.check_reply_func {
             Some(func) => func(cap, obj),
             None => true,
@@ -207,7 +210,7 @@ pub fn mut_refer_value<'a, 'b, T: NaviType>(ptr: &'a mut Ref<T>) -> &'b mut T {
 }
 
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
-    fn typeinfo() -> NonNullConst<TypeInfo>;
+    fn typeinfo() -> &'static TypeInfo;
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self>;
 }
 
@@ -219,44 +222,16 @@ pub struct TypeInfo {
     pub eq_func: fn(&Any, &Any) -> bool,
     pub clone_func: fn(&Any, &mut AnyAllocator) -> Ref<Any>,
     pub print_func: fn(&Any, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
-    pub is_type_func: fn(&TypeInfo) -> bool,
+    pub is_type_func: Option<fn(&TypeInfo) -> bool>,
     pub finalize: Option<fn(&mut Any)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
     pub child_traversal_func: Option<fn(&mut Any, *mut u8, fn(&mut Ref<Any>, *mut u8))>,
     pub check_reply_func: Option<fn(&mut Cap<Any>, &mut Object) -> bool>,
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::value::*;
-
-    #[test]
-    fn is_type() {
-        let mut obj = Object::new_for_test();
-        let obj = &mut obj;
-
-        //int
-        let v = number::Integer::alloc(10, obj).into_value();
-        assert!(v.as_ref().is::<number::Integer>());
-        assert!(v.as_ref().is::<number::Real>());
-        assert!(v.as_ref().is::<number::Number>());
-
-        //real
-        let v = number::Real::alloc(3.14, obj).into_value();
-        assert!(!v.as_ref().is::<number::Integer>());
-        assert!(v.as_ref().is::<number::Real>());
-        assert!(v.as_ref().is::<number::Number>());
-
-        //nil
-        let v = list::List::nil().into_value();
-        assert!(v.as_ref().is::<list::List>());
-        assert!(!v.as_ref().is::<string::NString>());
-
-        //list
-        let item = number::Integer::alloc(10, obj).into_value().reach(obj);
-        let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).into_value().reach(obj);
-        assert!(v.as_ref().is::<list::List>());
-        assert!(!v.as_ref().is::<string::NString>());
+impl PartialEq for TypeInfo {
+    fn eq(&self, other: &Self) -> bool {
+        //TypeInfoのインスタンスは常にstaticなライフタイムを持つため、参照の同一性だけで値の同一性を測る
+        std::ptr::eq(self, other)
     }
-
 }

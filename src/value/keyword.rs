@@ -17,7 +17,7 @@ static KEYWORD_TYPEINFO: TypeInfo = new_typeinfo!(
     Keyword::eq,
     Keyword::clone_inner,
     Display::fmt,
-    Keyword::is_type,
+    None,
     None,
     None,
     None,
@@ -25,8 +25,8 @@ static KEYWORD_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Keyword {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&KEYWORD_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &KEYWORD_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -37,10 +37,6 @@ impl NaviType for Keyword {
 impl Keyword {
     fn size_of(&self) -> usize {
         string::NString::size_of(&self.inner)
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&KEYWORD_TYPEINFO, other_typeinfo)
     }
 
     pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> Ref<Keyword> {

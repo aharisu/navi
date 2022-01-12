@@ -18,7 +18,7 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     Array::<Any>::eq,
     Array::<Any>::clone_inner,
     Display::fmt,
-    Array::<Any>::is_type,
+    None,
     None,
     None,
     Some(Array::<Any>::child_traversal),
@@ -26,8 +26,8 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl <T:NaviType> NaviType for Array<T> {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&ARRAY_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &ARRAY_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -52,10 +52,6 @@ impl <T: NaviType> Array<T> {
     fn size_of(&self) -> usize {
         std::mem::size_of::<Array<T>>()
             + self.len * std::mem::size_of::<Ref<Any>>()
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&ARRAY_TYPEINFO, other_typeinfo)
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {

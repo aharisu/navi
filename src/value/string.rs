@@ -19,7 +19,7 @@ static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
     NString::eq,
     NString::clone_inner,
     Display::fmt,
-    NString::is_type,
+    None,
     None,
     None,
     None,
@@ -27,8 +27,8 @@ static STRING_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for NString {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&STRING_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &STRING_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -39,10 +39,6 @@ impl NaviType for NString {
 impl NString {
     pub(crate) fn size_of(&self) -> usize {
         std::mem::size_of::<NString>() + self.len_inbytes
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&STRING_TYPEINFO, other_typeinfo)
     }
 
     pub fn alloc<A: Allocator>(str: &String, allocator : &mut A) -> Ref<NString> {

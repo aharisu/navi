@@ -4,7 +4,6 @@ use std::fmt::{Display, Debug};
 use crate::ptr::*;
 use crate::object::{AnyAllocator, Allocator};
 use crate::value::symbol;
-use crate::{util::non_null_const::NonNullConst};
 
 use super::array::Array;
 use super::symbol::Symbol;
@@ -18,7 +17,7 @@ static IFORM_TYPEINFO : TypeInfo = new_typeinfo!(
     IForm::_eq,
     IForm::clone_inner,
     IForm::_fmt,
-    IForm::_is_type,
+    None,
     None,
     None,
     None,
@@ -40,8 +39,8 @@ impl <T: AsIForm + NaviType> Ref<T> {
 pub struct IForm { }
 
 impl NaviType for IForm {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -57,7 +56,7 @@ impl IForm {
     pub fn is<U: AsIForm>(&self) -> bool {
         let other_typeinfo = U::typeinfo();
         let self_typeinfo = super::get_typeinfo(self);
-        std::ptr::eq(self_typeinfo.as_ptr(), other_typeinfo.as_ptr())
+        self_typeinfo == other_typeinfo
     }
 
     pub fn try_cast<U: AsIForm>(&self) -> Option<&U> {
@@ -74,7 +73,7 @@ impl IForm {
 
     pub fn kind(&self) -> IFormKind {
         let typeinfo = super::get_typeinfo(self);
-        let offset = unsafe { typeinfo.as_ptr().offset_from(IFORM_TYPEINFO_ARY.as_ptr()) };
+        let offset = unsafe { (typeinfo as *const TypeInfo).offset_from(IFORM_TYPEINFO_ARY.as_ptr()) };
 
         if offset < 0 || IFORM_TYPEINFO_ARY.len() <= offset as usize {
             panic!("unknown iform")
@@ -84,10 +83,6 @@ impl IForm {
     }
 
     //Value型のインスタンスは存在しないため、これらのメソッドが呼び出されることはない
-    fn _is_type(_other_typeinfo: &TypeInfo) -> bool {
-        unreachable!()
-    }
-
     fn _eq(&self, _other: &Self) -> bool {
         unreachable!()
     }
@@ -197,7 +192,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormLet::eq,
         IFormLet::clone_inner,
         Display::fmt,
-        IFormLet::is_type,
+        Some(IFormLet::is_type),
         None,
         None,
         Some(IFormLet::child_traversal),
@@ -211,7 +206,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormIf::eq,
         IFormIf::clone_inner,
         Display::fmt,
-        IFormIf::is_type,
+        Some(IFormIf::is_type),
         None,
         None,
         Some(IFormIf::child_traversal),
@@ -225,7 +220,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormLocal::eq,
         IFormLocal::clone_inner,
         Display::fmt,
-        IFormLocal::is_type,
+        Some(IFormLocal::is_type),
         None,
         None,
         Some(IFormLocal::child_traversal),
@@ -239,7 +234,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormLRef::eq,
         IFormLRef::clone_inner,
         Display::fmt,
-        IFormLRef::is_type,
+        Some(IFormLRef::is_type),
         None,
         None,
         Some(IFormLRef::child_traversal),
@@ -253,7 +248,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormGRef::eq,
         IFormGRef::clone_inner,
         Display::fmt,
-        IFormGRef::is_type,
+        Some(IFormGRef::is_type),
         None,
         None,
         Some(IFormGRef::child_traversal),
@@ -267,7 +262,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormFun::eq,
         IFormFun::clone_inner,
         Display::fmt,
-        IFormFun::is_type,
+        Some(IFormFun::is_type),
         None,
         None,
         Some(IFormFun::child_traversal),
@@ -281,7 +276,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormSeq::eq,
         IFormSeq::clone_inner,
         Display::fmt,
-        IFormSeq::is_type,
+        Some(IFormSeq::is_type),
         None,
         None,
         Some(IFormSeq::child_traversal),
@@ -295,7 +290,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormCall::eq,
         IFormCall::clone_inner,
         Display::fmt,
-        IFormCall::is_type,
+        Some(IFormCall::is_type),
         None,
         None,
         Some(IFormCall::child_traversal),
@@ -309,7 +304,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormConst::eq,
         IFormConst::clone_inner,
         Display::fmt,
-        IFormConst::is_type,
+        Some(IFormConst::is_type),
         None,
         None,
         Some(IFormConst::child_traversal),
@@ -323,7 +318,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormAndOr::eq,
         IFormAndOr::clone_inner,
         Display::fmt,
-        IFormAndOr::is_type,
+        Some(IFormAndOr::is_type),
         None,
         None,
         Some(IFormAndOr::child_traversal),
@@ -337,7 +332,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormContainer::eq,
         IFormContainer::clone_inner,
         Display::fmt,
-        IFormContainer::is_type,
+        Some(IFormContainer::is_type),
         None,
         None,
         Some(IFormContainer::child_traversal),
@@ -351,7 +346,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormDefRecv::eq,
         IFormDefRecv::clone_inner,
         Display::fmt,
-        IFormDefRecv::is_type,
+        Some(IFormDefRecv::is_type),
         None,
         None,
         Some(IFormDefRecv::child_traversal),
@@ -365,7 +360,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         IFormObjectSwitch::eq,
         IFormObjectSwitch::clone_inner,
         Display::fmt,
-        IFormObjectSwitch::is_type,
+        Some(IFormObjectSwitch::is_type),
         None,
         None,
         Some(IFormObjectSwitch::child_traversal),
@@ -380,8 +375,8 @@ pub struct IFormLet {
 }
 
 impl NaviType for IFormLet {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Let as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::Let as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -397,8 +392,8 @@ impl NaviType for IFormLet {
 
 impl IFormLet {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Let as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::Let as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -458,8 +453,8 @@ pub struct  IFormIf {
 }
 
 impl NaviType for IFormIf {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::If as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::If as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -476,8 +471,8 @@ impl NaviType for IFormIf {
 
 impl IFormIf {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::If as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::If as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -543,8 +538,8 @@ pub struct IFormLocal {
 
 
 impl NaviType for IFormLocal {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Local as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::Local as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -559,8 +554,8 @@ impl NaviType for IFormLocal {
 
 impl IFormLocal {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Local as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::Local as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -612,8 +607,8 @@ pub struct IFormLRef {
 }
 
 impl NaviType for IFormLRef {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::LRef as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::LRef as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -628,8 +623,8 @@ impl NaviType for IFormLRef {
 
 impl IFormLRef {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::LRef as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::LRef as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -681,8 +676,8 @@ pub struct IFormGRef {
 }
 
 impl NaviType for IFormGRef {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::GRef as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::GRef as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -697,8 +692,8 @@ impl NaviType for IFormGRef {
 
 impl IFormGRef {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::GRef as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::GRef as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -751,8 +746,8 @@ pub struct IFormFun {
 }
 
 impl NaviType for IFormFun {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Fun as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::Fun as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -768,8 +763,8 @@ impl NaviType for IFormFun {
 
 impl IFormFun {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Fun as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::Fun as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -831,8 +826,8 @@ pub struct IFormSeq {
 }
 
 impl NaviType for IFormSeq {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Seq as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::Seq as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -847,8 +842,8 @@ impl NaviType for IFormSeq {
 
 impl IFormSeq {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Seq as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::Seq as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -901,8 +896,8 @@ pub struct IFormCall {
 }
 
 impl NaviType for IFormCall {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Call as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::Call as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -918,8 +913,8 @@ impl NaviType for IFormCall {
 
 impl IFormCall {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Call as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::Call as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -981,8 +976,8 @@ pub struct IFormConst {
 }
 
 impl NaviType for IFormConst {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Const as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::Const as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -997,8 +992,8 @@ impl NaviType for IFormConst {
 
 impl IFormConst {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Const as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::Const as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -1058,8 +1053,8 @@ pub struct IFormAndOr {
 }
 
 impl NaviType for IFormAndOr {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::AndOr as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::AndOr as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -1074,8 +1069,8 @@ impl NaviType for IFormAndOr {
 
 impl IFormAndOr {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::AndOr as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::AndOr as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -1145,8 +1140,8 @@ pub struct IFormContainer {
 }
 
 impl NaviType for IFormContainer {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::Container as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::Container as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -1161,8 +1156,8 @@ impl NaviType for IFormContainer {
 
 impl IFormContainer {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::Container as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::Container as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -1224,8 +1219,8 @@ pub struct IFormDefRecv {
 }
 
 impl NaviType for IFormDefRecv {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::DefRecv as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::DefRecv as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -1241,8 +1236,8 @@ impl NaviType for IFormDefRecv {
 
 impl IFormDefRecv {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::DefRecv as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::DefRecv as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -1300,8 +1295,8 @@ pub struct IFormObjectSwitch {
 }
 
 impl NaviType for IFormObjectSwitch {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&IFORM_TYPEINFO_ARY[IFormKind::ObjectSwitch as usize] as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &IFORM_TYPEINFO_ARY[IFormKind::ObjectSwitch as usize]
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -1320,8 +1315,8 @@ impl NaviType for IFormObjectSwitch {
 
 impl IFormObjectSwitch {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&IFORM_TYPEINFO_ARY[IFormKind::ObjectSwitch as usize], other_typeinfo)
-        || std::ptr::eq(&IFORM_TYPEINFO, other_typeinfo)
+        &IFORM_TYPEINFO_ARY[IFormKind::ObjectSwitch as usize] == other_typeinfo
+        || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {

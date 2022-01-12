@@ -26,7 +26,7 @@ static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
     Syntax::eq,
     Syntax::clone_inner,
     Display::fmt,
-    Syntax::is_type,
+    None,
     None,
     None,
     None,
@@ -34,8 +34,8 @@ static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Syntax {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&SYNTAX_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &SYNTAX_TYPEINFO
     }
 
     fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -56,10 +56,6 @@ impl Syntax {
             has_rest: has_rest,
             transform_body: translate_body,
         }
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&SYNTAX_TYPEINFO, other_typeinfo)
     }
 
     pub fn check_arguments(&self, args: &Reachable<list::List>) -> bool {

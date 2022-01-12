@@ -14,7 +14,7 @@ static MATCHFAIL_TYPEINFO : TypeInfo = new_typeinfo!(
     MatchFail::eq,
     MatchFail::clone_inner,
     std::fmt::Display::fmt,
-    MatchFail::is_type,
+    None,
     None,
     None,
     None,
@@ -22,8 +22,8 @@ static MATCHFAIL_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for MatchFail {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&MATCHFAIL_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &MATCHFAIL_TYPEINFO
     }
 
     fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -33,10 +33,6 @@ impl NaviType for MatchFail {
 }
 
 impl MatchFail {
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&MATCHFAIL_TYPEINFO, other_typeinfo)
-    }
 
     pub fn fail() -> Reachable<MatchFail> {
         Reachable::<MatchFail>::new_immidiate(IMMIDATE_MATCHFAIL)
@@ -206,8 +202,8 @@ fn pattern_grouping(patterns: Vec<MatchClause>) -> Vec<(PatKind, Vec<MatchClause
             PatKind::Empty
 
         } else {
-            let tf = value::get_typeinfo(pat.last().unwrap().as_ref()).as_ptr();
-            if std::ptr::eq(tf, list::List::typeinfo().as_ptr()) {
+            let tf = value::get_typeinfo(pat.last().unwrap().as_ref());
+            if tf == list::List::typeinfo() {
                 let list =  unsafe { pat.last().unwrap().cast_unchecked::<List>() };
                 //長さがちょうど２のリストで
                 if list.as_ref().len_exactly(2) {
@@ -227,9 +223,9 @@ fn pattern_grouping(patterns: Vec<MatchClause>) -> Vec<(PatKind, Vec<MatchClause
                     PatKind::List
                 }
 
-            } else if std::ptr::eq(tf, array::Array::<Any>::typeinfo().as_ptr()) {
+            } else if tf == array::Array::<Any>::typeinfo() {
                 PatKind::Array
-            } else if std::ptr::eq(tf, tuple::Tuple::typeinfo().as_ptr()) {
+            } else if tf == tuple::Tuple::typeinfo() {
                 PatKind::Tuple
             } else {
                 PatKind::Literal

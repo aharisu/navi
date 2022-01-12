@@ -23,7 +23,7 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     Integer::eq,
     Integer::clone_inner,
     Display::fmt,
-    Integer::is_type,
+    Some(Integer::is_type),
     None,
     Some(Integer::is_comparable),
     None,
@@ -31,8 +31,8 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Integer {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&INTEGER_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &INTEGER_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -43,14 +43,14 @@ impl NaviType for Integer {
 impl Integer {
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
-        || std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
-        || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
+        &INTEGER_TYPEINFO == other_typeinfo
+        || &REAL_TYPEINFO == other_typeinfo
+        || &NUMBER_TYPEINFO == other_typeinfo
     }
 
     fn is_comparable(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
-        || std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
+        &INTEGER_TYPEINFO == other_typeinfo
+        || &REAL_TYPEINFO == other_typeinfo
     }
 
     pub fn alloc<A: Allocator>(num: i64, allocator : &mut A) -> Ref<Integer> {
@@ -75,10 +75,8 @@ impl PartialEq for Integer {
     fn eq(&self, other: &Self) -> bool {
         //otherはReal型か？
         let other_typeinfo = get_typeinfo(other);
-        if std::ptr::eq(Real::typeinfo().as_ptr(), other_typeinfo.as_ptr()) {
-            let other = unsafe {
-                &*(other as *const Integer as *const Real)
-            };
+        if Real::typeinfo() == other_typeinfo {
+            let other = unsafe { std::mem::transmute::<&Integer, &Real>(other) };
             self.num as f64 == other.num
 
         } else {
@@ -121,7 +119,7 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     Real::eq,
     Real::clone_inner,
     Display::fmt,
-    Real::is_type,
+    Some(Real::is_type),
     None,
     Some(Real::is_comparable),
     None,
@@ -129,8 +127,8 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Real {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&REAL_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &REAL_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -141,13 +139,13 @@ impl NaviType for Real {
 impl Real {
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
-        || std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
+        &REAL_TYPEINFO == other_typeinfo
+        || &NUMBER_TYPEINFO == other_typeinfo
     }
 
     fn is_comparable(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&REAL_TYPEINFO, other_typeinfo)
-        || std::ptr::eq(&INTEGER_TYPEINFO, other_typeinfo)
+        &REAL_TYPEINFO == other_typeinfo
+        || &INTEGER_TYPEINFO == other_typeinfo
     }
 
     pub fn alloc<A: Allocator>(num: f64, allocator : &mut A) -> Ref<Real> {
@@ -168,7 +166,7 @@ impl PartialEq for Real {
     fn eq(&self, other: &Self) -> bool {
         //otherはReal型か？
         let other_typeinfo = get_typeinfo(other);
-        if std::ptr::eq(Real::typeinfo().as_ptr(), other_typeinfo.as_ptr()) {
+        if Real::typeinfo() == other_typeinfo {
             self.num == other.num
 
         } else {
@@ -211,7 +209,7 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number::eq,
     Number::clone_inner,
     Display::fmt,
-    Number::is_type,
+    None,
     None,
     None,
     None,
@@ -219,20 +217,13 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Number {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&NUMBER_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &NUMBER_TYPEINFO
     }
 
     fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
         //Number型のインスタンスは存在しないため、cloneが呼ばれることはない。
         unreachable!()
-    }
-}
-
-impl Number {
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&NUMBER_TYPEINFO, other_typeinfo)
     }
 }
 

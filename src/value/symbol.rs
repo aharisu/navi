@@ -17,7 +17,7 @@ static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Symbol::eq,
     Symbol::clone_inner,
     Symbol::fmt,
-    Symbol::is_type,
+    None,
     None,
     None,
     None,
@@ -27,8 +27,8 @@ static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
 static GENSYM_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl NaviType for Symbol {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&SYMBOL_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &SYMBOL_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -39,10 +39,6 @@ impl NaviType for Symbol {
 impl Symbol {
     fn size_of(&self) -> usize {
         string::NString::size_of(&self.inner)
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&SYMBOL_TYPEINFO, other_typeinfo)
     }
 
     pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> Ref<Symbol> {

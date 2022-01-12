@@ -15,7 +15,7 @@ static TUPLE_TYPEINFO : TypeInfo = new_typeinfo!(
     Tuple::eq,
     Tuple::clone_inner,
     Tuple::fmt,
-    Tuple::is_type,
+    None,
     None,
     None,
     Some(Tuple::child_traversal),
@@ -23,8 +23,8 @@ static TUPLE_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Tuple {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&TUPLE_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &TUPLE_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -53,10 +53,6 @@ impl Tuple {
     fn size_of(&self) -> usize {
         std::mem::size_of::<Tuple>()
             + self.len * std::mem::size_of::<Ref<Any>>()
-    }
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&TUPLE_TYPEINFO, other_typeinfo)
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {

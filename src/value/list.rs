@@ -19,7 +19,7 @@ static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
     List::eq,
     List::clone_inner,
     Display::fmt,
-    List::is_type,
+    None,
     None,
     None,
     Some(List::child_traversal),
@@ -27,8 +27,8 @@ static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for List {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&LIST_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &LIST_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -49,10 +49,6 @@ impl NaviType for List {
 
 
 impl List {
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&LIST_TYPEINFO, other_typeinfo)
-    }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(&mut self.v, arg);

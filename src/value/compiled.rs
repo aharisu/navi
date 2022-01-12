@@ -15,7 +15,7 @@ static CODE_TYPEINFO: TypeInfo = new_typeinfo!(
     Code::eq,
     Code::clone_inner,
     Display::fmt,
-    Code::is_type,
+    None,
     None,
     None,
     Some(Code::child_traversal),
@@ -23,8 +23,8 @@ static CODE_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Code {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&CODE_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &CODE_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -48,10 +48,6 @@ impl NaviType for Code {
 }
 
 impl Code {
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&CODE_TYPEINFO, other_typeinfo)
-    }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         self.constants.iter_mut().for_each(|v| callback(v, arg));
@@ -127,7 +123,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure::eq,
     Closure::clone_inner,
     Display::fmt,
-    Closure::is_type,
+    None,
     None,
     None,
     Some(Closure::child_traversal),
@@ -135,8 +131,8 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for Closure {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&CLOSURE_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &CLOSURE_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -152,10 +148,6 @@ impl NaviType for Closure {
 }
 
 impl Closure {
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&CLOSURE_TYPEINFO, other_typeinfo)
-    }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         self.code.child_traversal(arg, callback);

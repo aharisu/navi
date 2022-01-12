@@ -19,7 +19,7 @@ static OBJECT_TYPEINFO : TypeInfo = new_typeinfo!(
     ObjectRef::eq,
     ObjectRef::clone_inner,
     Display::fmt,
-    ObjectRef::is_type,
+    None,
     Some(ObjectRef::finalize),
     None,
     None,
@@ -27,8 +27,8 @@ static OBJECT_TYPEINFO : TypeInfo = new_typeinfo!(
 );
 
 impl NaviType for ObjectRef {
-    fn typeinfo() -> NonNullConst<TypeInfo> {
-        NonNullConst::new_unchecked(&OBJECT_TYPEINFO as *const TypeInfo)
+    fn typeinfo() -> &'static TypeInfo {
+        &OBJECT_TYPEINFO
     }
 
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
@@ -38,10 +38,6 @@ impl NaviType for ObjectRef {
 }
 
 impl ObjectRef {
-
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        std::ptr::eq(&OBJECT_TYPEINFO, other_typeinfo)
-    }
 
     pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &mut A) -> Ref<ObjectRef> {
         let ptr = allocator.alloc::<ObjectRef>();
