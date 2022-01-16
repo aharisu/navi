@@ -444,7 +444,10 @@ impl <T: NaviType> ValueHolder<T> for Reachable<T> {
     fn raw_ptr(&self) -> *mut T {
         match self {
             Self::Static(ptr) => {
-                *ptr
+                unsafe {
+                    let refer: &Ref<T> = std::mem::transmute(ptr);
+                    refer.raw_ptr()
+                }
             },
             Self::Capture(cap) => {
                 cap.raw_ptr()
@@ -455,7 +458,10 @@ impl <T: NaviType> ValueHolder<T> for Reachable<T> {
     fn as_ref<'a, 'b>(&'a self) -> &'b T {
         match self {
             Self::Static(ptr) => {
-                unsafe { & **ptr }
+                unsafe {
+                    let refer: &Ref<T> = std::mem::transmute(ptr);
+                    refer.as_ref()
+                }
             },
             Self::Capture(cap) => {
                 cap.as_ref()
@@ -468,7 +474,10 @@ impl <T: NaviType> ValueHolder<T> for Reachable<T> {
 
         match self {
             Self::Static(ptr) => {
-                unsafe { &mut **ptr }
+                unsafe {
+                    let refer: &mut Ref<T> = std::mem::transmute(ptr);
+                    refer.as_mut()
+                }
             },
             Self::Capture(cap) => {
                 cap.as_mut()
