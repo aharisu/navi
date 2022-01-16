@@ -1,6 +1,9 @@
 use crate::value::*;
 use crate::value::list::{self, List};
 use crate::ptr::*;
+use crate::err::*;
+use crate::value::iform::IForm;
+use crate::compile::SyntaxException;
 use crate::object::mm::GCAllocationStruct;
 use crate::compile;
 
@@ -15,7 +18,7 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    transform_body: fn(&Reachable<List>, &mut compile::CCtx, &mut Object) -> Ref<crate::value::iform::IForm>,
+    transform_body: fn(&Reachable<List>, &mut compile::CCtx, &mut Object) -> NResult<IForm, SyntaxException>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -38,16 +41,16 @@ impl NaviType for Syntax {
         &SYNTAX_TYPEINFO
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //Syntaxのインスタンスはヒープ上に作られることがないため、自分自身を返す
-        Ref::new(self)
+        Ok(Ref::new(self))
     }
 }
 
 impl Syntax {
 
     pub fn new<T: Into<String>>(name: T, require: usize, optional: usize, has_rest: bool
-        , translate_body: fn(&Reachable<list::List>, &mut crate::compile::CCtx, &mut Object) -> Ref<iform::IForm>,
+        , translate_body: fn(&Reachable<list::List>, &mut crate::compile::CCtx, &mut Object) -> NResult<IForm, SyntaxException>,
     ) -> Self {
         Syntax {
             name: name.into(),
@@ -69,7 +72,7 @@ impl Syntax {
         }
     }
 
-    pub fn transform(&self, args: &Reachable<List>, ctx: &mut compile::CCtx, obj: &mut Object) -> Ref<iform::IForm> {
+    pub fn transform(&self, args: &Reachable<List>, ctx: &mut compile::CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
         (self.transform_body)(args, ctx, obj)
     }
 

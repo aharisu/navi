@@ -1,5 +1,6 @@
 use crate::object::mailbox::ReplyToken;
 use crate::ptr::*;
+use crate::err::*;
 use crate::value::*;
 
 use std::fmt::{Debug, Display};
@@ -9,7 +10,7 @@ use std::fmt::{Debug, Display};
 
 pub struct Reply {
     reply_token: ReplyToken,
-    reply_value: Option<Ref<Any>>,
+    reply_value: Option<NResult<Any, Exception>>,
 }
 
 static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -32,7 +33,7 @@ impl NaviType for Reply {
         &REPLY_TYPEINFO
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         unreachable!()
     }
 }
@@ -41,42 +42,64 @@ impl Reply {
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         match self.reply_value.as_mut() {
             Some(value) => {
-                callback(value, arg);
+                match value {
+                    Ok(v) => {
+                        callback(v, arg);
+                    }
+                    Err(err) => {
+                        err.for_each_alived_value(arg, callback);
+                    }
+                }
+
             },
             None => { }
         }
     }
 
-    pub fn try_get_reply_value(cap: &mut Cap<Reply>, obj: &mut Object) -> Option<Ref<Any>> {
-        if Self::check_reply(cap, obj) {
-            cap.as_ref().reply_value.clone()
-        } else {
-            None
-        }
-    }
+    pub fn try_get_reply_value(cap: &mut Cap<Reply>, obj: &mut Object) -> ResultNone<NResult<Any, Exception>, OutOfMemory> {
+        match Self::check_reply(cap, obj) {
+            Ok(has_reply) => {
+                if has_reply {
+                    ResultNone::Ok(cap.as_ref().reply_value.as_ref().unwrap().clone())
 
-    fn check_reply(cap: &mut Cap<Reply>, obj: &mut Object) -> bool {
-        if cap.as_ref().reply_value.is_some() {
-            true
-        } else {
-            match obj.check_reply(cap.as_ref().reply_token) {
-                Some(reply_value) => {
-                    cap.as_mut().reply_value = Some(reply_value);
-                    true
-                },
-                None => false
+                } else {
+                    ResultNone::None
+                }
+
+            }
+            Err(oom) => {
+                ResultNone::Err(oom)
             }
         }
     }
 
-    fn _check_reply_dummy(_cap: &mut Cap<Reply>, _obj: &mut Object) -> bool {
+    fn check_reply(cap: &mut Cap<Reply>, obj: &mut Object) -> Result<bool, OutOfMemory> {
+        if cap.as_ref().reply_value.is_some() {
+            Ok(true)
+        } else {
+            match obj.try_take_reply(cap.as_ref().reply_token) {
+                ResultNone::Ok(result) => {
+                    cap.as_mut().reply_value = Some(result);
+                    Ok(true)
+                }
+                ResultNone::Err(oom) => {
+                    Err(oom)
+                }
+                ResultNone::None => {
+                    Ok(false)
+                }
+            }
+        }
+    }
+
+    fn _check_reply_dummy(_cap: &mut Cap<Reply>, _obj: &mut Object) -> Result<bool, OutOfMemory> {
         //本来この関数が呼ばれることはない。
         //不具合を検出できるようにダミーでパニックするだけの関数を登録できるようにする
         unreachable!()
     }
 
-    pub fn alloc<A: Allocator>(token: ReplyToken, allocator: &mut A) -> Ref<Reply> {
-        let ptr = allocator.alloc::<Reply>();
+    pub fn alloc<A: Allocator>(token: ReplyToken, allocator: &mut A) -> NResult<Reply, OutOfMemory> {
+        let ptr = allocator.alloc::<Reply>()?;
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Reply {
@@ -89,7 +112,7 @@ impl Reply {
         //Reply型を持つポインタとして目印のフラグを立てる。
         crate::value::set_has_replytype_flag(&mut result);
 
-        result
+        Ok(result)
     }
 }
 
@@ -117,9 +140,9 @@ impl Debug for Reply {
     }
 }
 
-fn func_force(obj: &mut Object) -> Ref<Any> {
+fn func_force(obj: &mut Object) -> NResult<Any, Exception> {
     //関数にわたってきている時点でReplyから実際の値になっているので引数の値をそのまま返す
-    vm::refer_arg::<Any>(0, obj)
+    Ok(vm::refer_arg::<Any>(0, obj))
 }
 
 static FUNC_FORCE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {

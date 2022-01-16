@@ -27,22 +27,23 @@ impl NaviType for Code {
         &CODE_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         unsafe {
             let program = self.program.clone();
-            let constants = self.constants.iter()
+            let constants: Result<Vec<_>, _> = self.constants.iter()
                 .map(|c| Any::clone_inner(c.as_ref(), allocator))
                 .collect()
                 ;
+            let constants = constants?;
 
-            let ptr = allocator.alloc::<Code>();
+            let ptr = allocator.alloc::<Code>()?;
             std::ptr::write(ptr.as_ptr(), Code {
                 program: program,
                 constants: constants,
             });
 
-            ptr.into_ref()
+            Ok(ptr.into_ref())
         }
     }
 }
@@ -53,14 +54,14 @@ impl Code {
         self.constants.iter_mut().for_each(|v| callback(v, arg));
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Any>>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<Code>();
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Any>>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<Code>()?;
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Self::new(program, constants))
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn new(program: Vec<u8>, constants: Vec<Cap<Any>>) -> Self {
@@ -123,7 +124,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure::eq,
     Closure::clone_inner,
     Display::fmt,
-    None,
+    Some(Closure::is_type),
     None,
     None,
     Some(Closure::child_traversal),
@@ -135,13 +136,14 @@ impl NaviType for Closure {
         &CLOSURE_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         let program = self.code.program.clone();
-        let constants:Vec<Ref<Any>> = self.code.constants.iter()
+        let constants: Result<Vec<_>, _> = self.code.constants.iter()
             .map(|c| Any::clone_inner(c.as_ref(), allocator))
             .collect()
             ;
+        let constants = constants?;
 
         Self::alloc(program, &constants, self.num_args, allocator)
     }
@@ -153,8 +155,13 @@ impl Closure {
         self.code.child_traversal(arg, callback);
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Any>], num_args: usize, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<Closure>();
+    fn is_type(other_typeinfo: &TypeInfo) -> bool {
+        &CLOSURE_TYPEINFO == other_typeinfo
+        || app::App::typeinfo() == other_typeinfo
+    }
+
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Any>], num_args: usize, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<Closure>()?;
 
         let constants = constants.into_iter()
             .map(|c| c.clone())
@@ -171,7 +178,7 @@ impl Closure {
             })
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn arg_descriptor(&self) -> usize {

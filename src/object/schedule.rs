@@ -65,7 +65,13 @@ fn scheduler_main() -> (mpsc::Sender<Envelope>, thread::JoinHandle<()>) {
                 match obj.upgrade() {
                     Some(obj) => {
                         //オブジェクトへの参照を取得できたら、実行する。
-                        obj.borrow_mut().do_work(1000);
+                        //TODO oomが発生したら対象オブジェクトを削除して、既存のメッセージに対してすべてOOMの返信を送る?
+                        match obj.borrow_mut().do_work(1000) {
+                            Ok(_) => { }
+                            Err(_oom) => {
+                                panic!("OOM");
+                            }
+                        }
 
                         index += 1;
                     },

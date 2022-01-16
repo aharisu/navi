@@ -1,12 +1,13 @@
 use crate::value::*;
 use crate::ptr::*;
+use crate::err::*;
 use std::fmt::{Debug, Display};
 
 
 pub struct Func {
     name: String,
     params: Vec<Param>,
-    body:  fn(&mut Object) -> Ref<Any>,
+    body:  fn(&mut Object) -> NResult<Any, Exception>,
     num_require: u8,
     num_optional: u8,
     has_rest: bool,
@@ -55,7 +56,7 @@ static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func::eq,
     Func::clone_inner,
     Display::fmt,
-    None,
+    Some(Func::is_type),
     None,
     None,
     None,
@@ -67,15 +68,20 @@ impl NaviType for Func {
         &FUNC_TYPEINFO
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //Funcのインスタンスはヒープ上に作られることがないため、自分自身を返す
-        Ref::new(self)
+        Ok(Ref::new(self))
     }
 }
 
 impl Func {
 
-    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&mut Object) -> Ref<Any>) -> Func {
+    fn is_type(other_typeinfo: &TypeInfo) -> bool {
+        &FUNC_TYPEINFO == other_typeinfo
+        || app::App::typeinfo() == other_typeinfo
+    }
+
+    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&mut Object) -> NResult<Any, Exception>) -> Func {
         let mut num_require = 0;
         let mut num_optional = 0;
         let mut has_rest = false;
@@ -97,6 +103,10 @@ impl Func {
         }
     }
 
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
     pub fn get_paramter(&self) -> &[Param] {
         &self.params
     }
@@ -116,7 +126,7 @@ impl Func {
         self.has_rest
     }
 
-    pub fn apply(&self, obj: &mut Object) -> Ref<Any> {
+    pub fn apply(&self, obj: &mut Object) -> NResult<Any, Exception> {
         (self.body)(obj)
     }
 }

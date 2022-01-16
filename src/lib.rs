@@ -1,4 +1,5 @@
 pub mod compile;
+pub mod err;
 pub mod eval;
 pub mod object;
 pub mod ptr;

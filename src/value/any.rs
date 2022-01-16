@@ -1,5 +1,6 @@
 use crate::value::{*};
 use crate::ptr::*;
+use crate::err::*;
 
 pub struct Any { }
 
@@ -22,14 +23,14 @@ impl NaviType for Any {
         &ANY_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         if value_is_pointer(self) {
             let typeinfo = get_typeinfo(self);
            (typeinfo.clone_func)(self, allocator)
 
         } else {
             //Immidiate Valueの場合はそのまま返す
-            Ref::new(self)
+            Ok(Ref::new(self))
         }
     }
 }
@@ -111,16 +112,16 @@ impl Any {
     }
 }
 
-fn func_equal(obj: &mut Object) -> Ref<Any> {
+fn func_equal(obj: &mut Object) -> NResult<Any, Exception> {
     let left = vm::refer_arg::<Any>(0, obj);
     let right = vm::refer_arg::<Any>(1, obj);
 
     let result = left.as_ref().eq(right.as_ref());
 
     if result {
-        bool::Bool::true_().into_ref().into_value()
+        Ok(bool::Bool::true_().into_ref().into_value())
     } else {
-        bool::Bool::false_().into_ref().into_value()
+        Ok(bool::Bool::false_().into_ref().into_value())
     }
 }
 
@@ -158,13 +159,13 @@ mod tests {
         let obj = &mut obj;
 
         //int
-        let v = number::Integer::alloc(10, obj).into_value();
+        let v = number::Integer::alloc(10, obj).unwrap().into_value();
         assert!(v.as_ref().is::<number::Integer>());
         assert!(v.as_ref().is::<number::Real>());
         assert!(v.as_ref().is::<number::Number>());
 
         //real
-        let v = number::Real::alloc(3.14, obj).into_value();
+        let v = number::Real::alloc(3.14, obj).unwrap().into_value();
         assert!(!v.as_ref().is::<number::Integer>());
         assert!(v.as_ref().is::<number::Real>());
         assert!(v.as_ref().is::<number::Number>());
@@ -175,8 +176,8 @@ mod tests {
         assert!(!v.as_ref().is::<string::NString>());
 
         //list
-        let item = number::Integer::alloc(10, obj).into_value().reach(obj);
-        let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).into_value().reach(obj);
+        let item = number::Integer::alloc(10, obj).unwrap().into_value().reach(obj);
+        let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).unwrap().into_value().reach(obj);
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
     }
@@ -188,7 +189,7 @@ mod tests {
         let sexp = result.unwrap();
 
         let sexp = sexp.reach(obj);
-        let result = crate::eval::eval(&sexp, obj);
+        let result = crate::eval::eval(&sexp, obj).unwrap();
         let result = result.try_cast::<T>();
         assert!(result.is_some());
 

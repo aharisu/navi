@@ -1,7 +1,9 @@
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 
+use crate::err::{OutOfMemory, Exception, NResult};
 use crate::value::*;
+//use crate::err::*;
 use crate::value::any::Any;
 use crate::ptr::*;
 
@@ -30,13 +32,22 @@ pub struct MessageData {
 
 struct MailBoxGCRootValues {
     pub inbox: Vec<MessageData>,
-    pub result_box: Vec<(ReplyToken, Ref<Any>)>,
+    pub result_box: Vec<(ReplyToken, NResult<Any, Exception>)>,
 }
 
 impl mm::GCRootValueHolder for MailBoxGCRootValues {
     fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         self.inbox.iter_mut().for_each(|data| callback(&mut data.message, arg));
-        self.result_box.iter_mut().for_each(|(_, result)| callback(result, arg));
+        self.result_box.iter_mut().for_each(|(_, result)| {
+            match result.as_mut() {
+                Ok(v) => {
+                    callback(v, arg)
+                }
+                Err(err) => {
+                    err.for_each_alived_value(arg, callback)
+                }
+            }
+        });
     }
 }
 
@@ -81,10 +92,10 @@ impl MailBox {
         }
     }
 
-    pub fn recv_message(&mut self, msg: &Reachable<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
+    pub fn recv_message(&mut self, msg: &Reachable<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> Result<ReplyToken, OutOfMemory> {
         //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
         let mut allocator = AnyAllocator::MailBox(self);
-        let msg = crate::value::value_clone(msg, &mut allocator);
+        let msg = crate::value::value_clone(msg, &mut allocator)?;
 
         //返信を送受信するためのtx/rxを作成
         let reply_token = self.reply_token;
@@ -97,23 +108,38 @@ impl MailBox {
             reply_token: reply_token,
         });
 
-        //処理終了後の値を受け取るための受信チャンネルを返す
-        reply_token
+        //処理終了後の値を受け取るための受信用トークンを返す
+        Ok(reply_token)
     }
 
     pub fn pop_inbox(&mut self) -> Option<MessageData> {
         self.values.inbox.pop()
     }
 
-    pub fn recv_reply(&mut self, result: &Reachable<Any>, reply_token: ReplyToken) {
-        //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
-        let mut allocator = AnyAllocator::MailBox(self);
-        let result = crate::value::value_clone(result, &mut allocator);
+    //TODO Result<Any>を受け取る
+    pub fn recv_reply(&mut self, result: Result<&Reachable<Any>, Exception>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
+        match result {
+            Ok(v) => {
+                //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
+                let mut allocator = AnyAllocator::MailBox(self);
+                let cloned = crate::value::value_clone(v, &mut allocator)?;
 
-        self.values.result_box.push((reply_token, result));
+                self.values.result_box.push((reply_token, Ok(cloned)));
+            }
+            Err(e) => {
+                //受け取ったエラー内容をすべて自分自身のヒープ内にコピーする
+                //※エラー内にはエラー追加情報のためにオブジェクトが含まれる可能性があるため、コピーを行います
+                let mut allocator = AnyAllocator::MailBox(self);
+                let cloned = unsafe { e.value_clone_gcunsafe(&mut allocator) }?;
+
+                self.values.result_box.push((reply_token, Err(cloned)));
+            }
+        }
+
+        Ok(())
     }
 
-    pub fn check_reply(&mut self, reply_token: ReplyToken) -> Option<Ref<Any>> {
+    pub fn try_take_reply(&mut self, reply_token: ReplyToken) -> Option<NResult<Any, Exception>> {
         self.values.result_box.iter().position(|(token, _)| reply_token == *token)
             .map(|index| {
                 let (_, result) = self.values.result_box.swap_remove(index);
@@ -141,16 +167,16 @@ impl PartialEq for MailBox {
 }
 
 impl Allocator for MailBox {
-    fn alloc<T: NaviType>(&mut self) -> UIPtr<T> {
+    fn alloc<T: NaviType>(&mut self) -> Result<UIPtr<T>, OutOfMemory> {
         self.heap.alloc(&mut self.values)
     }
 
-    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> UIPtr<T> {
+    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> Result<UIPtr<T>, OutOfMemory> {
         self.heap.alloc_with_additional_size(additional_size, &mut self.values)
     }
 
-    fn force_allocation_space(&mut self, size: usize) {
-        self.heap.force_allocation_space(size, &mut self.values);
+    fn force_allocation_space(&mut self, size: usize) -> Result<(), OutOfMemory> {
+        self.heap.force_allocation_space(size, &mut self.values)
     }
 
     fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {

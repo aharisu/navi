@@ -31,7 +31,7 @@ impl NaviType for NString {
         &STRING_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         Self::alloc(&self.as_string(), allocator)
     }
 }
@@ -41,14 +41,14 @@ impl NString {
         std::mem::size_of::<NString>() + self.len_inbytes
     }
 
-    pub fn alloc<A: Allocator>(str: &String, allocator : &mut A) -> Ref<NString> {
+    pub fn alloc<A: Allocator>(str: &String, allocator : &mut A) -> NResult<NString, OutOfMemory> {
         Self::alloc_inner(str, allocator)
     }
 
     //NStringとSymbol,Keywordクラス共有のアロケーション用関数。TはNSTringもしくはSymbol、Keywordのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType, A: Allocator>(str: &String, allocator : &mut A) -> Ref<T> {
+    pub(crate) fn alloc_inner<T: NaviType, A: Allocator>(str: &String, allocator : &mut A) -> NResult<T, OutOfMemory> {
         let len_inbytes = str.len();
-        let ptr = allocator.alloc_with_additional_size::<T>(len_inbytes);
+        let ptr = allocator.alloc_with_additional_size::<T>(len_inbytes)?;
 
         let nstring = unsafe { &mut *(ptr.as_ptr() as *mut NString) };
         nstring.len_inbytes = len_inbytes;
@@ -57,7 +57,7 @@ impl NString {
             std::ptr::copy_nonoverlapping(str.as_bytes().as_ptr(), ptr, len_inbytes);
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     #[inline]

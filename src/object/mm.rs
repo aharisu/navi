@@ -1,5 +1,6 @@
 use std::alloc;
 use std::mem;
+use crate::err::OutOfMemory;
 use crate::ptr::*;
 use crate::value::{self, TypeInfo, NaviType};
 use crate::value::any::Any;
@@ -183,11 +184,11 @@ impl Heap {
         alloc::Layout::from_size_align(size, VALUE_ALIGN).unwrap()
     }
 
-    pub fn alloc<'a, 'b, T: NaviType, R: GCRootValueHolder>(&'a mut self, root: &'b mut R) -> UIPtr<T> {
+    pub fn alloc<'a, 'b, T: NaviType, R: GCRootValueHolder>(&'a mut self, root: &'b mut R) -> Result<UIPtr<T>, OutOfMemory> {
         self.alloc_with_additional_size::<T, R>(0, root)
     }
 
-    pub fn alloc_with_additional_size<T: NaviType, R: GCRootValueHolder>(&mut self, additional_size: usize, root: &mut R) -> UIPtr<T> {
+    pub fn alloc_with_additional_size<T: NaviType, R: GCRootValueHolder>(&mut self, additional_size: usize, root: &mut R) -> Result<UIPtr<T>, OutOfMemory> {
         //GCのバグを発見しやすいように、allocのたびにGCを実行する
         //self.debug_gc(obj);
 
@@ -217,14 +218,14 @@ impl Heap {
 
                     self.used += alloc_size;
 
-                    return UIPtr::new(obj_ptr);
+                    return Ok(UIPtr::new(obj_ptr));
                 }
             } else if try_count == 0 {
                 self.gc(root);
                 try_count += 1;
 
             } else {
-                self.grow(root);
+                self.grow(root)?;
             }
         }
     }
@@ -278,17 +279,17 @@ impl Heap {
         }
     }
 
-    pub fn force_allocation_space<R: GCRootValueHolder>(&mut self, require_size: usize, root: &mut R) {
+    pub fn force_allocation_space<R: GCRootValueHolder>(&mut self, require_size: usize, root: &mut R) -> Result<(), OutOfMemory> {
         let mut try_count = 0;
         loop {
             if self.used + require_size < self.page_layout.size() {
-                return //OK!!
+                return Ok(())//OK!!
             } else if try_count == 0 {
                 self.gc(root);
                 try_count += 1;
 
             } else {
-                self.grow(root);
+                return self.grow(root);
             }
         }
     }
@@ -680,18 +681,18 @@ impl Heap {
         }
     }
 
-    fn grow<R: GCRootValueHolder>(&mut self, root: &mut R) {
+    fn grow<R: GCRootValueHolder>(&mut self, root: &mut R) -> Result<(), OutOfMemory> {
         //self.dump_heap();
 
         match self.heap_size {
-            HeapSize::_256 => self.grow_copying(HeapSize::_512, root),
-            HeapSize::_512 => self.grow_copying(HeapSize::_1k, root),
-            HeapSize::_1k => self.grow_copying(HeapSize::_2k, root),
-            HeapSize::_2k => self.grow_copying(HeapSize::_8k, root),
-            HeapSize::_8k => self.grow_copying(HeapSize::_16k, root),
-            HeapSize::_16k => self.grow_copying(HeapSize::_32k, root),
-            HeapSize::_32k => panic!("oom")
-        };
+            HeapSize::_256 => { self.grow_copying(HeapSize::_512, root); Ok(()) }
+            HeapSize::_512 => { self.grow_copying(HeapSize::_1k, root); Ok(()) }
+            HeapSize::_1k => { self.grow_copying(HeapSize::_2k, root); Ok(()) }
+            HeapSize::_2k => { self.grow_copying(HeapSize::_8k, root); Ok(()) }
+            HeapSize::_8k => { self.grow_copying(HeapSize::_16k, root); Ok(()) }
+            HeapSize::_16k => { self.grow_copying(HeapSize::_32k, root); Ok(()) }
+            HeapSize::_32k => Err(OutOfMemory {}),
+        }
 
         //self.dump_heap();
     }
@@ -864,10 +865,10 @@ mod tests {
         let obj = &mut obj;
 
         {
-            let _1 = number::Integer::alloc(1, obj).into_value().capture(obj);
+            let _1 = number::Integer::alloc(1, obj).unwrap().into_value().capture(obj);
             {
-                let _2 = number::Integer::alloc(2, obj).into_value().capture(obj);
-                let _3 = number::Integer::alloc(3, obj).into_value().capture(obj);
+                let _2 = number::Integer::alloc(2, obj).unwrap().into_value().capture(obj);
+                let _3 = number::Integer::alloc(3, obj).unwrap().into_value().capture(obj);
 
                 obj.do_gc();
                 let used = (std::mem::size_of::<GCHeader>() + std::mem::size_of::<number::Integer>()) * 3;

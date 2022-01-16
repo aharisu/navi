@@ -24,9 +24,9 @@ impl NaviType for Bool {
         &BOOL_TYPEINFO
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //Bool型の値は常にImmidiate Valueなのでそのまま返す
-        Ref::new(self)
+        Ok(Ref::new(self))
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::err::*;
 use crate::value::*;
 use crate::vm;
 use crate::object::{self, Object};
@@ -31,7 +32,7 @@ impl NaviType for ObjectRef {
         &OBJECT_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         let mailbox = self.mailbox.clone();
         Self::alloc(self.object_id, mailbox, allocator)
     }
@@ -39,8 +40,8 @@ impl NaviType for ObjectRef {
 
 impl ObjectRef {
 
-    pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &mut A) -> Ref<ObjectRef> {
-        let ptr = allocator.alloc::<ObjectRef>();
+    pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &mut A) -> NResult<ObjectRef, OutOfMemory> {
+        let ptr = allocator.alloc::<ObjectRef>()?;
         let obj = ObjectRef {
             object_id,
             mailbox,
@@ -49,14 +50,14 @@ impl ObjectRef {
             std::ptr::write(ptr.as_ptr(), obj);
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn mailbox(&self) -> Arc<Mutex<MailBox>> {
         Arc::clone(&self.mailbox)
     }
 
-    pub fn recv_message(&self, msg: &Reachable<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> ReplyToken {
+    pub fn recv_message(&self, msg: &Reachable<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> Result<ReplyToken, OutOfMemory> {
         let mut mailbox = self.mailbox.lock().unwrap();
         mailbox.recv_message(msg, reply_to_mailbox)
     }
@@ -89,7 +90,7 @@ impl Debug for ObjectRef {
     }
 }
 
-fn func_spawn(obj: &mut Object) -> Ref<Any> {
+fn func_spawn(obj: &mut Object) -> NResult<Any, Exception> {
     let standalone = object::new_object();
 
     let id = standalone.object().id();
@@ -98,10 +99,11 @@ fn func_spawn(obj: &mut Object) -> Ref<Any> {
     //Objectとやり取りするためのMailBoxを取得
     let mailbox = object::Object::register_scheduler(standalone);
 
-    ObjectRef::alloc(id, mailbox, obj).into_value()
+    let objectref = ObjectRef::alloc(id, mailbox, obj)?;
+    Ok(objectref.into_value())
 }
 
-fn func_send(obj: &mut Object) -> Ref<Any> {
+fn func_send(obj: &mut Object) -> NResult<Any, Exception> {
     let target_obj = vm::refer_arg::<ObjectRef>(0, obj).reach(obj);
     let message = vm::refer_arg::<Any>(1, obj).reach(obj);
 
@@ -145,7 +147,7 @@ mod tests {
         let sexp = result.unwrap();
         let sexp = sexp.reach(obj);
 
-        let code = crate::compile::compile(&sexp, obj).reach(obj);
+        let code = crate::compile::compile(&sexp, obj).unwrap().reach(obj);
         let result = vm::code_execute(&code, vm::WorkTimeLimit::Inf, obj).unwrap();
         //dbg!(result.as_ref());
 
@@ -155,12 +157,18 @@ mod tests {
         result.unwrap().clone()
     }
 
-    fn get_reply_value(reply: &mut Cap<reply::Reply>, obj: &mut Object) -> Ref<Any> {
+    fn get_reply_value(reply: &mut Cap<reply::Reply>, obj: &mut Object) -> NResult<Any, Exception> {
         loop {
-            if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
-                return result
-            } else {
-                std::thread::sleep(std::time::Duration::from_millis(1));
+            match reply::Reply::try_get_reply_value(reply, obj) {
+                ResultNone::Ok(result) => {
+                    return result;
+                }
+                ResultNone::Err(_oom) => {
+                    panic!("oom")
+                }
+                ResultNone::None => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
             }
         }
     }
@@ -174,7 +182,7 @@ mod tests {
             let new_obj_ref = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
 
             //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
-            standalone = object::object_switch(standalone, new_obj_ref.as_ref());
+            standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
 
             let program = "(def-recv 1 10)";
             eval::<Any>(program, standalone.mut_object());
@@ -195,7 +203,7 @@ mod tests {
         {
             let program = "(send obj 1)";
             let mut ans = eval::<reply::Reply>(program, standalone.mut_object()).capture(standalone.mut_object());
-            let ans = get_reply_value(&mut ans, standalone.mut_object());
+            let ans = get_reply_value(&mut ans, standalone.mut_object()).unwrap();
             assert!(ans.is::<number::Integer>());
             assert_eq!(unsafe { ans.cast_unchecked::<number::Integer>().as_ref().get() }, 10);
 

@@ -1,9 +1,8 @@
-use core::panic;
-
 use once_cell::sync::Lazy;
 
 use crate::object::mm::GCAllocationStruct;
 use crate::ptr::*;
+use crate::err::{self, NResult, OutOfMemory, Exception};
 use crate::object::Object;
 use crate::value::*;
 use crate::value::any::Any;
@@ -25,26 +24,78 @@ pub struct CCtx<'a> {
     toplevel: bool,
 }
 
-pub fn compile(sexp: &Reachable<Any>, obj: &mut Object) -> Ref<compiled::Code> {
+#[derive(Debug)]
+pub enum SyntaxException {
+    OutOfMemory,
+    TypeMismatch(err::TypeMismatch),
+    MalformedFormat(err::MalformedFormat),
+    DisallowContext,
+}
+
+impl From<err::OutOfMemory> for SyntaxException {
+    fn from(_: err::OutOfMemory) -> Self {
+        SyntaxException::OutOfMemory
+    }
+}
+
+impl From<err::TypeMismatch> for SyntaxException {
+    fn from(this: err::TypeMismatch) -> Self {
+        SyntaxException::TypeMismatch(this)
+    }
+}
+
+impl From<err::MalformedFormat> for SyntaxException {
+    fn from(this: err::MalformedFormat) -> Self {
+        SyntaxException::MalformedFormat(this)
+    }
+}
+
+impl From<err::DisallowContext> for SyntaxException {
+    fn from(_: err::DisallowContext) -> Self {
+        SyntaxException::DisallowContext
+    }
+}
+
+impl From<SyntaxException> for Exception {
+    fn from(this: SyntaxException) -> Self {
+        match this {
+            SyntaxException::OutOfMemory => Exception::OutOfMemory,
+            SyntaxException::TypeMismatch(inner) => Exception::TypeMismatch(inner),
+            SyntaxException::MalformedFormat(inner) => Exception::MalformedFormat(inner),
+            SyntaxException::DisallowContext => Exception::DisallowContext,
+        }
+    }
+}
+
+pub fn compile(sexp: &Reachable<Any>, obj: &mut Object) -> NResult<compiled::Code, SyntaxException> {
     let mut frames = Vec::new();
     let mut ctx = CCtx {
         frames: &mut frames,
         toplevel: true,
     };
 
-    let iform = pass_transform(sexp, &mut ctx, obj).reach(obj);
+    let iform = pass_transform(sexp, &mut ctx, obj)?.reach(obj);
     //dbg!((sexp.as_ref(), iform.as_ref()));
 
-    codegen::code_generate(&iform, obj)
+    let code = codegen::code_generate(&iform, obj)?;
+    Ok(code)
+}
+
+#[inline]
+fn alloc_into_iform<T: AsIForm>(result: Result<Ref<T>, OutOfMemory>) -> NResult<IForm, SyntaxException> {
+    match result {
+        Ok(v) => Ok(v.into_iform()),
+        Err(_) => Err(SyntaxException::OutOfMemory),
+    }
 }
 
 //
 // pass 1
 // Covnerts S expression into intermediates form (IForm).
-fn pass_transform(sexp: &Reachable<Any>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn pass_transform(sexp: &Reachable<Any>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     if let Some(list) = sexp.try_cast::<List>() {
         if list.as_ref().is_nil() {
-            IFormConst::alloc(sexp, obj).into_iform()
+            alloc_into_iform(IFormConst::alloc(sexp, obj))
 
         } else {
             transform_apply(list, ctx, obj)
@@ -60,7 +111,7 @@ fn pass_transform(sexp: &Reachable<Any>, ctx: &mut CCtx, obj: &mut Object) -> Re
         transform_array(array, ctx, obj)
 
     } else {
-        IFormConst::alloc(sexp, obj).into_iform()
+        alloc_into_iform(IFormConst::alloc(sexp, obj))
     }
 
 }
@@ -137,21 +188,21 @@ fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Op
     }
 }
 
-fn transform_symbol(symbol: &Reachable<Symbol>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn transform_symbol(symbol: &Reachable<Symbol>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     match lookup_localvar(symbol.as_ref(), ctx) {
         LookupResult::Var(_lvar) => {
-            IFormLRef::alloc(symbol, obj).into_iform()
+            alloc_into_iform(IFormLRef::alloc(symbol, obj))
         }
         LookupResult::Const(constant) => {
-            Ref::new(constant).into_iform()
+            Ok(Ref::new(constant).into_iform())
         }
         LookupResult::Notfound => {
-            IFormGRef::alloc(symbol, obj).into_iform()
+            alloc_into_iform(IFormGRef::alloc(symbol, obj))
         }
     }
 }
 
-fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let app = list.as_ref().head();
 
     //Syntaxを適用しているなら、Syntaxを適用して変換する
@@ -174,64 +225,63 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     };
 
     //適用される値を変換
-    let app =  pass_transform(&app.reach(obj), &mut ctx, obj).reach(obj);
+    let app =  pass_transform(&app.reach(obj), &mut ctx, obj)?.reach(obj);
 
     //引数部分の値を変換
     let count = list.as_ref().tail().as_ref().count();
-    let mut builder_args = ArrayBuilder::<IForm>::new(count, obj);
+    let mut builder_args = ArrayBuilder::<IForm>::new(count, obj)?;
 
-    list.as_ref().tail().reach(obj).iter(obj)
-        .for_each(|v| {
-            let iform = pass_transform(&v.reach(obj), &mut ctx, obj);
-            builder_args.push(&iform, obj);
-        });
+    for v in list.as_ref().tail().reach(obj).iter(obj) {
+        let iform = pass_transform(&v.reach(obj), &mut ctx, obj)?;
+        unsafe { builder_args.push_uncheck(&iform, obj) };
+    }
     let args = builder_args.get().reach(obj);
 
     //IFormCallを作成して戻り値にする
-    IFormCall::alloc(&app, &args, obj).into_iform()
+    alloc_into_iform(IFormCall::alloc(&app, &args, obj))
 }
 
-fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
     };
 
     let count = tuple.as_ref().len();
-    let mut builder_args = ArrayBuilder::<IForm>::new(count, obj);
+    let mut builder_args = ArrayBuilder::<IForm>::new(count, obj)?;
 
     for index in 0..count {
-        let iform = pass_transform(&tuple.as_ref().get(index).reach(obj), &mut ctx, obj);
-        builder_args.push(&iform, obj);
+        let iform = pass_transform(&tuple.as_ref().get(index).reach(obj), &mut ctx, obj)?;
+        unsafe { builder_args.push_uncheck(&iform, obj) };
     }
 
     let args = builder_args.get().reach(obj);
 
     //IFormCallを作成して戻り値にする
-    IFormContainer::alloc(&args, iform::ContainerKind::Tuple, obj).into_iform()
+    alloc_into_iform(IFormContainer::alloc(&args, iform::ContainerKind::Tuple, obj))
 }
 
-fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
     };
 
     let count = array.as_ref().len();
-    let mut builder_args = ArrayBuilder::<IForm>::new(count, obj);
+    let mut builder_args = ArrayBuilder::<IForm>::new(count, obj)?;
 
     for index in 0..count {
-        let iform = pass_transform(&array.as_ref().get(index).reach(obj), &mut ctx, obj);
-        builder_args.push(&iform, obj);
+        let iform = pass_transform(&array.as_ref().get(index).reach(obj), &mut ctx, obj)?;
+        unsafe { builder_args.push_uncheck(&iform, obj) };
     }
 
     let args = builder_args.get().reach(obj);
 
     //IFormCallを作成して戻り値にする
-    IFormContainer::alloc(&args, iform::ContainerKind::Array, obj).into_iform()
+    alloc_into_iform(IFormContainer::alloc(&args, iform::ContainerKind::Array, obj))
 }
 
-fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let syntax = syntax.as_ref();
 
     //TODO 引数の数や型のチェック
@@ -240,33 +290,33 @@ fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mu
     syntax.transform(args, ctx, obj)
 }
 
-pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
     };
 
-    let pred = pass_transform(&args.as_ref().head().reach(obj), &mut ctx, obj).reach(obj);
+    let pred = pass_transform(&args.as_ref().head().reach(obj), &mut ctx, obj)?.reach(obj);
 
     let args = args.as_ref().tail();
     let true_ = args.as_ref().head().reach(obj);
 
     let args = args.as_ref().tail();
     let false_ = if args.as_ref().is_nil() {
-        IFormConst::alloc(&bool::Bool::false_().into_value(), obj).into_iform()
+        alloc_into_iform(IFormConst::alloc(&bool::Bool::false_().into_value(), obj))
     } else {
         let false_ = args.as_ref().head().reach(obj);
         pass_transform(&false_, &mut ctx, obj)
-    };
+    }?;
 
     let false_ = false_.reach(obj);
-    let true_ = pass_transform(&true_, &mut ctx, obj).reach(obj);
+    let true_ = pass_transform(&true_, &mut ctx, obj)?.reach(obj);
 
-    IFormIf::alloc(&pred, &true_, &false_, obj).into_iform()
+    alloc_into_iform(IFormIf::alloc(&pred, &true_, &false_, obj))
 }
 
-pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
-    fn cond_inner(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+    fn cond_inner(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
         let is_last = args.as_ref().tail().as_ref().is_nil();
 
         let clause = args.as_ref().head();
@@ -284,29 +334,29 @@ pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Obje
 
             let then_clause = clause.as_ref().tail().reach(obj);
             //TEST部分を変換
-            let test_iform = pass_transform(&test, ctx, obj).reach(obj);
+            let test_iform = pass_transform(&test, ctx, obj)?.reach(obj);
             //TESTの結果がtrueだったときに実行する式を変換
-            let exprs_iform = transform_begin(&then_clause, ctx, obj).reach(obj);
+            let exprs_iform = transform_begin(&then_clause, ctx, obj)?.reach(obj);
             //TESTの結果がfalseだったときの次の節を変換
             let next_iform = if is_last {
                 //最後の節ならfalseを返すようにする
-                IFormConst::alloc(&bool::Bool::false_().into_value(), obj).into_iform()
+                IFormConst::alloc(&bool::Bool::false_().into_value(), obj)?.into_iform()
             } else {
                 //続きの節があるなら再帰的に変換する
-                cond_inner(&args.as_ref().tail().reach(obj), ctx, obj)
+                cond_inner(&args.as_ref().tail().reach(obj), ctx, obj)?
             }.reach(obj);
 
-            IFormIf::alloc(&test_iform, &exprs_iform, &next_iform, obj).into_iform()
+            alloc_into_iform(IFormIf::alloc(&test_iform, &exprs_iform, &next_iform, obj))
 
         } else {
-            panic!("cond clause require list. but got {:?}", clause.as_ref());
+            Err(err::TypeMismatch::new(clause, list::List::typeinfo()).into())
         }
     }
 
     //(cond)のようにテスト部分が空のcondであれば
     if args.as_ref().is_nil() {
         //無条件でfalseを返す
-        IFormConst::alloc(&bool::Bool::false_().into_value(), obj).into_iform()
+        alloc_into_iform(IFormConst::alloc(&bool::Bool::false_().into_value(), obj))
     } else {
         let mut ctx = CCtx {
             frames: ctx.frames,
@@ -317,53 +367,54 @@ pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Obje
     }
 }
 
-fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //Beginは現在のコンテキスト(トップレベルや末尾文脈)をそのまま引き継いで各式を評価します
 
     let size = body.as_ref().count();
-    let mut builder = array::ArrayBuilder::new(size, obj);
+    let mut builder = array::ArrayBuilder::new(size, obj)?;
 
     for sexp in body.iter(obj) {
-        let iform = pass_transform(&sexp.reach(obj), ctx, obj);
-        builder.push(&iform, obj);
+        let iform = pass_transform(&sexp.reach(obj), ctx, obj)?;
+        unsafe { builder.push_uncheck(&iform, obj) };
     }
 
-    IFormSeq::alloc(&builder.get().reach(obj), obj).into_iform()
+    alloc_into_iform(IFormSeq::alloc(&builder.get().reach(obj), obj))
 }
 
-pub(crate) fn syntax_begin(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub(crate) fn syntax_begin(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     transform_begin(args, ctx, obj)
 }
 
-pub fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //def-recvはトップレベルのコンテキストで使用可能(letやfunで作成されたローカルフレーム内では使用不可能)
     if ctx.frames.is_empty() {
         let pat = args.as_ref().head().reach(obj);
         let body = args.as_ref().tail().reach(obj);
 
-        IFormDefRecv::alloc(&pat, &body, obj).into_iform()
+        alloc_into_iform(IFormDefRecv::alloc(&pat, &body, obj))
     } else {
-        panic!("def-recv allow only top-level context")
+        Err(SyntaxException::DisallowContext)
     }
 }
 
-pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let params = args.as_ref().head().reach(obj);
     if let Some(params) = params.try_cast::<List>() {
-        let mut builder_params = ArrayBuilder::<Symbol>::new(params.as_ref().count(), obj);
+        let mut builder_params = ArrayBuilder::<Symbol>::new(params.as_ref().count(), obj)?;
         let mut local_frame: Vec<LocalVar> = Vec::new();
 
         //TODO keywordやrest引数の処理
         for param in params.iter(obj) {
             if let Some(symbol) = param.try_cast::<Symbol>() {
-                builder_params.push(symbol , obj);
+                unsafe { builder_params.push_uncheck(symbol, obj) };
+
                 local_frame.push(LocalVar {
                     name: symbol.clone().capture(obj),
                     init_form: None,
                 });
 
             } else {
-                panic!("parameter require symbol. But got {:?}", param.as_ref())
+                return Err(err::TypeMismatch::new(param, symbol::Symbol::typeinfo()).into());
             }
         }
 
@@ -379,19 +430,18 @@ pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> R
 
         //ローカルフレーム内でBody部分を変換
         let body = args.as_ref().tail().reach(obj);
-        let body = transform_begin(&body, &mut ctx, obj).reach(obj);
+        let body = transform_begin(&body, &mut ctx, obj)?.reach(obj);
 
         //ローカルフレーム削除
         ctx.frames.pop();
 
-        IFormFun::alloc(&params, &body, obj).into_iform()
+        alloc_into_iform(IFormFun::alloc(&params, &body, obj))
     } else {
-        panic!("The fun paramters require list. But got {:?}", params.as_ref())
+        Err(err::TypeMismatch::new(params.make(), list::List::typeinfo()).into())
     }
-
 }
 
-pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //ローカルフレームを作成する
     let frame: Vec<LocalVar> = Vec::new();
 
@@ -404,16 +454,16 @@ pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
     };
 
     //ローカルフレームが積まれた状態でBody部分を変換
-    let body = transform_begin(&args, &mut ctx, obj).reach(obj);
+    let body = transform_begin(&args, &mut ctx, obj)?.reach(obj);
 
     ctx.frames.pop();
 
-    IFormLocal::alloc(&body, obj).into_iform()
+    alloc_into_iform(IFormLocal::alloc(&body, obj))
 }
 
-pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     if ctx.toplevel == false {
-        panic!("The let syntax is allowed in top level context.");
+        return Err(SyntaxException::DisallowContext);
     }
 
     let symbol = args.as_ref().head().reach(obj);
@@ -424,7 +474,7 @@ pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> R
         };
 
         let value = args.as_ref().tail().as_ref().head().reach(obj);
-        let iform = pass_transform(&value, &mut ctx, obj).reach(obj);
+        let iform = pass_transform(&value, &mut ctx, obj)?.reach(obj);
 
         //現在のローカルフレームに新しく定義した変数を追加
         if let Some(cur_frame) = ctx.frames.last_mut() {
@@ -434,39 +484,39 @@ pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> R
                 });
         }
 
-        IFormLet::alloc(&symbol, &iform, obj).into_iform()
+        alloc_into_iform(IFormLet::alloc(&symbol, &iform, obj))
     } else {
-        panic!("let variable require symbol. But got {}", symbol.as_ref());
+        Err(err::TypeMismatch::new(symbol.make(), symbol::Symbol::typeinfo()).into())
     }
 }
 
-pub fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let val = args.as_ref().head().reach(obj);
-    IFormConst::alloc(&val, obj).into_iform()
+    alloc_into_iform(IFormConst::alloc(&val, obj))
 }
 
 
 #[allow(unused_variables)]
-pub fn syntax_unquote(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_unquote(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     unimplemented!()
 }
 
 #[allow(unused_variables)]
-pub fn syntax_bind(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_bind(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     unimplemented!()
 }
 
-pub fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //パターン部が一つもなければUnitを返す
     if args.as_ref().is_nil() {
-        IFormConst::alloc(&tuple::Tuple::unit().into_value(), obj).into_iform()
+        alloc_into_iform(IFormConst::alloc(&tuple::Tuple::unit().into_value(), obj))
     } else {
-        let match_expr = crate::value::syntax::r#match::translate(args, obj).into_value().reach(obj);
+        let match_expr = crate::value::syntax::r#match::translate(args, obj)?.into_value().reach(obj);
         pass_transform(&match_expr, ctx, obj)
     }
 }
 
-pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -480,17 +530,17 @@ pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Objec
     let size = args.as_ref().count();
     debug_assert!(size != 0);
 
-    let mut builder = array::ArrayBuilder::new(size, obj);
+    let mut builder = array::ArrayBuilder::new(size, obj)?;
 
     for sexp in args.iter(obj) {
-        let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
-        builder.push(&iform, obj);
+        let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj)?;
+        unsafe { builder.push_uncheck(&iform, obj) };
     }
 
-    IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::MatchSuccess, obj).into_iform()
+    alloc_into_iform(IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::MatchSuccess, obj))
 }
 
-pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -499,21 +549,21 @@ pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> R
     let size = args.as_ref().count();
     //(and)のように引数が一つもなければ
     if size == 0 {
-        IFormConst::alloc(&bool::Bool::true_().into_value(), obj).into_iform()
+        alloc_into_iform(IFormConst::alloc(&bool::Bool::true_().into_value(), obj))
 
     } else {
-        let mut builder = array::ArrayBuilder::new(size, obj);
+        let mut builder = array::ArrayBuilder::new(size, obj)?;
 
         for sexp in args.iter(obj) {
-            let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
-            builder.push(&iform, obj);
+            let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj)?;
+            unsafe { builder.push_uncheck(&iform, obj) };
         }
 
-        IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::And, obj).into_iform()
+        alloc_into_iform(IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::And, obj))
     }
 }
 
-pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -522,21 +572,21 @@ pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> Re
     let size = args.as_ref().count();
     //(or)のように引数が一つもなければ
     if size == 0 {
-        IFormConst::alloc(&bool::Bool::false_().into_value(), obj).into_iform()
+        alloc_into_iform(IFormConst::alloc(&bool::Bool::false_().into_value(), obj))
 
     } else {
-        let mut builder = array::ArrayBuilder::new(size, obj);
+        let mut builder = array::ArrayBuilder::new(size, obj)?;
 
         for sexp in args.iter(obj) {
-            let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj);
-            builder.push(&iform, obj);
+            let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj)?;
+            unsafe { builder.push_uncheck(&iform, obj) };
         }
 
-        IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::Or, obj).into_iform()
+        alloc_into_iform(IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::Or, obj))
     }
 }
 
-pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
     //TODO 末尾文脈でのみ許可するようにしたい
 
@@ -544,24 +594,24 @@ pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &
     if ctx.frames.is_empty() {
 
         let target_obj = args.as_ref().head().reach(obj);
-        let iform = pass_transform(&target_obj, ctx, obj);
+        let iform = pass_transform(&target_obj, ctx, obj)?;
         let iform = iform.reach(obj);
 
-        IFormObjectSwitch::alloc(Some(&iform), obj).into_iform()
+      alloc_into_iform(IFormObjectSwitch::alloc(Some(&iform), obj))
     } else {
-        panic!("object-switch allow only top-level context")
+        Err(SyntaxException::DisallowContext)
     }
 }
 
-pub fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> Ref<IForm> {
+pub fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
     //TODO 末尾文脈でのみ許可するようにしたい
 
     //object-switchはトップレベルのコンテキストで使用可能(localやfunで作成されたローカルフレーム内では使用不可能)
     if ctx.frames.is_empty() {
-        IFormObjectSwitch::alloc(None, obj).into_iform()
+        alloc_into_iform(IFormObjectSwitch::alloc(None, obj))
     } else {
-        panic!("return-object-switch allow only top-level context")
+        Err(SyntaxException::DisallowContext)
     }
 }
 
@@ -572,6 +622,7 @@ mod codegen {
     use crate::object::Allocator;
     use crate::object::mm::ptr_to_usize;
     use crate::ptr::*;
+    use crate::err::*;
     use crate::vm;
     use crate::object::Object;
     use crate::value::{*, self};
@@ -611,7 +662,7 @@ mod codegen {
     //
     //
 
-    pub fn code_generate(iform: &Reachable<IForm>, obj: &mut Object) -> Ref<compiled::Code> {
+    pub fn code_generate(iform: &Reachable<IForm>, obj: &mut Object) -> NResult<compiled::Code, OutOfMemory> {
         let mut constants:Vec<Cap<Any>> = Vec::new();
         let mut frames:Vec<Vec<Cap<Symbol>>> = Vec::new();
 
@@ -687,10 +738,6 @@ mod codegen {
 
 
         } else {
-            //TODO !!!!!! ifやand/or などで実行されなかった式の中にdefがあっても
-            //有効なローカル変数としてコンパイルされるが、実行時には存在しない可能性があるためランタイムエラーになる。
-            //ifやand/orを実行するときは新しいフレームが必要になる可能性がある。
-
             //ローカルフレーム内へのdef
             write_u8(vm::tag::LET_LOCAL, &mut ctx.buf);
 
@@ -755,8 +802,6 @@ mod codegen {
         //新しいフレームをpush
         write_u8(vm::tag::PUSH_EMPTY_ENV, &mut ctx.buf);
         ctx.frames.push(Vec::new());
-
-        //TODO letはlocal内のトップレベルコンテキストのみ許可される
 
         //bodの式を順に評価
         pass_codegen(&iform.as_ref().body().reach(obj), ctx, obj);
@@ -999,6 +1044,8 @@ mod codegen {
             frame_offset += 1;
         }
 
+        //pass1のtransformの時点でローカル変数の解決は完了している
+        //ここで見つからないのは不具合なのでpanicさせる
         panic!("local variable not found {}", symbol);
     }
 

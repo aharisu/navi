@@ -1,5 +1,6 @@
 use crate::value::{*, self};
 use crate::ptr::*;
+use crate::err::*;
 use crate::vm;
 use std::fmt::Display;
 use std::fmt::{self, Debug};
@@ -30,21 +31,21 @@ impl <T:NaviType> NaviType for Array<T> {
         &ARRAY_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         let size = self.len;
-        let mut array = Self::alloc(size, allocator);
+        let mut array = Self::alloc(size, allocator)?;
 
         for index in 0..size {
             let child = self.get_inner(index);
             let child = child.cast_value();
             //clone_innerの文脈の中だけ、PtrをキャプチャせずにRPtrとして扱うことが許されている
-            let cloned = Any::clone_inner(child.as_ref(), allocator);
+            let cloned = Any::clone_inner(child.as_ref(), allocator)?;
             let cloned = unsafe { cloned.cast_unchecked::<T>() };
 
-            array.as_mut().set_uncheck(cloned.raw_ptr(), index);
+            array.set_uncheck(cloned.raw_ptr(), index);
         }
 
-        array
+        Ok(array)
     }
 }
 
@@ -60,7 +61,7 @@ impl <T: NaviType> Array<T> {
         }
     }
 
-    fn check_reply(cap: &mut Cap<Array<Any>>, obj: &mut Object) -> bool {
+    fn check_reply(cap: &mut Cap<Array<Any>>, obj: &mut Object) -> Result<bool, OutOfMemory> {
         for index in 0.. cap.as_ref().len {
             let child_v = cap.as_ref().get_inner(index);
             //子要素がReply型を持っている場合は
@@ -68,13 +69,12 @@ impl <T: NaviType> Array<T> {
 
                 //返信がないか確認する
                 let mut child_v = child_v.clone().capture(obj);
-                if value::check_reply(&mut child_v, obj) {
+                if value::check_reply(&mut child_v, obj)? {
                     //返信があった場合は、内部ポインタを返信結果の値に上書きする
                     cap.as_ref().get_inner(index).update_pointer(child_v.raw_ptr());
-
                 } else {
                     //子要素にReplyを含む値が残っている場合は、全体をfalseにする
-                    return false;
+                    return Ok(false);
                 }
             }
         }
@@ -82,34 +82,16 @@ impl <T: NaviType> Array<T> {
         //内部にReply型を含まなくなったのでフラグを下す
         value::clear_has_replytype_flag(cap.mut_refer());
 
-        true
+        Ok(true)
     }
 
-    fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> Ref<Array<T>> {
-        let ptr = allocator.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<Ref<Any>>());
+    fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> NResult<Array<T>, OutOfMemory> {
+        let ptr = allocator.alloc_with_additional_size::<Array<T>>(size * std::mem::size_of::<Ref<Any>>())?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), Array { len: size, _type: PhantomData})
         }
 
-        ptr.into_ref()
-    }
-
-    fn set_uncheck(&mut self, v: *mut T, index: usize) {
-        if self.len <= index {
-            panic!("out of bounds {}: {:?}", index, self)
-        }
-
-        let ptr = self as *mut Array<T>;
-        unsafe {
-            //ポインタをArray構造体の後ろに移す
-            let ptr = ptr.add(1);
-            //Array構造体の後ろにはallocで確保した保存領域がある
-            let storage_ptr = ptr as *mut Ref<T>;
-            //保存領域内の指定indexに移動
-            let storage_ptr = storage_ptr.add(index);
-            //指定indexにポインタを書き込む
-            std::ptr::write(storage_ptr, v.into());
-        };
+        Ok(ptr.into_ref())
     }
 
     pub fn get(&self, index: usize) -> Ref<T> {
@@ -117,10 +99,6 @@ impl <T: NaviType> Array<T> {
     }
 
     fn get_inner<'a>(&'a self, index: usize) -> &'a mut Ref<T> {
-        if self.len <= index {
-            panic!("out of bounds {}: {:?}", index, self)
-        }
-
         let ptr = self as *const Array<T>;
         unsafe {
             //ポインタをArray構造体の後ろに移す
@@ -147,15 +125,15 @@ impl <T: NaviType> Array<T> {
 }
 
 impl Array<Any> {
-    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> Ref<Array<Any>> {
+    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> NResult<Array<Any>, OutOfMemory> {
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
         };
 
-        let mut array = Self::alloc(size, obj);
+        let mut array = Self::alloc(size, obj)?;
         for (index, v) in list.iter(obj).enumerate() {
-            array.as_mut().set_uncheck(v.raw_ptr(), index);
+            array.set_uncheck(v.raw_ptr(), index);
         }
 
         //listがReplyを持っている場合は、返す値にもReplyを持っているフラグを立てる
@@ -163,18 +141,40 @@ impl Array<Any> {
             value::set_has_replytype_flag(&mut array)
         }
 
-        array
+        Ok(array)
     }
 }
 
 impl <T: NaviType> Ref<Array<T>> {
 
-    fn set<V: ValueHolder<T>>(&mut self, v: &V, index: usize) {
-        self.as_mut().set_uncheck(v.raw_ptr(), index);
+    fn set<V: ValueHolder<T>>(&mut self, v: &V, index: usize) -> Result<(), OutOfBounds> {
+        if self.as_ref().len <= index {
+            return Err(OutOfBounds::new(self.cast_value().clone(), index));
+        }
+
+        self.set_uncheck(v.raw_ptr(), index);
+
         if v.has_replytype() {
             value::set_has_replytype_flag(self);
         }
+
+        Ok(())
     }
+
+    fn set_uncheck(&mut self, v: *mut T, index: usize) {
+        let ptr = self.as_mut() as *mut Array<T>;
+        unsafe {
+            //ポインタをArray構造体の後ろに移す
+            let ptr = ptr.add(1);
+            //Array構造体の後ろにはallocで確保した保存領域がある
+            let storage_ptr = ptr as *mut Ref<T>;
+            //保存領域内の指定indexに移動
+            let storage_ptr = storage_ptr.add(index);
+            //指定indexにポインタを書き込む
+            std::ptr::write(storage_ptr, v.into());
+        };
+    }
+
 
 }
 
@@ -279,26 +279,34 @@ pub struct ArrayBuilder<T: NaviType> {
 }
 
 impl <T: NaviType> ArrayBuilder<T> {
-    pub fn new(size: usize, obj: &mut Object) -> Self {
-        let mut ary = Array::<T>::alloc(size, obj);
+    pub fn new(size: usize, obj: &mut Object) -> Result<Self, OutOfMemory> {
+        let mut ary = Array::<T>::alloc(size, obj)?;
 
         //pushが完了するまでにGCが動作する可能性があるため、あらかじめ全領域をダミーの値で初期化する
         //ヌルポインタを使用しているがGCの動作に問題はない。
         let dummy_value = std::ptr::null_mut();
         for index in 0..size {
-            ary.as_mut().set_uncheck(dummy_value, index);
+            ary.set_uncheck(dummy_value, index);
         }
 
-        ArrayBuilder {
+        Ok(ArrayBuilder {
             ary: ary.capture(obj),
             index: 0,
-        }
+        })
     }
 
-    pub fn push<V: ValueHolder<T>>(&mut self, v: &V, _obj: &mut Object) {
-        self.ary.mut_refer().set(v, self.index);
+    pub unsafe fn push_uncheck<V: ValueHolder<T>>(&mut self, v: &V, _obj: &mut Object) {
+        self.ary.mut_refer().set_uncheck(v.raw_ptr(), self.index);
 
         self.index += 1;
+    }
+
+    pub fn push<V: ValueHolder<T>>(&mut self, v: &V, _obj: &mut Object) -> Result<(), OutOfBounds> {
+        self.ary.mut_refer().set(v, self.index)?;
+
+        self.index += 1;
+
+        Ok(())
     }
 
     pub fn get(self) -> Ref<Array<T>> {
@@ -306,28 +314,35 @@ impl <T: NaviType> ArrayBuilder<T> {
     }
 }
 
-fn func_is_array(obj: &mut Object) -> Ref<Any> {
+fn func_is_array(obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Any>(0, obj);
     if v.as_ref().is_type(array::Array::<Any>::typeinfo()) {
-        v.clone()
+        Ok(v.clone())
     } else {
-        bool::Bool::false_().into_ref().into_value()
+        Ok(bool::Bool::false_().into_ref().into_value())
     }
 }
 
-fn func_array_len(obj: &mut Object) -> Ref<Any> {
+fn func_array_len(obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Array<Any>>(0, obj);
 
-    number::Integer::alloc(v.as_ref().len() as i64, obj).into_value()
+    let list = number::Integer::alloc(v.as_ref().len() as i64, obj)?;
+    Ok(list.into_value())
 }
 
-fn func_array_ref(obj: &mut Object) -> Ref<Any> {
+fn func_array_ref(obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Array<Any>>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj);
 
     let index = index.as_ref().get() as usize;
 
-    v.as_ref().get(index)
+    if v.as_ref().len() <= index as usize {
+        Err(Exception::OutOfBounds(
+            OutOfBounds::new(v.into_value(), index)
+        ))
+    } else {
+        Ok(v.as_ref().get(index))
+    }
 }
 
 static FUNC_IS_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
@@ -386,7 +401,6 @@ pub mod literal {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cap_append};
     use crate::value::list::ListBuilder;
     use crate::value::*;
 
@@ -401,19 +415,19 @@ mod tests {
         {
             let mut builder = ListBuilder::new(obj);
 
-            cap_append!(builder, number::Integer::alloc(1, obj).into_value(), obj);
-            cap_append!(builder, number::Real::alloc(3.14, obj).into_value(), obj);
-            builder.append(list::List::nil().cast_value(), obj);
-            builder.append(bool::Bool::true_().cast_value(), obj);
+            builder.append(&number::Integer::alloc(1, obj).unwrap().into_value().reach(obj), obj).unwrap();
+            builder.append(&number::Real::alloc(3.14, obj).unwrap().into_value().reach(obj), obj).unwrap();
+            builder.append(list::List::nil().cast_value(), obj).unwrap();
+            builder.append(bool::Bool::true_().cast_value(), obj).unwrap();
 
             let (list, size) = builder.get_with_size();
             let list = list.reach(obj);
-            let ary = array::Array::from_list(&list, Some(size), obj);
+            let ary = array::Array::from_list(&list, Some(size), obj).unwrap();
 
-            let ans= number::Integer::alloc(1, ans_obj).into_value();
+            let ans= number::Integer::alloc(1, ans_obj).unwrap().into_value();
             assert_eq!(ary.as_ref().get(0).as_ref(), ans.as_ref());
 
-            let ans= number::Real::alloc(3.14, ans_obj).into_value();
+            let ans= number::Real::alloc(3.14, ans_obj).unwrap().into_value();
             assert_eq!(ary.as_ref().get(1).as_ref(), ans.as_ref());
 
             let ans= list::List::nil().into_value();

@@ -5,16 +5,15 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::mem::size_of;
-use std::panic;
 
 use crate::object::StandaloneObject;
 use crate::object::mm::usize_to_ptr;
-use crate::ptr::Reachable;
 
 use crate::object::Object;
 use crate::value::*;
 use crate::value::any::Any;
 use crate::ptr::*;
+use crate::err;
 
 pub mod tag {
     pub const JUMP_OFFSET: u8 = 0;
@@ -49,11 +48,24 @@ pub mod tag {
 }
 
 #[derive(Debug)]
-pub enum ExecError {
+pub enum ExecException {
     TimeLimit,
     WaitReply,
+    MySelfObjectDeleted,
     ObjectSwitch(StandaloneObject),
-    Exception,
+    Exception(err::Exception),
+}
+
+impl From<err::OutOfMemory> for ExecException {
+    fn from(_: err::OutOfMemory) -> Self {
+        ExecException::Exception(err::Exception::OutOfMemory)
+    }
+}
+
+impl From<err::Exception> for ExecException {
+    fn from(this: err::Exception) -> Self {
+        ExecException::Exception(this)
+    }
 }
 
 #[derive(Debug)]
@@ -229,20 +241,20 @@ pub enum WorkTimeLimit {
 }
 
 pub fn func_call(func: &Reachable<func::Func>, args_iter: impl Iterator<Item=Ref<Any>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     app_call(func.cast_value(), args_iter, limit, obj)
 }
 
 pub fn closure_call(closure: &Reachable<compiled::Closure>, args_iter: impl Iterator<Item=Ref<Any>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     app_call(closure.cast_value(), args_iter, limit, obj)
 }
 
 fn app_call(app: &Reachable<Any>, args_iter: impl Iterator<Item=Ref<Any>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
+    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     //ContinuationとEnvironmentのフレームをプッシュ
     {
-        let mut buf: Vec<u8> = Vec::with_capacity(3);
+        let mut buf: Vec<u8> = Vec::with_capacity(1);
 
         //関数の呼び出し前準備
         write_u8(tag::CALL_PREPARE, &mut buf);
@@ -280,7 +292,7 @@ fn app_call(app: &Reachable<Any>, args_iter: impl Iterator<Item=Ref<Any>>
             obj.vm_state().acc = arg.clone();
 
             //関数呼び出しの準備段階の実行は、実行時間に制限を設けない
-            code_execute(&code, WorkTimeLimit::Inf, obj).unwrap();
+            code_execute(&code, WorkTimeLimit::Inf, obj)?;
         }
     }
 
@@ -297,7 +309,7 @@ fn app_call(app: &Reachable<Any>, args_iter: impl Iterator<Item=Ref<Any>>
     }
 }
 
-pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
+pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     //実行対象のコードを設定
     obj.vm_state().code = code.make();
     obj.vm_state().suspend_pc = 0;
@@ -312,23 +324,23 @@ pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj:
         //CALLを実行。結果を返り値にする
         match execute(obj) {
             //特定のエラーは補足して処理を継続する
-            Err(ExecError::TimeLimit) => {
+            Err(ExecException::TimeLimit) => {
                 if limit == WorkTimeLimit::Inf {
                     //実行時間がInfの場合はloopを継続して終了まで実行させる
                     //loopを継続させるためにここでは何もしない
                 } else {
                     //実行時間に制限があるときだけ、エラーを返す
-                    return Err(ExecError::TimeLimit);
+                    return Err(ExecException::TimeLimit);
                 }
             }
-            Err(ExecError::WaitReply) => {
+            Err(ExecException::WaitReply) => {
                 if limit == WorkTimeLimit::Inf {
                     //他スレッドの処理が終わるまで時スレッドの処理をブロックして待つ。
                     //3ミリ秒という数字に理由はない。
                     std::thread::sleep(std::time::Duration::from_millis(3));
                 } else {
                     //実行時間に制限があるときだけ、エラーを返す
-                    return Err(ExecError::WaitReply);
+                    return Err(ExecException::WaitReply);
                 }
             }
             other => {
@@ -339,12 +351,12 @@ pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj:
     }
 }
 
-pub fn resume(reductions: usize, obj: &mut Object) -> Result<Ref<Any>, ExecError> {
+pub fn resume(reductions: usize, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     obj.vm_state().reductions = reductions;
     execute(obj)
 }
 
-fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
+fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     let mut program = Cursor::new(obj.vm_state().code.as_ref().program());
     program.seek(SeekFrom::Start(obj.vm_state().suspend_pc as u64)).unwrap();
 
@@ -417,7 +429,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                 //続きから実行できるように、PCを設定
                 obj.vm_state().suspend_pc = program.position() as usize;
 
-                return Err(ExecError::TimeLimit);
+                return Err(ExecException::TimeLimit);
             } else {
                 acc_reduce = 0;
                 obj.vm_state().reductions = remain;
@@ -475,7 +487,9 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                     obj.vm_state().acc = v;
 
                 } else {
-                    panic!("global variable not found. {}", symbol.as_ref());
+                    return Err(ExecException::Exception(err::Exception::UnboundVariable(
+                        err::UnboundVariable::new(symbol.clone())
+                        )));
                 }
 
                 reduce!(2);
@@ -514,24 +528,26 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                             //スタック領域内のFPtrをCapとして扱わせる
                             let mut cap = Cap::new(&mut arg as *mut Ref<Any>);
                             //返信がないかを確認
-                            let ok = crate::value::check_reply(&mut cap, obj);
+                            let result = crate::value::check_reply(&mut cap, obj);
                             //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
                             std::mem::forget(cap);
 
                             //まだ返信がない場合は、
-                            if  ok == false {
+                            if result? == false {
                                 //もう一度PUSH_ARGが実行できるように、現在位置-1をresume後のPCとする
                                 obj.vm_state().suspend_pc = (program.position() - 1) as usize;
 
                                 //引数の値にReply待ちを含んでいるため、返信を待つ
-                                return Err(ExecError::WaitReply);
+                                return Err(ExecException::WaitReply);
                             }
                         }
 
                         // type check
                         if arg.is_type(param.typeinfo) == false {
-                            //TODO 型チェックエラー
-                            panic!("type error");
+                            return Err(ExecException::Exception(err::Exception::Other(format!("mismatched type.\nThe {} argument of function {}.\n  expected:{}\n  found:{}"
+                                , (index + 1), func.as_ref().name()
+                                , param.typeinfo.name, get_typename(arg.as_ref())
+                            ))));
                         }
                     }
 
@@ -547,10 +563,14 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
             }
             tag::PUSH_APP => {
                 let app = obj.vm_state().acc.clone();
-                if app.is::<func::Func>() || app.is::<compiled::Closure>() {
+                //TODO Reply check
+
+                if app.is::<app::App>() {
                     // OK!!  do nothing
                 } else {
-                    panic!("Not Applicable: {}", app.as_ref())
+                    return Err(ExecException::Exception(err::Exception::TypeMismatch(
+                        err::TypeMismatch::new(app, app::App::typeinfo())
+                    )));
                 }
 
                 push_arg!(app);
@@ -590,14 +610,20 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
 
                     //現在のオブジェクトに対応するObjectRefを作成
                     //※このObjectRefはSwitch先のオブジェクトのヒープに作成される
-                    let prev_object = obj.make_object_ref(standalone.mut_object()).unwrap();
+                    let prev_object = obj.make_object_ref(standalone.mut_object());
+
+                    //※現在実行中のObjectに対応するMailBoxは必ず存在している(StandaloneObjectの中で保持している)ため、unwrapする。
+                    let prev_object = prev_object.unwrap()?;
+
                     //return-object-switchでもどれるようにするために移行元のオブジェクトを保存
                     standalone.mut_object().set_prev_object(&prev_object);
 
                     //object-siwtchはグローバル環境でしか現れない
-                    return Err(ExecError::ObjectSwitch(standalone));
+                    return Err(ExecException::ObjectSwitch(standalone));
                 } else {
-                    panic!("Not Object {}", target_obj.as_ref())
+                    return Err(ExecException::Exception(err::Exception::TypeMismatch(
+                        err::TypeMismatch::new(target_obj, object_ref::ObjectRef::typeinfo())
+                        )));
                 }
             }
             tag::RETURN_OBJECT_SWITCH => {
@@ -607,9 +633,9 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                     let standalone = Object::unregister_scheduler(mailbox);
 
                     //object-siwtchはグローバル環境でしか現れない
-                    return Err(ExecError::ObjectSwitch(standalone));
+                    return Err(ExecException::ObjectSwitch(standalone));
                 } else {
-                    panic!("No return Object")
+                    return Err(ExecException::Exception(err::Exception::Other(format!("No return Object"))));
                 }
             }
             tag::POP_ENV => {
@@ -654,7 +680,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                 //読み込んだClosure本体のデータ分、プログラムカウンタを進める
                 program.seek(SeekFrom::Current(body_size as i64)).unwrap();
 
-                obj.vm_state().acc = compiled::Closure::alloc(closure_body, constants, num_args, obj).into_value();
+                obj.vm_state().acc = compiled::Closure::alloc(closure_body, constants, num_args, obj)?.into_value();
 
                 reduce!(5);
             }
@@ -694,8 +720,11 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                     let mut num_args_remain = num_args;
 
                     if num_args_remain < func.as_ref().num_require() {
-                        //TODO 必須の引数が足らないエラー
-                        panic!("Illegal number of argument. require:{}, optional:{}, rest:{}, bot got {} arguments.", func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args);
+                        //必須の引数が足らないエラー
+                        return Err(ExecException::Exception(err::Exception::Other(format!("Illegal number of argument.\nThe function {}.\n  require:{}, optional:{}, rest:{}\n  but got {} arguments."
+                            , func.as_ref().name()
+                            , func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args
+                        ))));
                     }
                     num_args_remain -= func.as_ref().num_require();
 
@@ -722,7 +751,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                             for index in (num_args - num_args_remain) .. num_args {
                                 //0番目にはapp自体が入っていて引数はインデックス1から始まっているため+1をして引数を取得
                                 let arg = refer_local_var(env, index + 1);
-                                rest.append(&arg.reach(obj), obj);
+                                rest.append(&arg.reach(obj), obj)?;
                             }
 
                                 //リストに詰め込んだ分、ローカルフレーム内の引数を削除
@@ -734,16 +763,31 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                             let_local!(rest.get());
 
                         } else {
-                            //TODO 引数の数が多すぎるエラー
-                            panic!("Illegal number of argument. require:{}, optional:{}, rest:{}, bot got {} arguments.", func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args);
+                            return Err(ExecException::Exception(err::Exception::Other(format!("Illegal number of argument.\nThe function {}.\n  require:{}, optional:{}, rest:{}\n  but got {} arguments."
+                                , func.as_ref().name()
+                                , func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args
+                            ))));
                         }
                     }
 
                     //関数本体を実行
-                    obj.vm_state().acc = func.as_ref().apply(obj);
-
+                    let result = func.as_ref().apply(obj);
                     //リターン処理を実行
                     tag_return!();
+
+                    match result {
+                        Ok(v) => {
+                            obj.vm_state().acc = v;
+                        }
+                        Err(err::Exception::MySelfObjectDeleted) => {
+                            //現在実行中のオブジェクトが削除されようとしているのでこれ以上何もしない
+                            return Err(ExecException::MySelfObjectDeleted);
+                        }
+                        Err(err) => {
+                            return Err(ExecException::Exception(err));
+                        }
+                    }
+
                     reduce_with_check_timelimit!(10);
 
                 } else if let Some(closure) = app.try_cast::<compiled::Closure>() {
@@ -751,7 +795,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                     let num_require = closure.as_ref().arg_descriptor();
                     let num_args = unsafe { (*obj.vm_state().env).size } - 1;
                     if num_require != num_args {
-                        panic!("Invalid arguments. require:{} actual:{}", num_require, num_args)
+                        return Err(ExecException::Exception(err::Exception::Other(format!("Invalid arguments. require:{} actual:{}", num_require, num_args))));
                     }
 
                     //実行するプログラムが保存されたバッファを切り替えるため
@@ -787,10 +831,12 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                 complete_arg!();
 
                 let size = unsafe { (*obj.vm_state().env).size };
-                let mut builder = tuple::TupleBuilder::new(size, obj);
+                let mut builder = tuple::TupleBuilder::new(size, obj)?;
                 for index in 0..size {
                     let arg = refer_local_var(obj.vm_state().env, index);
-                    builder.push(&arg, obj);
+                    //ここではOutOfBoundsは発生しないためunwrap
+                    //ただし、argにreplyが含まれる可能性があるのでpush_uncheckは使用できない
+                    builder.push(&arg, obj).unwrap();
                 }
 
                 obj.vm_state().acc = builder.get().into_value();
@@ -805,10 +851,12 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecError> {
                 complete_arg!();
 
                 let size = unsafe { (*obj.vm_state().env).size };
-                let mut builder = array::ArrayBuilder::<Any>::new(size, obj);
+                let mut builder = array::ArrayBuilder::<Any>::new(size, obj)?;
                 for index in 0..size {
                     let arg = refer_local_var(obj.vm_state().env, index);
-                    builder.push(&arg, obj);
+                    //ここではOutOfBoundsは発生しないためunwrap
+                    //ただし、argにreplyが含まれる可能性があるのでpush_uncheckは使用できない
+                    builder.push(&arg, obj).unwrap();
                 }
 
                 obj.vm_state().acc = builder.get().into_value();

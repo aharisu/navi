@@ -29,7 +29,7 @@ impl NaviType for Keyword {
         &KEYWORD_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         Self::alloc(self.as_ref(), allocator)
     }
 }
@@ -39,7 +39,7 @@ impl Keyword {
         string::NString::size_of(&self.inner)
     }
 
-    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> Ref<Keyword> {
+    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> NResult<Keyword, OutOfMemory> {
         string::NString::alloc_inner::<Keyword, A>(&str.into(), allocator)
     }
 

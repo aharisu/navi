@@ -9,7 +9,7 @@ macro_rules! new_typeinfo {
                 None => None
             },
             eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Any, &Any) -> bool>($eq_func) },
-            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut crate::object::AnyAllocator) -> Ref<$t>, fn(&Any, &mut crate::object::AnyAllocator) -> Ref<Any>>($clone_func) },
+            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut crate::object::AnyAllocator) -> crate::err::NResult<$t, crate::err::OutOfMemory>, fn(&Any, &mut crate::object::AnyAllocator) -> crate::err::NResult<Any, crate::err::OutOfMemory>>($clone_func) },
             print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Any, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
             is_type_func: $is_type_func,
             finalize: match $finalize_func {
@@ -25,7 +25,7 @@ macro_rules! new_typeinfo {
                 None => None
              },
             check_reply_func: match $check_reply_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut Cap<$t>, &mut crate::object::Object) -> bool, fn(&mut Cap<Any>, &mut crate::object::Object) -> bool>(func) }),
+                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut Cap<$t>, &mut crate::object::Object) -> Result<bool, crate::err::OutOfMemory>, fn(&mut Cap<Any>, &mut crate::object::Object) -> Result<bool, crate::err::OutOfMemory>>(func) }),
                 None => None
              },
         }
@@ -33,9 +33,11 @@ macro_rules! new_typeinfo {
 }
 
 pub mod any;
+pub mod app;
 pub mod array;
 pub mod bool;
 pub mod compiled;
+pub mod exception;
 pub mod list;
 pub mod number;
 pub mod string;
@@ -49,10 +51,12 @@ pub mod iform;
 pub mod reply;
 
 
+use crate::err::OutOfMemory;
 use crate::value::any::Any;
 use crate::object::{Object, Allocator, AnyAllocator};
 use crate::object::mm::{self, GCAllocationStruct, ptr_to_usize, usize_to_ptr};
 use crate::{ptr::*, vm};
+use crate::err::*;
 
 use crate::value::func::*;
 use once_cell::sync::Lazy;
@@ -117,12 +121,12 @@ pub fn value_is_pointer(v: &Any) -> bool {
     pointer_kind(v as *const Any) == PtrKind::Ptr
 }
 
-pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) -> Ref<T> {
+pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) -> NResult<T, OutOfMemory> {
     //クローンを行う値のトータルのサイズを計測
     //リストや配列など内部に値を保持している場合は再帰的にすべての値のサイズも計測されている
     let total_size = mm::Heap::calc_total_size(v.cast_value().as_ref());
     //事前にクローンを行うために必要なメモリスペースを確保する
-    allocator.force_allocation_space(total_size);
+    allocator.force_allocation_space(total_size)?;
 
     NaviType::clone_inner(v.as_ref(), allocator)
 }
@@ -153,25 +157,41 @@ pub fn get_typename<T: NaviType>(this: &T) -> &'static str {
     typeinfo.name
 }
 
-pub fn check_reply(cap: &mut Cap<Any>, obj: &mut Object) -> bool {
-
+pub fn check_reply(cap: &mut Cap<Any>, obj: &mut Object) -> Result<bool, OutOfMemory> {
     if let Some(reply) = cap.try_cast_mut::<reply::Reply>() {
-        if let Some(result) = reply::Reply::try_get_reply_value(reply, obj) {
-            //Replyオブジェクトを指していたポインタを、返信の結果を指すように上書きする
-            cap.update_pointer(result);
-
-            // OK!!
-            true
-
-        } else {
-            //Replyがまだ返信を受け取っていなかったのでfalseを返す
-            false
+        match reply::Reply::try_get_reply_value(reply, obj) {
+            ResultNone::Ok(reply) => {
+                match reply {
+                    Ok(result) => {
+                        //Replyオブジェクトを指していたポインタを、返信の結果を指すように上書きする
+                        cap.update_pointer(result);
+                        //返信があったのでtrueを返す
+                        Ok(true)
+                    }
+                    Err(err) => {
+                        //返信があったが、返信の内容がエラーだった。
+                        //Exceptionオブジェクトを作成してReplyを上書きする。
+                        let exception = exception::Exception::alloc(err, obj)?;
+                        cap.update_pointer(exception.into_value());
+                        Ok(true)
+                    }
+                }
+            }
+            ResultNone::Err(oom) => {
+                //返信を受け取る前に、自分自身のOOMが発生した。
+                Err(oom)
+            }
+            ResultNone::None => {
+                //まだ返信がないのでfalseを返す
+                Ok(false)
+            }
         }
     } else {
         let typeinfo = get_typeinfo(cap.as_ref());
         match typeinfo.check_reply_func {
             Some(func) => func(cap, obj),
-            None => true,
+            //返信を含まない値なので無条件でtrueを返す
+            None => Ok(true),
         }
     }
 }
@@ -211,7 +231,7 @@ pub fn mut_refer_value<'a, 'b, T: NaviType>(ptr: &'a mut Ref<T>) -> &'b mut T {
 
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
     fn typeinfo() -> &'static TypeInfo;
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self>;
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory>;
 }
 
 #[allow(dead_code)]
@@ -220,18 +240,24 @@ pub struct TypeInfo {
     pub fixed_size: usize,
     pub variable_size_func: Option<fn(&Any) -> usize>,
     pub eq_func: fn(&Any, &Any) -> bool,
-    pub clone_func: fn(&Any, &mut AnyAllocator) -> Ref<Any>,
+    pub clone_func: fn(&Any, &mut AnyAllocator) -> NResult<Any, OutOfMemory>,
     pub print_func: fn(&Any, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     pub is_type_func: Option<fn(&TypeInfo) -> bool>,
     pub finalize: Option<fn(&mut Any)>,
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
     pub child_traversal_func: Option<fn(&mut Any, *mut u8, fn(&mut Ref<Any>, *mut u8))>,
-    pub check_reply_func: Option<fn(&mut Cap<Any>, &mut Object) -> bool>,
+    pub check_reply_func: Option<fn(&mut Cap<Any>, &mut Object) -> Result<bool, OutOfMemory>>,
 }
 
 impl PartialEq for TypeInfo {
     fn eq(&self, other: &Self) -> bool {
         //TypeInfoのインスタンスは常にstaticなライフタイムを持つため、参照の同一性だけで値の同一性を測る
         std::ptr::eq(self, other)
+    }
+}
+
+impl std::fmt::Debug for TypeInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
     }
 }

@@ -1,3 +1,4 @@
+use crate::err::*;
 use crate::ptr::*;
 use crate::value::*;
 use crate::value::func::*;
@@ -35,7 +36,7 @@ impl NaviType for Integer {
         &INTEGER_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         Self::alloc(self.num, allocator)
     }
 }
@@ -53,14 +54,14 @@ impl Integer {
         || &REAL_TYPEINFO == other_typeinfo
     }
 
-    pub fn alloc<A: Allocator>(num: i64, allocator : &mut A) -> Ref<Integer> {
-        let ptr = allocator.alloc::<Integer>();
+    pub fn alloc<A: Allocator>(num: i64, allocator : &mut A) -> NResult<Integer, OutOfMemory> {
+        let ptr = allocator.alloc::<Integer>()?;
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Integer { num: num });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn get(&self) -> i64 {
@@ -131,7 +132,7 @@ impl NaviType for Real {
         &REAL_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         Self::alloc(self.num, allocator)
     }
 }
@@ -148,14 +149,14 @@ impl Real {
         || &INTEGER_TYPEINFO == other_typeinfo
     }
 
-    pub fn alloc<A: Allocator>(num: f64, allocator : &mut A) -> Ref<Real> {
-        let ptr = allocator.alloc::<Real>();
+    pub fn alloc<A: Allocator>(num: f64, allocator : &mut A) -> NResult<Real, OutOfMemory> {
+        let ptr = allocator.alloc::<Real>()?;
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Real { num: num });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
 }
@@ -221,7 +222,7 @@ impl NaviType for Number {
         &NUMBER_TYPEINFO
     }
 
-    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, _allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //Number型のインスタンスは存在しないため、cloneが呼ばれることはない。
         unreachable!()
     }
@@ -247,7 +248,7 @@ fn number_to(v: &Any) -> Num {
     }
 }
 
-fn func_add(obj: &mut Object) -> Ref<Any> {
+fn func_add(obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Any>(0, obj);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -278,18 +279,26 @@ fn func_add(obj: &mut Object) -> Ref<Any> {
     }
 
     if int.is_some() {
-        number::Integer::alloc(int.unwrap(), obj).into_value()
+        let num = number::Integer::alloc(int.unwrap(), obj)?;
+        Ok(num.into_value())
     } else {
-        number::Real::alloc(real.unwrap(), obj).into_value()
+        let num = number::Real::alloc(real.unwrap(), obj)?;
+        Ok(num.into_value())
     }
 }
 
-fn func_abs(obj: &mut Object) -> Ref<Any> {
+fn func_abs(obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg(0, obj);
 
     match number_to(v.as_ref()) {
-        Num::Int(num) => number::Integer::alloc(num.abs(), obj).into_value(),
-        Num::Real(num) => number::Real::alloc(num.abs(), obj).into_value(),
+        Num::Int(num) => {
+            let num = number::Integer::alloc(num.abs(), obj)?;
+            Ok(num.into_value())
+        }
+        Num::Real(num) => {
+            let num = number::Real::alloc(num.abs(), obj)?;
+            Ok(num.into_value())
+        }
     }
 }
 

@@ -2,6 +2,7 @@ use core::panic;
 use std::fmt::{Display, Debug};
 
 use crate::ptr::*;
+use crate::err::*;
 use crate::object::{AnyAllocator, Allocator};
 use crate::value::symbol;
 
@@ -43,12 +44,12 @@ impl NaviType for IForm {
         &IFORM_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         let value: &Any = self.cast_value();
 
         //IFormはインスタンス化されることがない型なので、自分自身に対してValue::clone_innerを無限ループにはならない。
-        let cloned = Any::clone_inner(value, allocator);
-        unsafe { cloned.cast_unchecked::<IForm>() }.clone()
+        let cloned = Any::clone_inner(value, allocator)?;
+        Ok(unsafe { cloned.cast_unchecked::<IForm>() }.clone())
     }
 }
 
@@ -379,11 +380,11 @@ impl NaviType for IFormLet {
         &IFORM_TYPEINFO_ARY[IFormKind::Let as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbol = Symbol::clone_inner(self.symbol.as_ref(), allocator).into_reachable();
-            let val = IForm::clone_inner(self.val.as_ref(), allocator).into_reachable();
+            let symbol = Symbol::clone_inner(self.symbol.as_ref(), allocator)?.into_reachable();
+            let val = IForm::clone_inner(self.val.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&symbol, &val, allocator)
         }
@@ -401,8 +402,8 @@ impl IFormLet {
         callback(self.val.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(symbol: &Reachable<Symbol>, val: &Reachable<IForm>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormLet>();
+    pub fn alloc<A: Allocator>(symbol: &Reachable<Symbol>, val: &Reachable<IForm>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormLet>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormLet {
                     symbol: symbol.raw_ptr().into(),
@@ -410,7 +411,7 @@ impl IFormLet {
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn symbol(&self) -> Ref<Symbol> {
@@ -457,12 +458,12 @@ impl NaviType for IFormIf {
         &IFORM_TYPEINFO_ARY[IFormKind::If as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let test = IForm::clone_inner(self.test.as_ref(), allocator).into_reachable();
-            let then = IForm::clone_inner(self.then.as_ref(), allocator).into_reachable();
-            let else_ = IForm::clone_inner(self.else_.as_ref(), allocator).into_reachable();
+            let test = IForm::clone_inner(self.test.as_ref(), allocator)?.into_reachable();
+            let then = IForm::clone_inner(self.then.as_ref(), allocator)?.into_reachable();
+            let else_ = IForm::clone_inner(self.else_.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&test, &then, &else_, allocator)
         }
@@ -481,8 +482,8 @@ impl IFormIf {
         callback(self.else_.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(test: &Reachable<IForm>, true_: &Reachable<IForm>, false_: &Reachable<IForm>, allocator: &mut A) -> Ref<IFormIf> {
-        let ptr = allocator.alloc::<IFormIf>();
+    pub fn alloc<A: Allocator>(test: &Reachable<IForm>, true_: &Reachable<IForm>, false_: &Reachable<IForm>, allocator: &mut A) -> NResult<IFormIf, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormIf>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormIf {
                     test: test.raw_ptr().into(),
@@ -491,7 +492,7 @@ impl IFormIf {
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn test(&self) -> Ref<IForm> {
@@ -542,10 +543,10 @@ impl NaviType for IFormLocal {
         &IFORM_TYPEINFO_ARY[IFormKind::Local as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let body = IForm::clone_inner(self.body.as_ref(), allocator).into_reachable();
+            let body = IForm::clone_inner(self.body.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&body, allocator)
         }
@@ -562,15 +563,15 @@ impl IFormLocal {
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(body: &Reachable<IForm>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormLocal>();
+    pub fn alloc<A: Allocator>(body: &Reachable<IForm>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormLocal>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormLocal {
                     body: body.raw_ptr().into(),
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn body(&self) -> Ref<IForm> {
@@ -611,10 +612,10 @@ impl NaviType for IFormLRef {
         &IFORM_TYPEINFO_ARY[IFormKind::LRef as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator).into_reachable();
+            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&symbol, allocator)
         }
@@ -631,15 +632,15 @@ impl IFormLRef {
         callback(self.symbol.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Symbol>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormLRef>();
+    pub fn alloc<A: Allocator>(v: &Reachable<Symbol>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormLRef>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormLRef {
                     symbol: v.raw_ptr().into(),
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn symbol(&self) -> Ref<Symbol> {
@@ -680,10 +681,10 @@ impl NaviType for IFormGRef {
         &IFORM_TYPEINFO_ARY[IFormKind::GRef as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator).into_reachable();
+            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&symbol, allocator)
         }
@@ -700,15 +701,15 @@ impl IFormGRef {
         callback(self.symbol.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Symbol>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormGRef>();
+    pub fn alloc<A: Allocator>(v: &Reachable<Symbol>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormGRef>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormGRef {
                     symbol: v.raw_ptr().into(),
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn symbol(&self) -> Ref<Symbol> {
@@ -750,11 +751,11 @@ impl NaviType for IFormFun {
         &IFORM_TYPEINFO_ARY[IFormKind::Fun as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let params = Array::clone_inner(self.params.as_ref(), allocator).into_reachable();
-            let body = IForm::clone_inner(self.body.as_ref(), allocator).into_reachable();
+            let params = Array::clone_inner(self.params.as_ref(), allocator)?.into_reachable();
+            let body = IForm::clone_inner(self.body.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&params, &body, allocator)
         }
@@ -772,8 +773,8 @@ impl IFormFun {
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(params: &Reachable<Array<Symbol>>, body: &Reachable<IForm>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormFun>();
+    pub fn alloc<A: Allocator>(params: &Reachable<Array<Symbol>>, body: &Reachable<IForm>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormFun>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormFun {
                     params: params.raw_ptr().into(),
@@ -781,7 +782,7 @@ impl IFormFun {
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn len_params(&self) -> usize {
@@ -830,10 +831,10 @@ impl NaviType for IFormSeq {
         &IFORM_TYPEINFO_ARY[IFormKind::Seq as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let body = Array::clone_inner(self.body.as_ref(), allocator).into_reachable();
+            let body = Array::clone_inner(self.body.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&body, allocator)
         }
@@ -850,15 +851,15 @@ impl IFormSeq {
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(body: &Reachable<Array<IForm>>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormSeq>();
+    pub fn alloc<A: Allocator>(body: &Reachable<Array<IForm>>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormSeq>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormSeq {
                     body: body.raw_ptr().into(),
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn body(&self) -> Ref<Array<IForm>> {
@@ -900,11 +901,11 @@ impl NaviType for IFormCall {
         &IFORM_TYPEINFO_ARY[IFormKind::Call as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let app = IForm::clone_inner(self.app.as_ref(), allocator).into_reachable();
-            let args = Array::clone_inner(self.args.as_ref(), allocator).into_reachable();
+            let app = IForm::clone_inner(self.app.as_ref(), allocator)?.into_reachable();
+            let args = Array::clone_inner(self.args.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&app, &args, allocator)
         }
@@ -922,8 +923,8 @@ impl IFormCall {
         callback(self.args.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(app: &Reachable<IForm>, args: &Reachable<Array<IForm>>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormCall>();
+    pub fn alloc<A: Allocator>(app: &Reachable<IForm>, args: &Reachable<Array<IForm>>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormCall>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormCall {
                     app: app.raw_ptr().into(),
@@ -931,7 +932,7 @@ impl IFormCall {
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn app(&self) -> Ref<IForm> {
@@ -980,10 +981,10 @@ impl NaviType for IFormConst {
         &IFORM_TYPEINFO_ARY[IFormKind::Const as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let value = Any::clone_inner(self.value.as_ref(), allocator).into_reachable();
+            let value = Any::clone_inner(self.value.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&value, allocator)
         }
@@ -1000,15 +1001,15 @@ impl IFormConst {
         callback(self.value.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Any>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormConst>();
+    pub fn alloc<A: Allocator>(v: &Reachable<Any>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormConst>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormConst {
                     value: v.raw_ptr().into(),
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn value(&self) -> Ref<Any> {
@@ -1057,10 +1058,10 @@ impl NaviType for IFormAndOr {
         &IFORM_TYPEINFO_ARY[IFormKind::AndOr as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let exprs = Array::clone_inner(self.exprs.as_ref(), allocator).into_reachable();
+            let exprs = Array::clone_inner(self.exprs.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&exprs, self.kind, allocator)
         }
@@ -1077,8 +1078,8 @@ impl IFormAndOr {
         callback(self.exprs.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(exprs: &Reachable<Array<IForm>>, kind: AndOrKind, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormAndOr>();
+    pub fn alloc<A: Allocator>(exprs: &Reachable<Array<IForm>>, kind: AndOrKind, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormAndOr>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormAndOr {
                     exprs: exprs.raw_ptr().into(),
@@ -1086,7 +1087,7 @@ impl IFormAndOr {
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn len_exprs(&self) -> usize {
@@ -1144,10 +1145,10 @@ impl NaviType for IFormContainer {
         &IFORM_TYPEINFO_ARY[IFormKind::Container as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let exprs = Array::clone_inner(self.exprs.as_ref(), allocator).into_reachable();
+            let exprs = Array::clone_inner(self.exprs.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&exprs, self.kind, allocator)
         }
@@ -1164,8 +1165,8 @@ impl IFormContainer {
         callback(self.exprs.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(exprs: &Reachable<Array<IForm>>, kind: ContainerKind, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormContainer>();
+    pub fn alloc<A: Allocator>(exprs: &Reachable<Array<IForm>>, kind: ContainerKind, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormContainer>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormContainer {
                     exprs: exprs.raw_ptr().into(),
@@ -1173,7 +1174,7 @@ impl IFormContainer {
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn len_exprs(&self) -> usize {
@@ -1223,11 +1224,11 @@ impl NaviType for IFormDefRecv {
         &IFORM_TYPEINFO_ARY[IFormKind::DefRecv as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let pattern = Any::clone_inner(self.pattern.as_ref(), allocator).into_reachable();
-            let body = super::list::List::clone_inner(self.body.as_ref(), allocator).into_reachable();
+            let pattern = Any::clone_inner(self.pattern.as_ref(), allocator)?.into_reachable();
+            let body = super::list::List::clone_inner(self.body.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&pattern, &body, allocator)
         }
@@ -1245,8 +1246,8 @@ impl IFormDefRecv {
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(pattern: &Reachable<Any>, body: &Reachable<super::list::List>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormDefRecv>();
+    pub fn alloc<A: Allocator>(pattern: &Reachable<Any>, body: &Reachable<super::list::List>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormDefRecv>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormDefRecv {
                     pattern: pattern.raw_ptr().into(),
@@ -1254,7 +1255,7 @@ impl IFormDefRecv {
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn pattern(&self) -> Ref<Any> {
@@ -1299,7 +1300,7 @@ impl NaviType for IFormObjectSwitch {
         &IFORM_TYPEINFO_ARY[IFormKind::ObjectSwitch as usize]
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
             if let Some(target_obj) = self.target_obj.as_ref() {
@@ -1325,8 +1326,8 @@ impl IFormObjectSwitch {
         }
     }
 
-    pub fn alloc<A: Allocator>(target_obj: Option<&Reachable<IForm>>, allocator: &mut A) -> Ref<Self> {
-        let ptr = allocator.alloc::<IFormObjectSwitch>();
+    pub fn alloc<A: Allocator>(target_obj: Option<&Reachable<IForm>>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc::<IFormObjectSwitch>()?;
 
         let target_obj = target_obj.map(|v| Ref::from(v.raw_ptr()));
         unsafe {
@@ -1335,7 +1336,7 @@ impl IFormObjectSwitch {
                 });
         }
 
-        ptr.into_ref()
+        Ok(ptr.into_ref())
     }
 
     pub fn target_obj(&self) -> Option<Ref<IForm>> {

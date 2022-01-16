@@ -31,7 +31,7 @@ impl NaviType for Symbol {
         &SYMBOL_TYPEINFO
     }
 
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> Ref<Self> {
+    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         Self::alloc(self.as_ref(), allocator)
     }
 }
@@ -41,11 +41,11 @@ impl Symbol {
         string::NString::size_of(&self.inner)
     }
 
-    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> Ref<Symbol> {
+    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> NResult<Symbol, OutOfMemory> {
         string::NString::alloc_inner::<Symbol, A>(&str.into(), allocator)
     }
 
-    pub fn gensym<T :Into<String>, A: Allocator>(name: T, allocator: &mut A) -> Ref<Symbol> {
+    pub fn gensym<T :Into<String>, A: Allocator>(name: T, allocator: &mut A) -> NResult<Symbol, OutOfMemory> {
         let count = GENSYM_COUNTER.fetch_add(1, Ordering::SeqCst);
         let name = name.into() + "_" + &count.to_string();
         Self::alloc(&name, allocator)
@@ -98,6 +98,14 @@ pub(crate) fn gensym_static<T: Into<String>>(name: T) -> GCAllocationStruct<Stat
     let count = GENSYM_COUNTER.fetch_add(1, Ordering::SeqCst);
     let name = name.into() + "_" + &count.to_string();
 
+    let symbol = StaticSymbol {
+        inner: string::static_string(name)
+    };
+
+    GCAllocationStruct::new_with_typeinfo(symbol, Symbol::typeinfo())
+}
+
+pub(crate) fn symbol_static<T: Into<String>>(name: T) -> GCAllocationStruct<StaticSymbol> {
     let symbol = StaticSymbol {
         inner: string::static_string(name)
     };
