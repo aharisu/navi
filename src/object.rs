@@ -86,7 +86,21 @@ impl <'a> Allocator for AnyAllocator<'a> {
     }
 }
 
+enum SuspendState {
+    Sleep,
+    VMSuspend(Arc<Mutex<MailBox>>, ReplyToken),
+    WaitReply(Ref<reply::Reply>, Arc<Mutex<MailBox>>, ReplyToken),
+}
+
+impl SuspendState {
+    pub fn take(&mut self) -> Self {
+        std::mem::replace(self, Self::Sleep)
+    }
+}
+
 struct ObjectGCRootValues {
+    suspend_state: SuspendState,
+
     //object-switchで切り替えた時の、切り替え前オブジェクト。
     prev_object:Option<Ref<ObjectRef>>,
 
@@ -140,7 +154,6 @@ pub struct Object {
     //ObjectはMailBoxから強参照されている、相互参照の関係。
     //MailBoxがDropされるとき、Objectも同時にDropされる。
     mailbox: Weak<Mutex<MailBox>>,
-    suspend_state: Option<(Arc<Mutex<MailBox>>, ReplyToken)>,
 
     heap: Heap,
 
@@ -152,11 +165,12 @@ impl Object {
         let mut obj = Object {
             id,
             mailbox: mailbox,
-            suspend_state: None,
 
             heap: Heap::new(mm::StartHeapSize::Default),
 
             values: ObjectGCRootValues {
+                suspend_state: SuspendState::Sleep,
+
                 prev_object: None,
 
                 world: world::World::new(),
@@ -329,12 +343,15 @@ impl Object {
 
     pub fn do_work(&mut self, reduction_count: usize) -> Result<(), OutOfMemory> {
 
-        match self.suspend_state.take() {
-            Some((reply_to_mailbox, reply_token)) => {
+        match self.values.suspend_state.take() {
+            SuspendState::VMSuspend(reply_to_mailbox, reply_token) => {
                 let result = vm::resume(reduction_count, self);
                 self.apply_message_finish(result, reply_to_mailbox, reply_token)
             }
-            None => {
+            SuspendState::WaitReply(reply, reply_to_mailbox, reply_token) => {
+                self.wait_reply(reply, reply_to_mailbox, reply_token)
+            }
+            SuspendState::Sleep => {
                 if let Some(mailbox) = self.mailbox.upgrade() {
                     let data =  {
                         //MailBoxは複数スレッド(複数オブジェクト)間で共有されているのでロックを取得してから操作を行う
@@ -451,31 +468,25 @@ impl Object {
 
         match result {
             Ok(result) => {
-                //結果を送信元のオブジェクト(MailBox)に返す
-                {
-                    //resultの値はMailBox上のヒープにコピーされるだけ。
-                    //自分自身のGCは絶対に発生しないためinto_reachableを行う。
-                    let result = unsafe { result.into_reachable() };
+                if let Some(reply) = result.try_cast::<reply::Reply>() {
+                    self.wait_reply(reply.clone(), reply_to_mailbox, reply_token)
 
-                    //返信先メールボックスのロックを取得
-                    let mut reply_to_mailbox = reply_to_mailbox.lock().unwrap();
-                    //返信を送信
-                    //TODO 相手先メールボックスがOOMの可能性がある。どうする？
-                    reply_to_mailbox.recv_reply(Ok(&result), reply_token)?;
+                } else {
+                    self.send_reply(Ok(result), reply_to_mailbox, reply_token)?;
+
+                    //残ったreductions分もう一度do_workを実行する
+                    let remain = self.vm_state().remain_reductions();
+                    self.do_work(remain)
                 }
-
-                //残ったreductions分もう一度do_workを実行する
-                let remain = self.vm_state().remain_reductions();
-                self.do_work(remain)
             }
             Err(vm::ExecException::TimeLimit) => {
                 //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                self.suspend_state = Some((reply_to_mailbox, reply_token));
+                self.values.suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
                 Ok(())
             },
             Err(vm::ExecException::WaitReply) => {
                 //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                self.suspend_state = Some((reply_to_mailbox, reply_token));
+                self.values.suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
                 Ok(())
             }
             Err(vm::ExecException::MySelfObjectDeleted) => {
@@ -487,23 +498,65 @@ impl Object {
                 unreachable!()
             }
             Err(vm::ExecException::Exception(e)) => {
-                {
-                    //エラーが発生したら、そのエラーの内容をsend元に返信として伝える
-                    //resultの値はMailBox上のヒープにコピーされるだけ。
-                    //自分自身のGCは絶対に発生しないためinto_reachableを行う。
-
-                    //返信先メールボックスのロックを取得
-                    let mut reply_to_mailbox = reply_to_mailbox.lock().unwrap();
-                    //返信を送信
-                    //TODO 相手先メールボックスがOOMの可能性がある。どうする？
-                    reply_to_mailbox.recv_reply(Err(e), reply_token)?;
-                }
+                self.send_reply(Err(e), reply_to_mailbox, reply_token)?;
 
                 //残ったreductions分もう一度do_workを実行する
                 let remain = self.vm_state().remain_reductions();
                 self.do_work(remain)
             },
         }
+    }
+
+    fn wait_reply(&mut self, reply: Ref<reply::Reply>, reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
+        let mut cap = reply.capture(self);
+        match reply::Reply::try_get_reply_value(&mut cap, self) {
+            ResultNone::Ok(result) => {
+                self.send_reply(result, reply_to_mailbox, reply_token)?;
+
+                //残ったreductions分もう一度do_workを実行する
+                let remain = self.vm_state().remain_reductions();
+                self.do_work(remain)
+            }
+            ResultNone::Err(oom) => {
+                Err(oom)
+            }
+            ResultNone::None => {
+                self.values.suspend_state = SuspendState::WaitReply(cap.take(), reply_to_mailbox, reply_token);
+                Ok(())
+            }
+        }
+    }
+
+    fn send_reply(&mut self, result: NResult<Any, Exception>, reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
+        match result {
+            Ok(v) => {
+                //結果を送信元のオブジェクト(MailBox)に返す
+                {
+                    //resultの値はMailBox上のヒープにコピーされるだけ。
+                    //自分自身のGCは絶対に発生しないためinto_reachableを行う。
+                    let result = unsafe { v.into_reachable() };
+
+                    //返信先メールボックスのロックを取得
+                    let mut reply_to_mailbox = reply_to_mailbox.lock().unwrap();
+                    //返信を送信
+                    //TODO 相手先メールボックスがOOMの可能性がある。どうする？
+                    reply_to_mailbox.recv_reply(Ok(&result), reply_token)?;
+                }
+            }
+            Err(err) => {
+                //エラーが発生したら、そのエラーの内容をsend元に返信として伝える
+                //resultの値はMailBox上のヒープにコピーされるだけ。
+                //自分自身のGCは絶対に発生しないためinto_reachableを行う。
+
+                //返信先メールボックスのロックを取得
+                let mut reply_to_mailbox = reply_to_mailbox.lock().unwrap();
+                //返信を送信
+                //TODO 相手先メールボックスがOOMの可能性がある。どうする？
+                reply_to_mailbox.recv_reply(Err(err), reply_token)?;
+            }
+        }
+
+        Ok(())
     }
 
     #[inline(always)]

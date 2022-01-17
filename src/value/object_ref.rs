@@ -281,4 +281,45 @@ mod tests {
         }
 
     }
+
+    #[test]
+    fn test_remove_ref() {
+        let mut standalone = object::new_object();
+
+        {
+            let program = "(let obj (spawn))";
+            let new_obj_ref = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
+            standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
+
+            let program = "(let obj2 (spawn))";
+            let new_obj_ref = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            let program = "(def-recv 1 (send obj2 2))";
+            eval::<Any>(program, standalone.mut_object());
+
+            standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
+            let program = "(def-recv 2 20)";
+            eval::<Any>(program, standalone.mut_object());
+
+            //操作対象のオブジェクトを最初のオブジェクトに戻す
+            standalone = object::return_object_switch(standalone).unwrap();
+            standalone = object::return_object_switch(standalone).unwrap();
+        }
+
+        {
+            //sendの戻り値はReply型
+            let program = "(let a (send obj 1))";
+            let ans = eval::<Any>(program, standalone.mut_object());
+            assert!( ans.is::<reply::Reply>());
+
+            //forceに通すことでReplyの値を強制的に取得できる
+            let program = "(force a)";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 20);
+        }
+
+    }
+
 }
