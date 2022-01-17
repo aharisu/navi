@@ -4,13 +4,16 @@ use crate::err::*;
 use crate::value::*;
 
 use std::fmt::{Debug, Display};
+use std::sync::{Arc, Mutex};
 
 //TODO 返信をメールボックスから受け取る前にReplyの値が削除されてしまうと
 //一生メールボックス内に返信が残り続けてしまう。どうにかして解決しないと。
 
 pub struct Reply {
     reply_token: ReplyToken,
+
     reply_value: Option<NResult<Any, Exception>>,
+    refer_mailbox: Option<Arc<Mutex<crate::object::mailbox::MailBox>>>,
 }
 
 static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -80,6 +83,8 @@ impl Reply {
             match obj.try_take_reply(cap.as_ref().reply_token) {
                 ResultNone::Ok(result) => {
                     cap.as_mut().reply_value = Some(result);
+                    //値を受け取ったので、MailBoxへの参照を削除する
+                    cap.as_mut().refer_mailbox = None;
                     Ok(true)
                 }
                 ResultNone::Err(oom) => {
@@ -98,13 +103,14 @@ impl Reply {
         unreachable!()
     }
 
-    pub fn alloc<A: Allocator>(token: ReplyToken, allocator: &mut A) -> NResult<Reply, OutOfMemory> {
+    pub fn alloc<A: Allocator>(token: ReplyToken, refer_mailbox: Arc<Mutex<crate::object::mailbox::MailBox>>, allocator: &mut A) -> NResult<Reply, OutOfMemory> {
         let ptr = allocator.alloc::<Reply>()?;
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Reply {
                 reply_token: token,
                 reply_value: None,
+                refer_mailbox: Some(refer_mailbox),
             });
         }
 

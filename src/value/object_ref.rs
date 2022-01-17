@@ -312,6 +312,9 @@ mod tests {
             //sendの戻り値はReply型
             let program = "(let a (send obj 1))";
             let ans = eval::<Any>(program, standalone.mut_object());
+
+            let program = "(let obj true)";
+            eval::<Any>(program, standalone.mut_object());
             assert!( ans.is::<reply::Reply>());
 
             //forceに通すことでReplyの値を強制的に取得できる

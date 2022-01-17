@@ -268,11 +268,12 @@ impl Object {
         if let Some(mailbox) = self.mailbox.upgrade() {
             //戻り値を受け取るために自分自身のメールボックスをメッセージ送信相手に渡す
             let reply_token = target_obj.as_ref().recv_message(message, mailbox)?;
+            //MailBoxを保持しているObjectRef値がなくなってしまうと、メッセージを送信した先のオブジェクトが削除される可能性がある。
+            //そうなると一生Replyを受け取ることができなくなるため、ArcをReply内にも保持させる。
+            let refer_mailbox = target_obj.as_ref().mailbox();
 
             //返信を受け取るための特別な値を生成して返す
-            //TODO Replyを受け取る前にオブジェクトの参照がすべてなくなると、正常に動作できない可能性がある。
-            //Replyの中にMailBoxのArcを持つようにする。
-            let reply = crate::value::reply::Reply::alloc(reply_token, self)?;
+            let reply = crate::value::reply::Reply::alloc(reply_token, refer_mailbox, self)?;
             Ok(reply.into_value())
 
         } else {
