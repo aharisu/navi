@@ -1,5 +1,4 @@
 use std::iter::Peekable;
-use std::str::Chars;
 
 use crate::object::Object;
 use crate::value::*;
@@ -8,12 +7,64 @@ use crate::err::{self, NResult};
 use crate::value::any::Any;
 use crate::value::list::ListBuilder;
 
-pub struct Reader<'i> {
-    input: Peekable<Chars<'i>>,
+pub struct StdinChars {
+    buf: String,
+    index: usize,
 }
 
-impl <'i> Reader<'i> {
-    pub fn new(input: Peekable<Chars<'i>>) -> Self {
+impl StdinChars {
+    pub fn new() -> Self {
+        StdinChars {
+            buf: String::new(),
+            index: 0,
+        }
+    }
+}
+
+impl Iterator for StdinChars {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.buf.is_empty() {
+            self.index = 0;
+
+            match std::io::stdin().read_line(&mut self.buf) {
+                Ok(_) => {
+                    //何もしない
+                }
+                Err(_err) => {
+                    return None;
+                }
+            }
+        }
+
+        let mut iter = unsafe { self.buf.get_unchecked(self.index ..) }.char_indices();
+        let (_, ch) = iter.next().unwrap();
+
+        //次回の読み込み開始位置を取得
+        if let Some((bytes, _)) = iter.next() {
+            self.index += bytes;
+        } else {
+            //最後まで使用したので、次回に新しい行の読み込みを行う
+            self.buf.clear();
+        }
+
+        //TODO chが\d(0x04)だったときにNoneを返して終了させるか？
+        //もしくは(exit)のように終了専用の関数を準備するべきか？
+        if ch == 4 as char {
+            None
+        } else {
+            Some(ch)
+        }
+    }
+}
+
+pub struct Reader<I: Iterator<Item=char>> {
+    input: Peekable<I>,
+}
+
+impl <I: Iterator<Item=char>> Reader<I> {
+    pub fn new(input: Peekable<I>) -> Self {
         Reader {
             input: input,
         }
@@ -22,6 +73,7 @@ impl <'i> Reader<'i> {
 
 #[derive(Debug)]
 pub enum ReadException {
+    EOF,
     OutOfMemory,
     MalformedFormat(err::MalformedFormat),
 }
@@ -38,15 +90,15 @@ impl From<err::MalformedFormat> for ReadException {
     }
 }
 
-pub fn read(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+pub fn read<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     read_internal(reader, obj)
 }
 
-fn read_internal(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_internal<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     skip_whitespace(reader);
 
     match reader.input.peek() {
-        None => Err(err::MalformedFormat::new(None, "読み込む内容がない").into()),
+        None => Err(ReadException::EOF),
         Some(ch) => match ch {
             '(' => read_list(reader, obj),
             '[' => read_array(reader, obj),
@@ -67,24 +119,24 @@ fn read_internal(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadExce
 }
 
 
-fn read_list(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_list<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     let list = read_sequence(')', reader, obj)?;
     Ok(list.into_value())
 }
 
-fn read_array(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_array<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     let list = read_sequence(']', reader, obj)?;
     let ary = array::Array::from_list(&list.reach(obj), None, obj)?;
     Ok(ary.into_value())
 }
 
-fn read_tuple(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_tuple<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     let list = read_sequence('}', reader, obj)?;
     let tuple = tuple::Tuple::from_list(&list.reach(obj), None, obj)?;
     Ok(tuple.into_value())
 }
 
-fn read_sequence(end_char:char, reader: &mut Reader, obj: &mut Object) -> NResult<list::List, ReadException> {
+fn read_sequence<I: Iterator<Item=char>>(end_char:char, reader: &mut Reader<I>, obj: &mut Object) -> NResult<list::List, ReadException> {
     //skip first char
     reader.input.next();
 
@@ -107,7 +159,7 @@ fn read_sequence(end_char:char, reader: &mut Reader, obj: &mut Object) -> NResul
     }
 }
 
-fn read_string(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_string<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     //skip first char
     reader.input.next();
 
@@ -130,20 +182,20 @@ fn read_string(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadExcept
 }
 
 #[allow(dead_code)]
-fn read_char(_reader: &mut Reader, _ctx: &mut Object) -> NResult<Any, ReadException> {
+fn read_char<I: Iterator<Item=char>>(_reader: &mut Reader<I>, _ctx: &mut Object) -> NResult<Any, ReadException> {
     //TODO
     unimplemented!()
 }
 
-fn read_quote(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_quote<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     read_with_modifier(syntax::literal::quote().cast_value(), reader, obj)
 }
 
-fn read_bind(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_bind<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     read_with_modifier(syntax::literal::bind().cast_value(), reader, obj)
 }
 
-fn read_with_modifier(modifier: &Reachable<Any>, reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_with_modifier<I: Iterator<Item=char>>(modifier: &Reachable<Any>, reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     //skip first char
     reader.input.next();
 
@@ -157,7 +209,7 @@ fn read_with_modifier(modifier: &Reachable<Any>, reader: &mut Reader, obj: &mut 
     Ok(builder.get().into_value())
 }
 
-fn read_number_or_symbol(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_number_or_symbol<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     let str = read_word(reader, obj)?;
     match str.parse::<i64>() {
         Ok(num) => {
@@ -180,7 +232,7 @@ fn read_number_or_symbol(reader: &mut Reader, obj: &mut Object) -> NResult<Any, 
     }
 }
 
-fn read_keyword(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_keyword<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     //skip first char
     reader.input.next();
 
@@ -189,7 +241,7 @@ fn read_keyword(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadExcep
     Ok(keyword.into_value())
 }
 
-fn read_symbol(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_symbol<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
     let str = read_word(reader, obj)?;
     match str.as_str() {
         "true" => Ok(bool::Bool::true_().into_ref().into_value()),
@@ -201,7 +253,7 @@ fn read_symbol(reader: &mut Reader, obj: &mut Object) -> NResult<Any, ReadExcept
     }
 }
 
-fn read_word(reader: &mut Reader, _ctx: &mut Object) -> Result<String, ReadException> {
+fn read_word<I: Iterator<Item=char>>(reader: &mut Reader<I>, _ctx: &mut Object) -> Result<String, ReadException> {
     let mut acc: Vec<char> = Vec::new();
     loop {
         match reader.input.peek() {
@@ -244,7 +296,7 @@ const fn is_whitespace(ch: char) -> bool {
     }
 }
 
-fn skip_whitespace(reader: &mut Reader) {
+fn skip_whitespace<I: Iterator<Item=char>>(reader: &mut Reader<I>) {
     let mut next = reader.input.peek();
     while let Some(ch) = next {
         if is_whitespace(*ch) {
@@ -277,9 +329,11 @@ const fn is_delimiter(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::str::Chars;
+
     use crate::{read::*, value::array::ArrayBuilder};
 
-    fn make_reader<'a>(s: &'a str) -> Reader<'a> {
+    fn make_reader(s: &str) -> Reader<Chars> {
         Reader::new( s.chars().peekable())
     }
 
@@ -305,7 +359,7 @@ mod tests {
         read_with_ctx(&mut reader, obj)
     }
 
-    fn read_with_ctx<T: NaviType>(reader: &mut Reader, obj: &mut Object) -> Ref<T> {
+    fn read_with_ctx<T: NaviType>(reader: &mut Reader<Chars>, obj: &mut Object) -> Ref<T> {
         let result = crate::read::read(reader, obj);
         assert!(result.is_ok());
 
