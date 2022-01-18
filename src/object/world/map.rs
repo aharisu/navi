@@ -1,22 +1,22 @@
 use std::fmt::Debug;
 
-pub struct PatriciaTree<T: Debug> {
+pub struct PatriciaTree<T: Debug + Clone> {
     children: Vec<Node<T>>,
 }
 
-pub struct Node<T: Debug> {
+pub struct Node<T: Debug + Clone> {
     prefix: String,
     value: Option<T>,
     children: Vec<Node<T>>,
 }
 
-impl <T: Debug> Node<T> {
+impl <T: Debug + Clone> Node<T> {
     pub fn value_as_mut(&mut self) -> Option<&mut T> {
         self.value.as_mut()
     }
 }
 
-impl <T: Debug> PatriciaTree<T> {
+impl <T: Debug + Clone> PatriciaTree<T> {
     pub fn new() -> Self {
         PatriciaTree {
             children: Vec::new(),
@@ -88,7 +88,7 @@ impl <T: Debug> PatriciaTree<T> {
 
     #[allow(dead_code)]
     pub fn delete<K: AsRef<str>>(&mut self, key: K) {
-        fn delete_node_rec<'a, T: Debug>(node: &'a mut Node<T>, key: &str) -> bool {
+        fn delete_node_rec<'a, T: Debug + Clone>(node: &'a mut Node<T>, key: &str) -> bool {
             let mut key_iter = key.chars();
             let mut node_iter = node.prefix.chars();
             let mut indexer = 0..;
@@ -299,8 +299,8 @@ impl <T: Debug> PatriciaTree<T> {
         }
     }
     
-    pub fn for_each_all_value<F: Fn(&mut T)>(&mut self, callback: F) {
-        fn rec<T: Debug, F: Fn(&mut T)>(node: &mut Node<T>, callback: &F) {
+    pub fn for_each_all_value<F: FnMut(&mut T)>(&mut self, mut callback: F) {
+        fn rec<T: Debug + Clone, F: FnMut(&mut T)>(node: &mut Node<T>, callback: &mut F) {
             if let Some(v) = node.value_as_mut() {
                 callback(v);
             }
@@ -311,13 +311,13 @@ impl <T: Debug> PatriciaTree<T> {
         }
 
         for root in self.children.iter_mut() {
-            rec(root, &callback);
+            rec(root, &mut callback);
         }
     }
 
     #[allow(dead_code)]
     pub fn to_vec_preorder<'a>(&'a self) -> Vec::<&'a Node<T>> {
-        fn rec<'a, T: Debug>(node: &'a Node<T>, acc: &mut Vec::<&'a Node<T>>) {
+        fn rec<'a, T: Debug + Clone>(node: &'a Node<T>, acc: &mut Vec::<&'a Node<T>>) {
             acc.push(node);
 
             for c in &node.children {
@@ -335,11 +335,11 @@ impl <T: Debug> PatriciaTree<T> {
 
 }
 
-impl <T: Debug> std::fmt::Display for PatriciaTree<T> {
+impl <T: Debug + Clone> std::fmt::Display for PatriciaTree<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         const INDENT_WIDTH: usize = 2;
 
-        fn fmt_r<T: Debug>(f: &mut std::fmt::Formatter, node: &Node<T>, indent: usize) {
+        fn fmt_r<T: Debug + Clone>(f: &mut std::fmt::Formatter, node: &Node<T>, indent: usize) {
             for _ in 0..indent {
                 write!(f, " ").unwrap();
             }
@@ -354,6 +354,25 @@ impl <T: Debug> std::fmt::Display for PatriciaTree<T> {
             fmt_r(f, &root, INDENT_WIDTH);
         }
         write!(f, "")
+    }
+}
+
+impl <T: Debug + Clone> Clone for PatriciaTree<T> {
+    fn clone(&self) -> Self {
+        PatriciaTree {
+            children: self.children.iter().map(Node::clone).collect(),
+        }
+    }
+}
+
+impl <T: Debug + Clone> Clone for Node<T> {
+
+    fn clone(&self) -> Self {
+        Node {
+            prefix: self.prefix.clone(),
+            value: self.value.clone(),
+            children: self.children.iter().map(Node::clone).collect(),
+        }
     }
 }
 

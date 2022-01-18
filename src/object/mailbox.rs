@@ -24,8 +24,31 @@ impl ReplyToken {
     }
 }
 
+pub enum MessageKind {
+    Message(Ref<Any>),
+    Duplicate,
+}
+
+impl MessageKind {
+
+    pub unsafe fn value_clone_gcunsafe(&self, allocator: &mut AnyAllocator) -> Result<Self, OutOfMemory> {
+        match self {
+            MessageKind::Message(msg) => {
+                let msg = msg.clone().into_reachable();
+                //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
+                let msg = crate::value::value_clone(&msg, allocator)?;
+
+                Ok(MessageKind::Message(msg))
+            }
+            Self::Duplicate => {
+                Ok(Self::Duplicate)
+            }
+        }
+    }
+}
+
 pub struct MessageData {
-    pub message: Ref<Any>,
+    pub kind: MessageKind,
     pub reply_to_mailbox: Arc<Mutex<MailBox>>,
     pub reply_token: ReplyToken,
 }
@@ -37,7 +60,15 @@ struct MailBoxGCRootValues {
 
 impl mm::GCRootValueHolder for MailBoxGCRootValues {
     fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
-        self.inbox.iter_mut().for_each(|data| callback(&mut data.message, arg));
+        self.inbox.iter_mut().for_each(|data| {
+            match &mut data.kind {
+                MessageKind::Message(msg) => {
+                    callback(msg, arg)
+                }
+                MessageKind::Duplicate => { }
+            }
+        });
+
         self.result_box.iter_mut().for_each(|(_, result)| {
             match result.as_mut() {
                 Ok(v) => {
@@ -92,10 +123,10 @@ impl MailBox {
         }
     }
 
-    pub fn recv_message(&mut self, msg: &Reachable<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> Result<ReplyToken, OutOfMemory> {
+    pub fn recv_message(&mut self, msg: MessageKind, reply_to_mailbox: Arc<Mutex<MailBox>>) -> Result<ReplyToken, OutOfMemory> {
         //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
         let mut allocator = AnyAllocator::MailBox(self);
-        let msg = crate::value::value_clone(msg, &mut allocator)?;
+        let msg = (unsafe { msg.value_clone_gcunsafe(&mut allocator) })?;
 
         //返信を送受信するためのtx/rxを作成
         let reply_token = self.reply_token;
@@ -103,7 +134,7 @@ impl MailBox {
 
         //受け取ったメッセージを内部バッファに保存する
         self.values.inbox.push(MessageData {
-            message: msg,
+            kind: msg,
             reply_to_mailbox: reply_to_mailbox,
             reply_token: reply_token,
         });

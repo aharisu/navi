@@ -65,7 +65,7 @@ fn scheduler_main() -> (mpsc::Sender<Envelope>, thread::JoinHandle<()>) {
                 match obj.upgrade() {
                     Some(obj) => {
                         //オブジェクトへの参照を取得できたら、実行する。
-                        //TODO oomが発生したら対象オブジェクトを削除して、既存のメッセージに対してすべてOOMの返信を送る?
+                        //TODO ここで発生したOOMは相手先メールボックスのOOMどう対応する？
                         match obj.borrow_mut().do_work(1000) {
                             Ok(_) => { }
                             Err(_oom) => {
@@ -77,6 +77,7 @@ fn scheduler_main() -> (mpsc::Sender<Envelope>, thread::JoinHandle<()>) {
                     },
                     None => {
                         //参照先のオブジェクトは消えてしまっているので、スケジューラー内からも削除する
+                        //TODO swap_removeでもいいのか？
                         objects.remove(index);
                     }
                 }

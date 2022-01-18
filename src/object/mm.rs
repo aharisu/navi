@@ -170,6 +170,36 @@ impl Heap {
         heap
     }
 
+    pub fn new_capacity(min_capacity: usize) -> Self {
+        let heapsize = if min_capacity <= 256 {
+            HeapSize::_256
+        } else if min_capacity <= 512 {
+            HeapSize::_512
+        } else if min_capacity <= 1024 {
+            HeapSize::_1k
+        } else if min_capacity <= 1024 * 2 {
+            HeapSize::_2k
+        } else if min_capacity <= 1024 * 8 {
+            HeapSize::_8k
+        } else if min_capacity <= 1024 * 16 {
+            HeapSize::_16k
+        } else if min_capacity <= 1024 * 32 {
+            HeapSize::_32k
+        } else {
+            unreachable!()
+        };
+
+        let layout = Self::get_alloc_layout(heapsize);
+        let ptr = unsafe { alloc::alloc(layout) };
+
+        Heap {
+            pool_ptr: ptr,
+            used: 0,
+            page_layout: layout,
+            heap_size: heapsize,
+        }
+    }
+
     fn get_alloc_layout(heapsize: HeapSize) -> alloc::Layout {
         let size = match heapsize {
             HeapSize::_256 => 256usize,

@@ -2,7 +2,7 @@ use crate::err::*;
 use crate::value::*;
 use crate::vm;
 use crate::object::{self, Object};
-use crate::object::mailbox::{MailBox, ReplyToken};
+use crate::object::mailbox::{MailBox, ReplyToken, MessageKind};
 use std::fmt::{self, Debug, Display};
 use std::sync::{Mutex, Arc};
 
@@ -57,7 +57,7 @@ impl ObjectRef {
         Arc::clone(&self.mailbox)
     }
 
-    pub fn recv_message(&self, msg: &Reachable<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>) -> Result<ReplyToken, OutOfMemory> {
+    pub fn recv_message(&self, msg: MessageKind, reply_to_mailbox: Arc<Mutex<MailBox>>) -> Result<ReplyToken, OutOfMemory> {
         let mut mailbox = self.mailbox.lock().unwrap();
         mailbox.recv_message(msg, reply_to_mailbox)
     }
@@ -91,29 +91,42 @@ impl Debug for ObjectRef {
 }
 
 fn func_spawn(obj: &mut Object) -> NResult<Any, Exception> {
-    let standalone = object::new_object();
+    if let Some(target_obj) = vm::refer_arg::<Any>(0, obj).try_cast::<ObjectRef>() {
+        let target_obj = target_obj.clone().reach(obj);
+        let message = MessageKind::Duplicate;
 
-    let id = standalone.object().id();
+        obj.send_message(&target_obj, message)
 
-    //Objectの所有権と実行権をスケジューラに譲る。
-    //Objectとやり取りするためのMailBoxを取得
-    let mailbox = object::Object::register_scheduler(standalone);
+    } else {
+        let standalone = object::new_object();
 
-    let objectref = ObjectRef::alloc(id, mailbox, obj)?;
-    Ok(objectref.into_value())
+        let id = standalone.object().id();
+
+        //Objectの所有権と実行権をスケジューラに譲る。
+        //Objectとやり取りするためのMailBoxを取得
+        let mailbox = object::Object::register_scheduler(standalone);
+
+        let objectref = ObjectRef::alloc(id, mailbox, obj)?;
+        Ok(objectref.into_value())
+    }
 }
 
 fn func_send(obj: &mut Object) -> NResult<Any, Exception> {
     let target_obj = vm::refer_arg::<ObjectRef>(0, obj).reach(obj);
-    let message = vm::refer_arg::<Any>(1, obj).reach(obj);
 
-    obj.send_message(&target_obj, &message)
+    //本来はReachableで扱うのが安全だが、messageはalloc前しか使用されないためRefのまま使用する
+    let message = vm::refer_arg::<Any>(1, obj);
+    let message = MessageKind::Message(message);
+
+    obj.send_message(&target_obj, message)
 }
 
 static FUNC_SPAWN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("spawn",
-            &[],
+            &[
+            Param::new("object", ParamKind::Optional, ObjectRef::typeinfo()),
+            ],
             func_spawn)
     )
 });
@@ -323,6 +336,59 @@ mod tests {
             assert_eq!(ans.as_ref().get(), 20);
         }
 
+    }
+
+    #[test]
+    fn test_dup() {
+        let mut standalone = object::new_object();
+
+        {
+            let program = "(let obj1 (spawn))";
+            let obj1 = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
+            standalone = object::object_switch(standalone, obj1.as_ref()).unwrap();
+
+            let program = "(let global 1)";
+            eval::<Any>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            let program = "(def-recv :global global)";
+            eval::<Any>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            //操作対象のオブジェクトを最初のオブジェクトに戻す
+            standalone = object::return_object_switch(standalone).unwrap();
+
+            let program = "(force (send obj1 :global))";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 1);
+        }
+
+        {
+            //obj1の複製を作成
+            let program = "(let obj2 (force (spawn obj1)))";
+            let obj2 = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            let program = "(force (send obj2 :global))";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 1);
+
+            //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
+            standalone = object::object_switch(standalone, obj2.as_ref()).unwrap();
+
+            let program = "(let global 2)";
+            eval::<Any>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            //操作対象のオブジェクトを最初のオブジェクトに戻す
+            standalone = object::return_object_switch(standalone).unwrap();
+
+            let program = "(force (send obj1 :global))";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 1);
+
+            let program = "(force (send obj2 :global))";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 2);
+        }
     }
 
 }

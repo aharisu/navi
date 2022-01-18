@@ -30,10 +30,17 @@ impl World {
         self.area.get(key)
     }
 
-    pub(crate) fn for_each_all_value<F: Fn(&mut Ref<Any>)>(&mut self, callback: F) {
+    pub(crate) fn for_each_all_value<F: FnMut(&mut Ref<Any>)>(&mut self, callback: F) {
         self.area.for_each_all_value(callback);
     }
+}
 
+impl Clone for World {
+    fn clone(&self) -> Self {
+        World {
+            area: self.area.clone(),
+        }
+    }
 }
 
 

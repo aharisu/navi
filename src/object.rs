@@ -7,6 +7,7 @@ pub mod mailbox;
 
 
 use std::fmt::Debug;
+use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Weak, Mutex};
 use std::cell::RefCell;
@@ -188,6 +189,66 @@ impl Object {
         obj
     }
 
+    #[allow(invalid_value)]
+    fn dup(object: &Object, id: usize, mailbox: Weak<Mutex<MailBox>>) -> Self {
+        //TODO 複製元オブジェクトのグローバル変数としてReplyが存在するとエラー!!!!
+
+        let mut obj_cloned = Object {
+            id,
+            mailbox,
+
+            //複製元のヒープ内オブジェクトがすべて収まる範囲の新しいヒープを作成
+            heap: Heap::new_capacity(object.heap.used()),
+            //valuesは新しいヒープにコピーしないといけないので、現時点ではダミーの値を入れておく
+            values: unsafe { MaybeUninit::uninit().assume_init() }
+        };
+
+        let values = {
+            //各値はまだ複製元のObjectのヒープ内にある
+            let mut values = ObjectGCRootValues {
+                    suspend_state: SuspendState::Sleep,
+                    prev_object: None,
+                    world: object.values.world.clone(),
+                    vm_state: VMState::new(),
+                    captures: FixedSizeAllocator::new(),
+
+                    receiver_vec: object.values.receiver_vec.clone(),
+                    receiver_closure: object.values.receiver_closure.clone(),
+                };
+
+            let mut allocator = AnyAllocator::Object(&mut obj_cloned);
+            //グローバルスペース内で保持している値をすべて新しいオブジェクト内のヒープに移す
+            values.world.for_each_all_value(|v :&mut Ref<Any>| {
+                let cloned = NaviType::clone_inner(v.as_ref(), &mut allocator).unwrap();
+                v.update_pointer(cloned.raw_ptr());
+            });
+
+            //オブジェクトが持つメッセージレシーバーオブジェクト
+            values.receiver_vec.iter_mut().for_each(|(pat, body)| {
+                let pat_cloned = NaviType::clone_inner(pat.as_ref(), &mut allocator).unwrap();
+                pat.update_pointer(pat_cloned.raw_ptr());
+
+                let body_cloned = NaviType::clone_inner(body.as_ref(), &mut allocator).unwrap();
+                body.update_pointer(body_cloned.raw_ptr());
+            });
+
+            //レシーバークロージャ
+            if let Some(closure) = values.receiver_closure.as_mut() {
+                let closure_cloned = NaviType::clone_inner(closure.as_ref(), &mut allocator).unwrap();
+                closure.update_pointer(closure_cloned.raw_ptr());
+            }
+
+            values
+        };
+
+        //valuesはダミー用の不正な値になっているので、クローン済みの正しい値を書き込む
+        unsafe {
+            std::ptr::write(&mut obj_cloned.values, values);
+        }
+
+        obj_cloned
+    }
+
     #[cfg(test)]
     pub(crate) fn new_for_test() -> Self {
         new_object().object
@@ -264,7 +325,7 @@ impl Object {
     /// * `Exception` is one of the following
     /// OutOfMemory
     /// MySelFObjectDeleted
-    pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: &Reachable<Any>) -> NResult<Any, Exception> {
+    pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: MessageKind) -> NResult<Any, Exception> {
         if let Some(mailbox) = self.mailbox.upgrade() {
             //戻り値を受け取るために自分自身のメールボックスをメッセージ送信相手に渡す
             let reply_token = target_obj.as_ref().recv_message(message, mailbox)?;
@@ -357,32 +418,50 @@ impl Object {
                     let data =  {
                         //MailBoxは複数スレッド(複数オブジェクト)間で共有されているのでロックを取得してから操作を行う
                         let mut mailbox = mailbox.lock().unwrap();
-                        mailbox.pop_inbox().map(|mut data| {
-                            //MailBoxのロックをとっている間はGCが発生しないので、直接Reachableに変換して扱う
-                            let msg = unsafe { data.message.into_reachable() };
 
+                        mailbox.pop_inbox().map(|mut data| {
                             //messageの値はMailBox内のヒープに割り当てられいる。
                             //メッセージの値を自分自身のヒープ内にコピーする
                             let mut allocator = AnyAllocator::Object(self);
-                            match crate::value::value_clone(&msg, &mut allocator) {
-                                Ok(v) => {
-                                    data.message = v;
+                            match unsafe { data.kind.value_clone_gcunsafe(&mut allocator) } {
+                                Ok(kind) => {
+                                    data.kind = kind;
                                     Ok(data)
-                                },
-                                Err(e) => {
-                                    Err((data.reply_to_mailbox, data.reply_token, e))
+                                }
+                                Err(oom) => {
+                                    Err((data.reply_to_mailbox, data.reply_token, oom))
                                 }
                             }
                         })
                     };
 
-
                     //メッセージを受信していたら
                     if let Some(data) = data {
                         match data {
                             Ok(data) => {
-                                //受信処理を実行
-                                self.apply_message(data, reduction_count)
+                                match data.kind {
+                                    MessageKind::Message(msg) => {
+                                        //受信処理を実行
+                                        self.apply_message(msg, data.reply_to_mailbox, data.reply_token, reduction_count)
+                                    }
+                                    MessageKind::Duplicate => {
+                                        //TODO World内にReplyを含んでいないことを確認する
+
+                                        //自分自身のObjectの複製を作成する
+                                        let standalone = duplicate_object(self);
+                                        let id = standalone.object().id();
+
+                                        //Objectの所有権と実行権をスケジューラに譲る。
+                                        //Objectとやり取りするためのMailBoxを取得
+                                        let mailbox = Self::register_scheduler(standalone);
+
+                                        let objectref = ObjectRef::alloc(id, mailbox,self)?;
+
+                                        //作成したObjectRefを返信する
+                                        self.apply_message_finish(Ok(objectref.into_value()), data.reply_to_mailbox, data.reply_token)
+                                    }
+                                }
+
                             }
                             Err((reply_to_mailbox, reply_token, e)) => {
                                 //自分自身のオブジェクト内でOOMが発生したため、エラーとして返信する
@@ -402,9 +481,11 @@ impl Object {
         }
     }
 
-    fn apply_message(&mut self, data: MessageData, mut reduction_count: usize) -> Result<(), OutOfMemory> {
+    fn apply_message(&mut self
+        , msg: Ref<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken
+        , mut reduction_count: usize) -> Result<(), OutOfMemory> {
         let obj = self;
-        let message = data.message.reach(obj);
+        let message = msg.reach(obj);
 
         //レシーバーのパターンマッチ式がまだ構築されていなければ
         if obj.values.receiver_closure.is_none() {
@@ -461,7 +542,7 @@ impl Object {
 
         //メッセージをクロージャに適用してパターンマッチを実行する
         let result = vm::closure_call(&closure, args_iter, limit, obj);
-        obj.apply_message_finish(result, data.reply_to_mailbox, data.reply_token)
+        obj.apply_message_finish(result, reply_to_mailbox, reply_token)
     }
 
     fn apply_message_finish(&mut self, result: Result<Ref<Any>, vm::ExecException>
@@ -691,6 +772,21 @@ pub fn new_object() -> StandaloneObject {
 
     //ObjectはMailBoxを常に弱参照で保持する
     let obj = Object::new(object_id, Arc::downgrade(&mailbox));
+
+    StandaloneObject {
+        object: obj,
+        mailbox: mailbox
+    }
+}
+
+fn duplicate_object(object: &Object) -> StandaloneObject {
+    //メールボックスは新規作成する
+    let mailbox = Arc::new(Mutex::new(MailBox::new()));
+    //オブジェクトを識別するためのIDを生成
+    let object_id = OBJECT_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    //ObjectはMailBoxを常に弱参照で保持する
+    let obj = Object::dup(object, object_id, Arc::downgrade(&mailbox));
 
     StandaloneObject {
         object: obj,
