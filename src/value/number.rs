@@ -248,7 +248,7 @@ fn number_to(v: &Any) -> Num {
     }
 }
 
-fn func_add(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_add(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Any>(0, obj);
 
     let (mut int,mut real) = match number_to(&v.as_ref()) {
@@ -256,10 +256,8 @@ fn func_add(obj: &mut Object) -> NResult<Any, Exception> {
         Num::Real(num) => (None, Some(num)),
     };
 
-    let rest = vm::refer_arg::<list::List>(1, obj);
-
-    let iter =  unsafe { rest.as_ref().iter_gcunsafe() };
-    for v in iter {
+    for index in 0 .. num_rest {
+        let v = vm::refer_rest_arg::<Any>(1, index, obj);
         match (number_to(&v.as_ref()), int, real) {
             (Num::Int(num), Some(acc), None) => {
                 int = Some(acc + num);
@@ -287,7 +285,7 @@ fn func_add(obj: &mut Object) -> NResult<Any, Exception> {
     }
 }
 
-fn func_abs(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_abs(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg(0, obj);
 
     match number_to(v.as_ref()) {

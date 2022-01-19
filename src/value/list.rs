@@ -403,7 +403,7 @@ impl ListBuilder {
 
 }
 
-fn func_cons(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_cons(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Any>(0, obj);
     let tail = vm::refer_arg::<List>(1, obj);
 
@@ -411,7 +411,7 @@ fn func_cons(obj: &mut Object) -> NResult<Any, Exception> {
     Ok(list.into_value())
 }
 
-fn func_is_list(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_is_list(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg(0, obj);
     if v.is_type(list::List::typeinfo()) {
         Ok(v.clone())
@@ -420,14 +420,14 @@ fn func_is_list(obj: &mut Object) -> NResult<Any, Exception> {
     }
 }
 
-fn func_list_len(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_list_len(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<List>(0, obj);
 
     let num = number::Integer::alloc(v.as_ref().count() as i64, obj)?;
     Ok(num.into_value())
 }
 
-fn func_list_ref(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_list_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<List>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj);
 

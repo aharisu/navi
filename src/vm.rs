@@ -145,10 +145,16 @@ fn pop_from_size(stack: &mut VMStack, decriment: usize) {
     }
 }
 
+#[inline]
 pub fn refer_arg<T: NaviType>(index: usize, obj: &mut Object) -> Ref<T> {
     let v = refer_local_var(obj.vm_state().env, index + 1);
     //Funcの引数はすべて型チェックされている前提なのでuncheckedでキャストする
     unsafe { v.cast_unchecked::<T>().clone() }
+}
+
+#[inline]
+pub fn refer_rest_arg<T: NaviType>(index: usize, rest_index: usize, obj: &mut Object) -> Ref<T> {
+    refer_arg::<T>(index + rest_index, obj)
 }
 
 fn refer_local_var(env: *const Environment, index: usize) -> Ref<Any> {
@@ -736,42 +742,17 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     }
                     num_args_remain = num_args_remain.saturating_sub(func.as_ref().num_optional());
 
-                    if num_args_remain == 0 {
-                        if func.as_ref().has_rest() {
-                            //restなパラメータに対応する引数がなければnilをデフォルトとして追加
-                            let_local!(list::List::nil().into_value().make());
-                        }
-
-                    } else {
-                        if func.as_ref().has_rest() {
-                            //残りの引数をスタックからPopしてリストに構築しなおして、再度スタックに積む
-                            //以降すべての引数をリストにまとめる
-                            let mut rest = list::ListBuilder::new(obj);
-
-                            for index in (num_args - num_args_remain) .. num_args {
-                                //0番目にはapp自体が入っていて引数はインデックス1から始まっているため+1をして引数を取得
-                                let arg = refer_local_var(env, index + 1);
-                                rest.append(&arg.reach(obj), obj)?;
-                            }
-
-                                //リストに詰め込んだ分、ローカルフレーム内の引数を削除
-                            unsafe { (*env).size -= num_args_remain; }
-                            //併せてスタックポインタも下げる
-                            pop_from_size(&mut obj.vm_state().stack, num_args_remain * size_of::<Ref<Any>>());
-
-                            //削除した代わりに、リストをローカルフレームに追加
-                            let_local!(rest.get());
-
-                        } else {
-                            return Err(ExecException::Exception(err::Exception::Other(format!("Illegal number of argument.\nThe function {}.\n  require:{}, optional:{}, rest:{}\n  but got {} arguments."
-                                , func.as_ref().name()
-                                , func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args
-                            ))));
-                        }
+                    //rest引数がない関数に対して過剰な引数を渡している場合は
+                    if num_args_remain != 0 && func.as_ref().has_rest() == false {
+                        //エラー
+                        return Err(ExecException::Exception(err::Exception::Other(format!("Illegal number of argument.\nThe function {}.\n  require:{}, optional:{}, rest:{}\n  but got {} arguments."
+                            , func.as_ref().name()
+                            , func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args
+                        ))));
                     }
 
                     //関数本体を実行
-                    let result = func.as_ref().apply(obj);
+                    let result = func.as_ref().apply(num_args_remain, obj);
                     //リターン処理を実行
                     tag_return!();
 

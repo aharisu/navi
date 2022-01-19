@@ -112,7 +112,7 @@ impl Any {
     }
 }
 
-fn func_equal(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_equal(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let left = vm::refer_arg::<Any>(0, obj);
     let right = vm::refer_arg::<Any>(1, obj);
 

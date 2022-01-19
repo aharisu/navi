@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 pub struct Func {
     name: String,
     params: Vec<Param>,
-    body:  fn(&mut Object) -> NResult<Any, Exception>,
+    body:  fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>,
     num_require: u8,
     num_optional: u8,
     has_rest: bool,
@@ -81,7 +81,7 @@ impl Func {
         || app::App::typeinfo() == other_typeinfo
     }
 
-    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(&mut Object) -> NResult<Any, Exception>) -> Func {
+    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>) -> Func {
         let mut num_require = 0;
         let mut num_optional = 0;
         let mut has_rest = false;
@@ -126,8 +126,8 @@ impl Func {
         self.has_rest
     }
 
-    pub fn apply(&self, obj: &mut Object) -> NResult<Any, Exception> {
-        (self.body)(obj)
+    pub fn apply(&self, num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+        (self.body)(num_rest, obj)
     }
 }
 

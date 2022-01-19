@@ -90,7 +90,7 @@ impl Debug for ObjectRef {
     }
 }
 
-fn func_spawn(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_spawn(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     if let Some(target_obj) = vm::refer_arg::<Any>(0, obj).try_cast::<ObjectRef>() {
         let target_obj = target_obj.clone().reach(obj);
         let message = MessageKind::Duplicate;
@@ -111,7 +111,7 @@ fn func_spawn(obj: &mut Object) -> NResult<Any, Exception> {
     }
 }
 
-fn func_send(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_send(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let target_obj = vm::refer_arg::<ObjectRef>(0, obj).reach(obj);
 
     //本来はReachableで扱うのが安全だが、messageはalloc前しか使用されないためRefのまま使用する

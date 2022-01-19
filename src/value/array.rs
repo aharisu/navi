@@ -314,7 +314,7 @@ impl <T: NaviType> ArrayBuilder<T> {
     }
 }
 
-fn func_is_array(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_is_array(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Any>(0, obj);
     if v.as_ref().is_type(array::Array::<Any>::typeinfo()) {
         Ok(v.clone())
@@ -323,14 +323,14 @@ fn func_is_array(obj: &mut Object) -> NResult<Any, Exception> {
     }
 }
 
-fn func_array_len(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_array_len(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Array<Any>>(0, obj);
 
     let list = number::Integer::alloc(v.as_ref().len() as i64, obj)?;
     Ok(list.into_value())
 }
 
-fn func_array_ref(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_array_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Array<Any>>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj);
 

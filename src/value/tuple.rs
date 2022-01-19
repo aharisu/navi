@@ -289,7 +289,7 @@ impl TupleBuilder {
     }
 }
 
-fn func_is_tuple(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_is_tuple(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Any>(0, obj);
     if v.is_type(tuple::Tuple::typeinfo()) {
         Ok(v.clone())
@@ -298,14 +298,14 @@ fn func_is_tuple(obj: &mut Object) -> NResult<Any, Exception> {
     }
 }
 
-fn func_tuple_len(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_tuple_len(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<tuple::Tuple>(0, obj);
 
     let num = number::Integer::alloc(v.as_ref().len as i64, obj)?;
     Ok(num.into_value())
 }
 
-fn func_tuple_ref(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_tuple_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let tuple = vm::refer_arg::<tuple::Tuple>(0, obj);
     let index = vm::refer_arg::<number::Integer>(1, obj).as_ref().get() as usize;
 

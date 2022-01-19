@@ -146,7 +146,7 @@ impl Debug for Reply {
     }
 }
 
-fn func_force(obj: &mut Object) -> NResult<Any, Exception> {
+fn func_force(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     //関数にわたってきている時点でReplyから実際の値になっているので引数の値をそのまま返す
     Ok(vm::refer_arg::<Any>(0, obj))
 }
