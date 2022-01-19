@@ -661,6 +661,12 @@ impl PartialEq for Object {
     }
 }
 
+impl std::fmt::Display for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#Object:{}", self.id)
+    }
+}
+
 impl Allocator for Object {
     fn alloc<T: NaviType>(&mut self) -> Result<UIPtr<T>, OutOfMemory> {
         self.heap.alloc(&mut self.values)

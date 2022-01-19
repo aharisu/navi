@@ -80,13 +80,13 @@ impl PartialEq for ObjectRef {
 
 impl Display for ObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#Object")
+        write!(f, "#Object:{}", self.object_id)
     }
 }
 
 impl Debug for ObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#Object")
+        write!(f, "#Object:{}", self.object_id)
     }
 }
 
