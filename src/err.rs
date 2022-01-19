@@ -162,6 +162,7 @@ pub enum Exception {
     DisallowContext,
     OutOfMemory,
     MySelfObjectDeleted,
+    Exit,
     Other(String),
 }
 
@@ -188,6 +189,7 @@ impl Exception {
             Exception::DisallowContext => { Ok(Self::DisallowContext) }
             Exception::OutOfMemory => { Ok(Self::OutOfMemory) }
             Exception::MySelfObjectDeleted => { Ok(Self::MySelfObjectDeleted) }
+            Exception::Exit => { Ok(Self::Exit) }
             Exception::Other(inner) => { Ok(Self::Other(inner.clone())) }
         }
     }
@@ -210,6 +212,7 @@ impl Exception {
             Exception::DisallowContext => { }
             Exception::OutOfMemory => { }
             Exception::MySelfObjectDeleted => { }
+            Exception::Exit => { }
             Exception::Other(_) => { }
         }
     }
@@ -242,6 +245,10 @@ impl std::fmt::Display for Exception {
             }
             Exception::MySelfObjectDeleted => {
                 //MySelfObjectDeletedがDisplayの対象になること自体が不具合
+                unreachable!()
+            }
+            Exception::Exit => {
+                //ExitがDisplayの対象になること自体が不具合
                 unreachable!()
             }
             Exception::Other(message) => {

@@ -19,6 +19,9 @@ fn main() {
                     Ok(v) => {
                         println!("{}", v.as_ref());
                     }
+                    Err(navi::eval::EvalError::Exit) => {
+                        break;
+                    }
                     Err(navi::eval::EvalError::ObjectSwitch(new_standaloneobject)) => {
                         standalone = new_standaloneobject;
                     }

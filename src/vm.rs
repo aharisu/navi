@@ -50,6 +50,7 @@ pub enum ExecException {
     TimeLimit,
     WaitReply,
     MySelfObjectDeleted,
+    Exit,
     ObjectSwitch(StandaloneObject),
     Exception(err::Exception),
 }
@@ -761,6 +762,10 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                         Err(err::Exception::MySelfObjectDeleted) => {
                             //現在実行中のオブジェクトが削除されようとしているのでこれ以上何もしない
                             return Err(ExecException::MySelfObjectDeleted);
+                        }
+                        Err(err::Exception::Exit) => {
+                            //プログラムを終了させるためのエラー
+                            return Err(ExecException::Exit);
                         }
                         Err(err) => {
                             return Err(ExecException::Exception(err));

@@ -19,6 +19,7 @@ use crate::ptr::*;
 use crate::err::{*, OutOfMemory};
 
 use crate::value::any::Any;
+use crate::value::func::Func;
 use crate::value::list::ListBuilder;
 use crate::value::object_ref::ObjectRef;
 use crate::vm::{self, VMState, ExecException};
@@ -243,8 +244,8 @@ impl Object {
     }
 
     fn register_core_global(&mut self) {
+        register_global(self);
         object_ref::register_global(self);
-        number::register_global(self);
         syntax::register_global(self);
         any::register_global(self);
         tuple::register_global(self);
@@ -577,6 +578,11 @@ impl Object {
                 //実行中のオブジェクトが削除されようとしているので、これ以上何もせずに終了させる
                 Ok(())
             }
+            Err(vm::ExecException::Exit) => {
+                //メインプロセス以外でのExitは無視
+                //TODO Exitはプロセスを削除するか？
+                Ok(())
+            }
             Err(vm::ExecException::ObjectSwitch(_)) => {
                 //Objectの切り替えはグローバル環境のトップレベルでのみ許可されているため、ここでは絶対に発生しない。
                 unreachable!()
@@ -683,6 +689,23 @@ impl Allocator for Object {
 static SYMBOL_MSG: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(|| {
     symbol::gensym_static("msg")
 });
+
+fn func_exit(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    //終了させるための関数なので、エラーとしてExitを返すだけ
+    Err(Exception::Exit)
+}
+
+static FUNC_EXIT: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("exit",
+            &[],
+            func_exit)
+    )
+});
+
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("exit", &Ref::new(&FUNC_EXIT.value));
+}
 
 mod literal {
     use crate::ptr::*;
