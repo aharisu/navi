@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Weak, Mutex};
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 
 use once_cell::sync::Lazy;
 
@@ -42,6 +42,7 @@ enum SuspendState {
     Sleep,
     VMSuspend(Arc<Mutex<MailBox>>, ReplyToken),
     WaitReply(Ref<reply::Reply>, Arc<Mutex<MailBox>>, ReplyToken),
+    DuplicateWaitReply(Arc<Mutex<MailBox>>, ReplyToken),
 }
 
 impl SuspendState {
@@ -109,7 +110,7 @@ pub struct Object {
 
     heap: Heap,
 
-    values: ObjectGCRootValues,
+    values: UnsafeCell<ObjectGCRootValues>,
 }
 
 //基本的な生成関数やアクセサ
@@ -121,7 +122,7 @@ impl Object {
 
             heap: Heap::new(mm::StartHeapSize::Default),
 
-            values: ObjectGCRootValues {
+            values: UnsafeCell::new(ObjectGCRootValues {
                 suspend_state: SuspendState::Sleep,
 
                 prev_object: None,
@@ -134,7 +135,7 @@ impl Object {
 
                 receiver_vec: Vec::new(),
                 receiver_closure: None,
-            }
+            })
         };
         obj.register_core_global();
 
@@ -143,8 +144,6 @@ impl Object {
 
     #[allow(invalid_value)]
     fn dup(object: &Object, id: usize, mailbox: Weak<Mutex<MailBox>>) -> Self {
-        //TODO 複製元オブジェクトのグローバル変数としてReplyが存在するとエラー!!!!
-
         let mut obj_cloned = Object {
             id,
             mailbox,
@@ -160,12 +159,12 @@ impl Object {
             let mut values = ObjectGCRootValues {
                     suspend_state: SuspendState::Sleep,
                     prev_object: None,
-                    world: object.values.world.clone(),
+                    world: unsafe { &*object.values.get() }.world.clone(),
                     vm_state: VMState::new(),
                     captures: FixedSizeAllocator::new(),
 
-                    receiver_vec: object.values.receiver_vec.clone(),
-                    receiver_closure: object.values.receiver_closure.clone(),
+                    receiver_vec: unsafe { &*object.values.get() }.receiver_vec.clone(),
+                    receiver_closure: unsafe { &*object.values.get() }.receiver_closure.clone(),
                 };
 
             let mut allocator = AnyAllocator::Object(&mut obj_cloned);
@@ -195,7 +194,7 @@ impl Object {
 
         //valuesはダミー用の不正な値になっているので、クローン済みの正しい値を書き込む
         unsafe {
-            std::ptr::write(&mut obj_cloned.values, values);
+            std::ptr::write(&mut obj_cloned.values, UnsafeCell::new(values));
         }
 
         obj_cloned
@@ -219,21 +218,21 @@ impl Object {
     }
 
     pub fn set_prev_object(&mut self, prev_object: &Ref<ObjectRef>) {
-        self.values.prev_object = Some(prev_object.clone());
+        self.values.get_mut().prev_object = Some(prev_object.clone());
     }
 
     pub fn take_prev_object(&mut self) -> Option<Ref<ObjectRef>> {
-        self.values.prev_object.take()
+        self.values.get_mut().prev_object.take()
     }
 
     #[inline(always)]
     pub fn vm_state(&mut self) -> &mut VMState {
-        &mut self.values.vm_state
+        &mut self.values.get_mut().vm_state
     }
 
     pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<Ref<Any>> {
         //ローカルフレーム上になければ、グローバルスペースから探す
-        if let Some(v) = self.values.world.get(symbol) {
+        if let Some(v) = unsafe { &*self.values.get() }.world.get(symbol) {
             Some(v.clone())
         } else {
             None
@@ -241,7 +240,7 @@ impl Object {
     }
 
     pub fn define_global_value<Key: AsRef<str>, V: NaviType>(&mut self, key: Key, v: &Ref<V>) {
-        self.values.world.set(key, v.cast_value())
+        self.values.get_mut().world.set(key, v.cast_value())
     }
 
     fn register_core_global(&mut self) {
@@ -258,7 +257,7 @@ impl Object {
 
     pub fn capture<T: NaviType>(&mut self, v: Ref<T>) -> Cap<T> {
         unsafe {
-            let ptr = self.values.captures.alloc();
+            let ptr = self.values.get_mut().captures.alloc();
             let ptr = ptr as *mut Ref<T>;
 
             let mut cap = Cap::new(ptr);
@@ -351,22 +350,25 @@ impl Object {
 
     pub fn add_receiver(&mut self, pattern: &Reachable<Any>, body: &Reachable<list::List>) {
         //コンテキストが持つレシーバーリストに追加する
-        self.values.receiver_vec.push((pattern.make(), body.make()));
+        self.values.get_mut().receiver_vec.push((pattern.make(), body.make()));
         //レシーブを実際に行う処理は遅延して構築する。
         //レシーバーのパターンはmatch構文のpatternに置き換えられる。
         //構築にはレシーバーパターンすべて必要になり、一つのレシーバーを追加するたびに再構築するのではコストが大きい。
-        self.values.receiver_closure = None;
+        self.values.get_mut().receiver_closure = None;
     }
 
     pub fn do_work(&mut self, reduction_count: usize) -> Result<(), OutOfMemory> {
 
-        match self.values.suspend_state.take() {
+        match self.values.get_mut().suspend_state.take() {
             SuspendState::VMSuspend(reply_to_mailbox, reply_token) => {
                 let result = vm::resume(reduction_count, self);
                 self.apply_message_finish(result, reply_to_mailbox, reply_token)
             }
             SuspendState::WaitReply(reply, reply_to_mailbox, reply_token) => {
                 self.wait_reply(reply, reply_to_mailbox, reply_token)
+            }
+            SuspendState::DuplicateWaitReply(reply_to_mailbox, reply_token) => {
+                self.do_duplicate(reply_to_mailbox, reply_token)
             }
             SuspendState::Sleep => {
                 if let Some(mailbox) = self.mailbox.upgrade() {
@@ -400,20 +402,8 @@ impl Object {
                                         self.apply_message(msg, data.reply_to_mailbox, data.reply_token, reduction_count)
                                     }
                                     MessageKind::Duplicate => {
-                                        //TODO World内にReplyを含んでいないことを確認する
-
-                                        //自分自身のObjectの複製を作成する
-                                        let standalone = duplicate_object(self);
-                                        let id = standalone.object().id();
-
-                                        //Objectの所有権と実行権をスケジューラに譲る。
-                                        //Objectとやり取りするためのMailBoxを取得
-                                        let mailbox = Self::register_scheduler(standalone);
-
-                                        let objectref = ObjectRef::alloc(id, mailbox,self)?;
-
-                                        //作成したObjectRefを返信する
-                                        self.apply_message_finish(Ok(objectref.into_value()), data.reply_to_mailbox, data.reply_token)
+                                        //複製処理を実行
+                                        self.do_duplicate(data.reply_to_mailbox, data.reply_token)
                                     }
                                 }
 
@@ -443,7 +433,7 @@ impl Object {
         let message = msg.reach(obj);
 
         //レシーバーのパターンマッチ式がまだ構築されていなければ
-        if obj.values.receiver_closure.is_none() {
+        if obj.values.get_mut().receiver_closure.is_none() {
             let mut builder_fun = ListBuilder::new(obj);
             //(fun)
             builder_fun.append(compile::literal::fun().cast_value(), obj)?;
@@ -461,7 +451,7 @@ impl Object {
                 //(match msg_var)
                 builder_match.append(literal::msg_symbol().cast_value(), obj)?;
 
-                for (pattern, body) in obj.values.receiver_vec.clone().into_iter() {
+                for (pattern, body) in obj.values.get_mut().receiver_vec.clone().into_iter() {
                     //(pattern body)
                     let pattern = pattern.reach(obj);
                     let body = body.reach(obj);
@@ -482,14 +472,14 @@ impl Object {
             //実行結果は必ずコンパイル済みクロージャなのでuncheckedでキャスト
             let message_receiver = unsafe { message_receiver.cast_unchecked::<compiled::Closure>() }.clone();
 
-            obj.values.receiver_closure = Some(message_receiver);
+            obj.values.get_mut().receiver_closure = Some(message_receiver);
 
             //TODO パターンマッチ生成部分でもreduction_countを一定減少させる
             reduction_count = reduction_count.saturating_sub(100);
         }
 
         //メッセージに対してパターンマッチングと対応する処理を実行するクロージャ
-        let closure = obj.values.receiver_closure.as_ref().unwrap().clone().reach(obj);
+        let closure = obj.values.get_mut().receiver_closure.as_ref().unwrap().clone().reach(obj);
         //受信したメッセージを引数の形に変換
         let args_iter = std::iter::once(message.make());
         //VMの時間制限
@@ -518,12 +508,12 @@ impl Object {
             }
             Err(vm::ExecException::TimeLimit) => {
                 //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                self.values.suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
+                self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
                 Ok(())
             },
             Err(vm::ExecException::WaitReply) => {
                 //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                self.values.suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
+                self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
                 Ok(())
             }
             Err(vm::ExecException::MySelfObjectDeleted) => {
@@ -563,9 +553,60 @@ impl Object {
                 Err(oom)
             }
             ResultNone::None => {
-                self.values.suspend_state = SuspendState::WaitReply(cap.take(), reply_to_mailbox, reply_token);
+                self.values.get_mut().suspend_state = SuspendState::WaitReply(cap.take(), reply_to_mailbox, reply_token);
                 Ok(())
             }
+        }
+    }
+
+    fn do_duplicate(&mut self, reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
+        let mut has_reply = false;
+        let mut oom: Option<OutOfMemory> = None;
+
+        //World内にReplyを含んでいないことを確認する
+        //※selfの&mutを2重に使用する必要があるため、ポインタ経由で無理やりコンパイルを通す
+        //ココに関しては、check_reply内でGCが走ってもworld内の値が壊れることはないため問題ない。
+        unsafe{ &mut *self.values.get() }.world.for_each_all_value(|v| {
+            if v.has_replytype() {
+                //スタック領域内のFPtrをCapとして扱わせる
+                let mut cap = Cap::new(v as *mut Ref<Any>);
+                //返信がないかを確認
+                let result = crate::value::check_reply(&mut cap, self);
+                //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
+                std::mem::forget(cap);
+
+                match result {
+                    Ok(wait_reply) => {
+                        has_reply =  has_reply || !wait_reply;
+                    }
+                    Err(_oom) => {
+                        oom = Some(_oom);
+                    }
+                }
+            }
+        });
+
+        if let Some(oom) = oom {
+            return Err(oom);
+        }
+
+        if has_reply {
+            self.values.get_mut().suspend_state = SuspendState::DuplicateWaitReply(reply_to_mailbox, reply_token);
+            Ok(())
+
+        } else {
+            //自分自身のObjectの複製を作成する
+            let standalone = duplicate_object(self);
+            let id = standalone.object().id();
+
+            //Objectの所有権と実行権をスケジューラに譲る。
+            //Objectとやり取りするためのMailBoxを取得
+            let mailbox = Self::register_scheduler(standalone);
+
+            let objectref = ObjectRef::alloc(id, mailbox,self)?;
+
+            //作成したObjectRefを返信する
+            self.apply_message_finish(Ok(objectref.into_value()), reply_to_mailbox, reply_token)
         }
     }
 
@@ -620,15 +661,15 @@ impl std::fmt::Display for Object {
 
 impl Allocator for Object {
     fn alloc<T: NaviType>(&mut self) -> Result<UIPtr<T>, OutOfMemory> {
-        self.heap.alloc(&mut self.values)
+        self.heap.alloc(self.values.get_mut())
     }
 
     fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> Result<UIPtr<T>, OutOfMemory> {
-        self.heap.alloc_with_additional_size(additional_size, &mut self.values)
+        self.heap.alloc_with_additional_size(additional_size, self.values.get_mut())
     }
 
     fn force_allocation_space(&mut self, size: usize) -> Result<(), OutOfMemory> {
-        self.heap.force_allocation_space(size, &mut self.values)
+        self.heap.force_allocation_space(size, self.values.get_mut())
     }
 
     fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
@@ -636,7 +677,7 @@ impl Allocator for Object {
     }
 
     fn do_gc(&mut self) {
-        self.heap.gc(&mut self.values)
+        self.heap.gc(self.values.get_mut())
     }
 
     fn heap_used(&self) -> usize {

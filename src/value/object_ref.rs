@@ -424,6 +424,34 @@ mod tests {
             let ans = eval::<number::Integer>(program, standalone.mut_object());
             assert_eq!(ans.as_ref().get(), 2);
         }
+
+        {
+            let program = "obj1";
+            let obj1 = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            standalone = object::object_switch(standalone, obj1.as_ref()).unwrap();
+
+            let program = "(let obj3 (spawn))";
+            let obj3 = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            standalone = object::object_switch(standalone, obj3.as_ref()).unwrap();
+            let program = "(def-recv :hoge 100)";
+            eval::<Any>(program, standalone.mut_object()).capture(standalone.mut_object());
+            standalone = object::return_object_switch(standalone).unwrap();
+
+            let program = "(let hoge (send obj3 :hoge))";
+            eval::<Any>(program, standalone.mut_object()).capture(standalone.mut_object());
+            standalone = object::return_object_switch(standalone).unwrap();
+
+            let program = "(let obj4 (force (spawn obj1)))";
+            let obj4 = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            standalone = object::object_switch(standalone, obj4.as_ref()).unwrap();
+
+            let program = "hoge";
+            let ans = eval::<number::Integer>(program, standalone.mut_object());
+            assert_eq!(ans.as_ref().get(), 100);
+        }
     }
 
 }
