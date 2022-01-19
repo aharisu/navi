@@ -248,6 +248,13 @@ mod tests {
             let result = eval::<number::Integer>(program, obj).capture(obj);
             let ans = number::Integer::alloc(2, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(local (let-global a 3))";
+            eval::<Any>(program, obj);
+            let program = "a";
+            let result = eval::<number::Integer>(program, obj).capture(obj);
+            let ans = number::Integer::alloc(3, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
 

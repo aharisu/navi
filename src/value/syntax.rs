@@ -126,6 +126,10 @@ static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("let", 2, 0, false, compile::syntax_let))
 });
 
+static SYNTAX_LET_GLOBAL: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("let-global", 2, 0, false, compile::syntax_let_global))
+});
+
 static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("quote", 1, 0, false, compile::syntax_quote))
 });
@@ -166,6 +170,7 @@ pub fn register_global(obj: &mut Object) {
     obj.define_global_value("fun", &Ref::new(&SYNTAX_FUN.value));
     obj.define_global_value("local", &Ref::new(&SYNTAX_LOCAL.value));
     obj.define_global_value("let", &Ref::new(&SYNTAX_LET.value));
+    obj.define_global_value("let-global", &Ref::new(&SYNTAX_LET_GLOBAL.value));
     obj.define_global_value("quote", &Ref::new(&SYNTAX_QUOTE.value));
     obj.define_global_value("unquote", &Ref::new(&SYNTAX_UNQUOTE.value));
     obj.define_global_value("bind", &Ref::new(&SYNTAX_BIND.value));

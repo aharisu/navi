@@ -486,7 +486,24 @@ pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> N
                 });
         }
 
-        alloc_into_iform(IFormLet::alloc(&symbol, &iform, obj))
+        alloc_into_iform(IFormLet::alloc(&symbol, &iform, false, obj))
+    } else {
+        Err(err::TypeMismatch::new(symbol.make(), symbol::Symbol::typeinfo()).into())
+    }
+}
+
+pub fn syntax_let_global(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+    let symbol = args.as_ref().head().reach(obj);
+    if let Some(symbol) = symbol.try_cast::<Symbol>() {
+        let mut ctx = CCtx {
+            frames: ctx.frames,
+            toplevel: false,
+        };
+
+        let value = args.as_ref().tail().as_ref().head().reach(obj);
+        let iform = pass_transform(&value, &mut ctx, obj)?.reach(obj);
+
+        alloc_into_iform(IFormLet::alloc(&symbol, &iform, true, obj))
     } else {
         Err(err::TypeMismatch::new(symbol.make(), symbol::Symbol::typeinfo()).into())
     }
@@ -724,7 +741,7 @@ mod codegen {
         pass_codegen(&iform.as_ref().val().reach(obj), ctx, obj);
 
         //グローバル環境へのdefか？
-        if ctx.frames.is_empty() {
+        if iform.as_ref().force_global() || ctx.frames.is_empty() {
             //タグ
             write_u8(vm::tag::LET_GLOBAL, &mut ctx.buf);
 

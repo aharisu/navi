@@ -357,6 +357,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
 pub struct IFormLet {
     symbol: Ref<Symbol>,
     val: Ref<IForm>,
+    force_global: bool,
 }
 
 impl NaviType for IFormLet {
@@ -370,7 +371,7 @@ impl NaviType for IFormLet {
             let symbol = Symbol::clone_inner(self.symbol.as_ref(), allocator)?.into_reachable();
             let val = IForm::clone_inner(self.val.as_ref(), allocator)?.into_reachable();
 
-            Self::alloc(&symbol, &val, allocator)
+            Self::alloc(&symbol, &val, self.force_global, allocator)
         }
     }
 }
@@ -386,12 +387,13 @@ impl IFormLet {
         callback(self.val.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(symbol: &Reachable<Symbol>, val: &Reachable<IForm>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(symbol: &Reachable<Symbol>, val: &Reachable<IForm>, force_global : bool, allocator: &mut A) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormLet>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormLet {
                     symbol: symbol.raw_ptr().into(),
                     val: val.raw_ptr().into(),
+                    force_global: force_global,
                 });
         }
 
@@ -406,8 +408,16 @@ impl IFormLet {
         self.val.clone()
     }
 
+    pub fn force_global(&self) -> bool {
+        self.force_global
+    }
+
     fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(IFLet {} {})", self.symbol.as_ref(), self.val.as_ref())
+        if self.force_global {
+            write!(f, "(IFLetGlobal {} {})", self.symbol.as_ref(), self.val.as_ref())
+        } else {
+            write!(f, "(IFLet {} {})", self.symbol.as_ref(), self.val.as_ref())
+        }
     }
 }
 
