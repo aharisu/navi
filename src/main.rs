@@ -23,6 +23,9 @@ fn main() {
                         break;
                     }
                     Err(navi::eval::EvalError::ObjectSwitch(new_standaloneobject)) => {
+                        println!("Object Switching to {}", new_standaloneobject.object());
+
+                        navi::object::Object::register_scheduler(standalone);
                         standalone = new_standaloneobject;
                     }
                     Err(navi::eval::EvalError::Exception(err)) => {
