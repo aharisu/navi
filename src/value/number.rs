@@ -285,6 +285,52 @@ fn func_add(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     }
 }
 
+fn func_sub(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    let v = vm::refer_arg::<Any>(0, obj);
+
+    let (mut int,mut real) = match number_to(&v.as_ref()) {
+        Num::Int(num) => (Some(num), None),
+        Num::Real(num) => (None, Some(num)),
+    };
+
+    if num_rest == 0 {
+        if let Some(num) = int {
+            int = Some(-num);
+        } else {
+            real = Some(- real.unwrap());
+        }
+
+    } else {
+        for index in 0 .. num_rest {
+            let v = vm::refer_rest_arg::<Any>(1, index, obj);
+            match (number_to(&v.as_ref()), int, real) {
+                (Num::Int(num), Some(acc), None) => {
+                    int = Some(acc - num);
+                }
+                (Num::Real(num), Some(acc), None) => {
+                    int = None;
+                    real = Some(acc as f64 - num);
+                }
+                (Num::Int(num), None, Some(acc)) => {
+                    real = Some(acc - num as f64);
+                }
+                (Num::Real(num), None, Some(acc)) => {
+                    real = Some(acc - num);
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    if int.is_some() {
+        let num = number::Integer::alloc(int.unwrap(), obj)?;
+        Ok(num.into_value())
+    } else {
+        let num = number::Real::alloc(real.unwrap(), obj)?;
+        Ok(num.into_value())
+    }
+}
+
 fn func_abs(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg(0, obj);
 
@@ -311,6 +357,17 @@ static FUNC_ADD: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
+static FUNC_SUB: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("-",
+            &[
+            Param::new("num", ParamKind::Require, number::Number::typeinfo()),
+            Param::new("rest", ParamKind::Rest, number::Number::typeinfo()),
+            ],
+            func_sub)
+    )
+});
+
 static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("abs",
@@ -323,5 +380,6 @@ static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 
 pub fn register_global(obj: &mut Object) {
     obj.define_global_value("+", &Ref::new(&FUNC_ADD.value));
+    obj.define_global_value("-", &Ref::new(&FUNC_SUB.value));
     obj.define_global_value("abs", &Ref::new(&FUNC_ABS.value));
 }

@@ -121,6 +121,30 @@ mod tests {
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
+        {
+            let program = "(- 1)";
+            let result = eval::<number::Integer>(program, obj).capture(obj);
+            let ans = number::Integer::alloc(-1, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(- 3.14)";
+            let result = eval::<number::Real>(program, obj).capture(obj);
+            let ans = number::Real::alloc(-3.14, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(- 1 2 3 -4)";
+            let result = eval::<number::Integer>(program, obj).capture(obj);
+            let ans = number::Integer::alloc(0, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(let fib (fun (n) (if (or (= n 0) (= n 1)) n (+ (fib (- n 2)) (fib (- n 1))))))";
+            eval::<Any>(program, obj);
+            let program = "(fib 10)";
+            let result = eval::<number::Integer>(program, obj).capture(obj);
+            let ans = number::Integer::alloc(55, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
         //TODO Optional引数のテスト
 
     }
