@@ -36,57 +36,6 @@ pub trait Allocator {
     fn heap_used(&self) -> usize;
 }
 
-//型パラメータがどうしても使えない場所で使用するAllocatorを実装する値を内包したenum
-//TypeInfo内で保持されるclone_innerで使用している。
-pub enum AnyAllocator<'a> {
-    Object(&'a mut Object),
-    MailBox(&'a mut MailBox),
-}
-
-impl <'a> Allocator for AnyAllocator<'a> {
-    fn alloc<T: NaviType>(&mut self) -> Result<UIPtr<T>, OutOfMemory> {
-        match self {
-            AnyAllocator::Object(obj) => obj.alloc(),
-            AnyAllocator::MailBox(mailbox) => mailbox.alloc(),
-        }
-    }
-
-    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> Result<UIPtr<T>, OutOfMemory> {
-        match self {
-            AnyAllocator::Object(obj) => obj.alloc_with_additional_size(additional_size),
-            AnyAllocator::MailBox(mailbox) => mailbox.alloc_with_additional_size(additional_size),
-        }
-    }
-
-    fn force_allocation_space(&mut self, size: usize) -> Result<(), OutOfMemory> {
-        match self {
-            AnyAllocator::Object(obj) => obj.force_allocation_space(size),
-            AnyAllocator::MailBox(mailbox) => mailbox.force_allocation_space(size),
-        }
-    }
-
-    fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
-        match self {
-            AnyAllocator::Object(obj) => obj.is_in_heap_object(v),
-            AnyAllocator::MailBox(mailbox) => mailbox.is_in_heap_object(v),
-        }
-    }
-
-    fn do_gc(&mut self) {
-        match self {
-            AnyAllocator::Object(obj) => obj.do_gc(),
-            AnyAllocator::MailBox(mailbox) => mailbox.do_gc(),
-        }
-    }
-
-    fn heap_used(&self) -> usize {
-        match self {
-            AnyAllocator::Object(obj) => obj.heap_used(),
-            AnyAllocator::MailBox(mailbox) => mailbox.heap_used(),
-        }
-    }
-}
-
 enum SuspendState {
     Sleep,
     VMSuspend(Arc<Mutex<MailBox>>, ReplyToken),
@@ -161,6 +110,7 @@ pub struct Object {
     values: ObjectGCRootValues,
 }
 
+//基本的な生成関数やアクセサ
 impl Object {
     fn new(id: usize, mailbox: Weak<Mutex<MailBox>>) -> Self {
         let mut obj = Object {
@@ -273,6 +223,58 @@ impl Object {
     pub fn take_prev_object(&mut self) -> Option<Ref<ObjectRef>> {
         self.values.prev_object.take()
     }
+
+    #[inline(always)]
+    pub fn vm_state(&mut self) -> &mut VMState {
+        &mut self.values.vm_state
+    }
+
+    pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<Ref<Any>> {
+        //ローカルフレーム上になければ、グローバルスペースから探す
+        if let Some(v) = self.values.world.get(symbol) {
+            Some(v.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn define_global_value<Key: AsRef<str>, V: NaviType>(&mut self, key: Key, v: &Ref<V>) {
+        self.values.world.set(key, v.cast_value())
+    }
+
+    fn register_core_global(&mut self) {
+        object_ref::register_global(self);
+        number::register_global(self);
+        syntax::register_global(self);
+        any::register_global(self);
+        tuple::register_global(self);
+        array::register_global(self);
+        list::register_global(self);
+        reply::register_global(self);
+    }
+
+    pub fn capture<T: NaviType>(&mut self, v: Ref<T>) -> Cap<T> {
+        unsafe {
+            let ptr = self.values.captures.alloc();
+            let ptr = ptr as *mut Ref<T>;
+
+            let mut cap = Cap::new(ptr);
+            cap.update_pointer(v);
+
+            cap
+        }
+    }
+
+    pub(crate) fn release_capture<T: NaviType>(cap: &Cap<T>) {
+        unsafe {
+            let ptr = cap.cast_value().ptr();
+            FixedSizeAllocator::<Ref<Any>>::free(ptr);
+        }
+    }
+
+}
+
+impl Object {
 
     pub fn register_scheduler(standalone: StandaloneObject) -> Arc<Mutex<MailBox>> {
         //MailBoxとスケジューラ間でObjectを共有するためのArcを作成
@@ -641,54 +643,6 @@ impl Object {
         Ok(())
     }
 
-    #[inline(always)]
-    pub fn vm_state(&mut self) -> &mut VMState {
-        &mut self.values.vm_state
-    }
-
-    pub fn find_global_value(&self, symbol: &symbol::Symbol) -> Option<Ref<Any>> {
-        //ローカルフレーム上になければ、グローバルスペースから探す
-        if let Some(v) = self.values.world.get(symbol) {
-            Some(v.clone())
-        } else {
-            None
-        }
-    }
-
-    pub fn define_global_value<Key: AsRef<str>, V: NaviType>(&mut self, key: Key, v: &Ref<V>) {
-        self.values.world.set(key, v.cast_value())
-    }
-
-    fn register_core_global(&mut self) {
-        object_ref::register_global(self);
-        number::register_global(self);
-        syntax::register_global(self);
-        any::register_global(self);
-        tuple::register_global(self);
-        array::register_global(self);
-        list::register_global(self);
-        reply::register_global(self);
-    }
-
-    pub fn capture<T: NaviType>(&mut self, v: Ref<T>) -> Cap<T> {
-        unsafe {
-            let ptr = self.values.captures.alloc();
-            let ptr = ptr as *mut Ref<T>;
-
-            let mut cap = Cap::new(ptr);
-            cap.update_pointer(v);
-
-            cap
-        }
-    }
-
-    pub(crate) fn release_capture<T: NaviType>(cap: &Cap<T>) {
-        unsafe {
-            let ptr = cap.cast_value().ptr();
-            FixedSizeAllocator::<Ref<Any>>::free(ptr);
-        }
-    }
-
 }
 
 impl Eq for Object {}
@@ -736,6 +690,57 @@ mod literal {
 
     pub fn msg_symbol() -> Reachable<symbol::Symbol> {
         Reachable::new_static(SYMBOL_MSG.value.as_ref())
+    }
+}
+
+//型パラメータがどうしても使えない場所で使用するAllocatorを実装する値を内包したenum
+//TypeInfo内で保持されるclone_innerで使用している。
+pub enum AnyAllocator<'a> {
+    Object(&'a mut Object),
+    MailBox(&'a mut MailBox),
+}
+
+impl <'a> Allocator for AnyAllocator<'a> {
+    fn alloc<T: NaviType>(&mut self) -> Result<UIPtr<T>, OutOfMemory> {
+        match self {
+            AnyAllocator::Object(obj) => obj.alloc(),
+            AnyAllocator::MailBox(mailbox) => mailbox.alloc(),
+        }
+    }
+
+    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> Result<UIPtr<T>, OutOfMemory> {
+        match self {
+            AnyAllocator::Object(obj) => obj.alloc_with_additional_size(additional_size),
+            AnyAllocator::MailBox(mailbox) => mailbox.alloc_with_additional_size(additional_size),
+        }
+    }
+
+    fn force_allocation_space(&mut self, size: usize) -> Result<(), OutOfMemory> {
+        match self {
+            AnyAllocator::Object(obj) => obj.force_allocation_space(size),
+            AnyAllocator::MailBox(mailbox) => mailbox.force_allocation_space(size),
+        }
+    }
+
+    fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
+        match self {
+            AnyAllocator::Object(obj) => obj.is_in_heap_object(v),
+            AnyAllocator::MailBox(mailbox) => mailbox.is_in_heap_object(v),
+        }
+    }
+
+    fn do_gc(&mut self) {
+        match self {
+            AnyAllocator::Object(obj) => obj.do_gc(),
+            AnyAllocator::MailBox(mailbox) => mailbox.do_gc(),
+        }
+    }
+
+    fn heap_used(&self) -> usize {
+        match self {
+            AnyAllocator::Object(obj) => obj.heap_used(),
+            AnyAllocator::MailBox(mailbox) => mailbox.heap_used(),
+        }
     }
 }
 
