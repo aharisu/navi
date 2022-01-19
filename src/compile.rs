@@ -292,7 +292,7 @@ fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mu
     syntax.transform(args, ctx, obj)
 }
 
-pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -317,7 +317,7 @@ pub(crate) fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object
     alloc_into_iform(IFormIf::alloc(&pred, &true_, &false_, obj))
 }
 
-pub(crate) fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     fn cond_inner(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
         let is_last = args.as_ref().tail().as_ref().is_nil();
 
@@ -383,11 +383,11 @@ fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     alloc_into_iform(IFormSeq::alloc(&builder.get().reach(obj), obj))
 }
 
-pub(crate) fn syntax_begin(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_begin(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     transform_begin(args, ctx, obj)
 }
 
-pub fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //def-recvはトップレベルのコンテキストで使用可能(letやfunで作成されたローカルフレーム内では使用不可能)
     if ctx.frames.is_empty() {
         let pat = args.as_ref().head().reach(obj);
@@ -399,7 +399,7 @@ pub fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object)
     }
 }
 
-pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let params = args.as_ref().head().reach(obj);
     if let Some(params) = params.try_cast::<List>() {
         let mut builder_params = ArrayBuilder::<Symbol>::new(params.as_ref().count(), obj)?;
@@ -443,7 +443,7 @@ pub fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> N
     }
 }
 
-pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //ローカルフレームを作成する
     let frame: Vec<LocalVar> = Vec::new();
 
@@ -463,7 +463,7 @@ pub fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
     alloc_into_iform(IFormLocal::alloc(&body, obj))
 }
 
-pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     if ctx.toplevel == false {
         return Err(SyntaxException::DisallowContext);
     }
@@ -492,7 +492,7 @@ pub fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> N
     }
 }
 
-pub fn syntax_let_global(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_let_global(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let symbol = args.as_ref().head().reach(obj);
     if let Some(symbol) = symbol.try_cast::<Symbol>() {
         let mut ctx = CCtx {
@@ -509,23 +509,23 @@ pub fn syntax_let_global(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Objec
     }
 }
 
-pub fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let val = args.as_ref().head().reach(obj);
     alloc_into_iform(IFormConst::alloc(&val, obj))
 }
 
 
 #[allow(unused_variables)]
-pub fn syntax_unquote(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_unquote(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     unimplemented!()
 }
 
 #[allow(unused_variables)]
-pub fn syntax_bind(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_bind(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     unimplemented!()
 }
 
-pub fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //パターン部が一つもなければUnitを返す
     if args.as_ref().is_nil() {
         alloc_into_iform(IFormConst::alloc(&tuple::Tuple::unit().into_value(), obj))
@@ -535,7 +535,7 @@ pub fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) ->
     }
 }
 
-pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -559,7 +559,7 @@ pub fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Objec
     alloc_into_iform(IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::MatchSuccess, obj))
 }
 
-pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -582,7 +582,7 @@ pub fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> N
     }
 }
 
-pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -605,7 +605,7 @@ pub fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NR
     }
 }
 
-pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
     //TODO 末尾文脈でのみ許可するようにしたい
 
@@ -622,7 +622,7 @@ pub fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &
     }
 }
 
-pub fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
     //TODO 末尾文脈でのみ許可するようにしたい
 
@@ -633,7 +633,6 @@ pub fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx
         Err(SyntaxException::DisallowContext)
     }
 }
-
 
 mod codegen {
     use core::panic;
@@ -1051,9 +1050,140 @@ static SYMBOL_APP: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(||
     symbol::gensym_static("app")
 });
 
-mod literal {
+static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("if", 2, 1, false, syntax_if))
+});
+
+static SYNTAX_BEGIN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("begin", 0, 0, true, syntax_begin))
+});
+
+static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("cond", 0, 0, true, syntax_cond))
+});
+
+static SYNTAX_DEF_RECV: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("def-recv", 1, 0, true, syntax_def_recv))
+});
+
+static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("fun", 1, 0, true, syntax_fun))
+});
+
+static SYNTAX_LOCAL: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("local", 1, 0, true, syntax_local))
+});
+
+static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("let", 2, 0, false, syntax_let))
+});
+
+static SYNTAX_LET_GLOBAL: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("let-global", 2, 0, false, syntax_let_global))
+});
+
+static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("quote", 1, 0, false, syntax_quote))
+});
+
+static SYNTAX_UNQUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("unquote", 1, 0, false, syntax_unquote))
+});
+
+static SYNTAX_BIND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("bind", 1, 0, false, syntax_bind))
+});
+
+static SYNTAX_MATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("match", 1, 0, true, syntax_match))
+});
+
+static SYNTAX_AND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("and", 0, 0, true, syntax_and))
+});
+
+static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("or", 0, 0, true, syntax_or))
+});
+
+static SYNTAX_OBJECT_SWITCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("object-switch", 1, 0, false, syntax_object_switch))
+});
+
+static SYNTAX_RETURN_OBJECT_SWITCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(Syntax::new("return-object-switch", 0, 0, false, syntax_return_object_switch))
+});
+
+static SYNTAX_FAIL_CATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
+    GCAllocationStruct::new(syntax::Syntax::new("fail-catch", 0, 0, true, syntax_fail_catch))
+});
+
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("if", &Ref::new(&SYNTAX_IF.value));
+    obj.define_global_value("begin", &Ref::new(&SYNTAX_BEGIN.value));
+    obj.define_global_value("cond", &Ref::new(&SYNTAX_COND.value));
+    obj.define_global_value("def-recv", &Ref::new(&SYNTAX_DEF_RECV.value));
+    obj.define_global_value("fun", &Ref::new(&SYNTAX_FUN.value));
+    obj.define_global_value("local", &Ref::new(&SYNTAX_LOCAL.value));
+    obj.define_global_value("let", &Ref::new(&SYNTAX_LET.value));
+    obj.define_global_value("let-global", &Ref::new(&SYNTAX_LET_GLOBAL.value));
+    obj.define_global_value("quote", &Ref::new(&SYNTAX_QUOTE.value));
+    obj.define_global_value("unquote", &Ref::new(&SYNTAX_UNQUOTE.value));
+    obj.define_global_value("bind", &Ref::new(&SYNTAX_BIND.value));
+    obj.define_global_value("match", &Ref::new(&SYNTAX_MATCH.value));
+    obj.define_global_value("and", &Ref::new(&SYNTAX_AND.value));
+    obj.define_global_value("or", &Ref::new(&SYNTAX_OR.value));
+    obj.define_global_value("object-switch", &Ref::new(&SYNTAX_OBJECT_SWITCH.value));
+    obj.define_global_value("return-object-switch", &Ref::new(&SYNTAX_RETURN_OBJECT_SWITCH.value));
+}
+
+pub mod literal {
     use crate::ptr::*;
     use super::*;
+
+    pub fn quote() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_QUOTE.value)
+    }
+
+    pub fn unquote() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_UNQUOTE.value)
+    }
+
+    pub fn bind() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_BIND.value)
+    }
+
+    pub fn fun() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_FUN.value)
+    }
+
+    pub fn local() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_LOCAL.value)
+    }
+
+    pub fn let_() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_LET.value)
+    }
+
+    pub fn match_() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_MATCH.value)
+    }
+
+    pub fn if_() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_IF.value)
+    }
+
+    pub fn begin() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_BEGIN.value)
+    }
+
+    pub fn cond() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_COND.value)
+    }
+
+    pub fn fail_catch() -> Reachable<Syntax> {
+        Reachable::new_static(&SYNTAX_FAIL_CATCH.value)
+    }
 
     pub fn app_symbol() -> Reachable<symbol::Symbol> {
         Reachable::new_static(SYMBOL_APP.value.as_ref())

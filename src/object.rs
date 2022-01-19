@@ -16,7 +16,8 @@ use once_cell::sync::Lazy;
 
 use crate::value::*;
 use crate::ptr::*;
-use crate::err::{*, OutOfMemory};
+use crate::err::*;
+use crate::compile;
 
 use crate::value::any::Any;
 use crate::value::func::Func;
@@ -247,7 +248,7 @@ impl Object {
         register_global(self);
         number::register_global(self);
         object_ref::register_global(self);
-        syntax::register_global(self);
+        compile::register_global(self);
         any::register_global(self);
         tuple::register_global(self);
         array::register_global(self);
@@ -445,7 +446,7 @@ impl Object {
         if obj.values.receiver_closure.is_none() {
             let mut builder_fun = ListBuilder::new(obj);
             //(fun)
-            builder_fun.append(crate::value::syntax::literal::fun().cast_value(), obj)?;
+            builder_fun.append(compile::literal::fun().cast_value(), obj)?;
             //(msg_var)
             let paramter = list::List::alloc_tail(literal::msg_symbol().cast_value(), obj)?.into_value();
             //(fun (msg_var))
@@ -456,7 +457,7 @@ impl Object {
             let match_ = {
                 let mut builder_match = ListBuilder::new(obj);
                 //(match)
-                builder_match.append(crate::value::syntax::literal::match_().cast_value(), obj)?;
+                builder_match.append(compile::literal::match_().cast_value(), obj)?;
                 //(match msg_var)
                 builder_match.append(literal::msg_symbol().cast_value(), obj)?;
 

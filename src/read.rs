@@ -1,5 +1,6 @@
 use std::iter::Peekable;
 
+use crate::compile;
 use crate::object::Object;
 use crate::value::*;
 use crate::ptr::*;
@@ -182,11 +183,11 @@ fn read_char<I: Iterator<Item=char>>(_reader: &mut Reader<I>, _ctx: &mut Object)
 }
 
 fn read_quote<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
-    read_with_modifier(syntax::literal::quote().cast_value(), reader, obj)
+    read_with_modifier(compile::literal::quote().cast_value(), reader, obj)
 }
 
 fn read_bind<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
-    read_with_modifier(syntax::literal::bind().cast_value(), reader, obj)
+    read_with_modifier(compile::literal::bind().cast_value(), reader, obj)
 }
 
 fn read_with_modifier<I: Iterator<Item=char>>(modifier: &Reachable<Any>, reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
@@ -735,7 +736,7 @@ mod tests {
             let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append(syntax::literal::quote().cast_value(), ans_obj).unwrap();
+            builder.append(compile::literal::quote().cast_value(), ans_obj).unwrap();
             builder.append(&symbol, ans_obj).unwrap();
             let ans = builder.get().reach(ans_obj);
 
