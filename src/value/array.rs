@@ -314,6 +314,17 @@ impl <T: NaviType> ArrayBuilder<T> {
     }
 }
 
+fn func_array(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    let mut builder = ArrayBuilder::new(num_rest, obj)?;
+
+    for index in 0 .. num_rest {
+        let v = vm::refer_rest_arg::<Any>(0, index, obj);
+        builder.push(&v, obj)?;
+    }
+
+    Ok(builder.get().into_value())
+}
+
 fn func_is_array(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Any>(0, obj);
     if v.as_ref().is_type(array::Array::<Any>::typeinfo()) {
@@ -344,6 +355,16 @@ fn func_array_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception>
         Ok(v.as_ref().get(index))
     }
 }
+
+static FUNC_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("array",
+            &[
+            Param::new_no_force("values", ParamKind::Rest, Any::typeinfo()),
+            ],
+            func_array)
+    )
+});
 
 static FUNC_IS_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
@@ -377,6 +398,7 @@ static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("array", &Ref::new(&FUNC_ARRAY.value));
     obj.define_global_value("array?", &Ref::new(&FUNC_IS_ARRAY.value));
     obj.define_global_value("array-len", &Ref::new(&FUNC_ARRAY_LEN.value));
     obj.define_global_value("array-ref", &Ref::new(&FUNC_ARRAY_REF.value));
@@ -384,6 +406,10 @@ pub fn register_global(obj: &mut Object) {
 
 pub mod literal {
     use super::*;
+
+    pub fn array() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_ARRAY.value)
+    }
 
     pub fn is_array() -> Reachable<Func> {
         Reachable::new_static(&FUNC_IS_ARRAY.value)

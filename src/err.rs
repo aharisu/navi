@@ -122,12 +122,6 @@ pub struct DisallowContext {}
 #[derive(Clone, Debug)]
 pub struct OutOfMemory {}
 
-impl From<OutOfMemory> for Exception {
-    fn from(_: OutOfMemory) -> Self {
-        Exception::OutOfMemory
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct MySelfObjectDeleted {}
 
@@ -254,6 +248,18 @@ impl std::fmt::Display for Exception {
                 f.write_str(message)
             }
         }
+    }
+}
+
+impl From<OutOfBounds> for Exception {
+    fn from(this: OutOfBounds) -> Self {
+        Exception::OutOfBounds(this)
+    }
+}
+
+impl From<OutOfMemory> for Exception {
+    fn from(_: OutOfMemory) -> Self {
+        Exception::OutOfMemory
     }
 }
 

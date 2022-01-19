@@ -40,10 +40,8 @@ pub mod tag {
     pub const AND:u8 = 19;
     pub const OR:u8 = 20;
     pub const MATCH_SUCCESS:u8 = 21;
-    pub const TUPLE:u8 = 22;
-    pub const ARRAY:u8 = 23;
 
-    //miss number17
+    //miss number 17, 22, 23
     //next number 26
 }
 
@@ -806,46 +804,6 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 if is_true(obj.vm_state().acc.as_ref()) {
                     program.seek(SeekFrom::Current(offset as i64)).unwrap();
                 }
-            }
-            tag::TUPLE => {
-                //引数構築の完了処理を行う。
-                complete_arg!();
-
-                let size = unsafe { (*obj.vm_state().env).size };
-                let mut builder = tuple::TupleBuilder::new(size, obj)?;
-                for index in 0..size {
-                    let arg = refer_local_var(obj.vm_state().env, index);
-                    //ここではOutOfBoundsは発生しないためunwrap
-                    //ただし、argにreplyが含まれる可能性があるのでpush_uncheckは使用できない
-                    builder.push(&arg, obj).unwrap();
-                }
-
-                obj.vm_state().acc = builder.get().into_value();
-
-                //リターン処理を実行
-                tag_return!();
-
-                reduce!(5);
-            }
-            tag::ARRAY => {
-                //引数構築の完了処理を行う。
-                complete_arg!();
-
-                let size = unsafe { (*obj.vm_state().env).size };
-                let mut builder = array::ArrayBuilder::<Any>::new(size, obj)?;
-                for index in 0..size {
-                    let arg = refer_local_var(obj.vm_state().env, index);
-                    //ここではOutOfBoundsは発生しないためunwrap
-                    //ただし、argにreplyが含まれる可能性があるのでpush_uncheckは使用できない
-                    builder.push(&arg, obj).unwrap();
-                }
-
-                obj.vm_state().acc = builder.get().into_value();
-
-                //リターン処理を実行
-                tag_return!();
-
-                reduce!(5);
             }
             tag::MATCH_SUCCESS => {
                 let offset = read_u16(&mut program);

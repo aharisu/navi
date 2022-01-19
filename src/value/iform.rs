@@ -163,12 +163,11 @@ pub enum IFormKind {
     Call,
     Const,
     AndOr,
-    Container,
     DefRecv,
     ObjectSwitch,
 }
 
-const IFORM_KIND_ARY: [IFormKind; 13] = [
+const IFORM_KIND_ARY: [IFormKind; 12] = [
     IFormKind::Let,
     IFormKind::If,
     IFormKind::Local,
@@ -179,12 +178,11 @@ const IFORM_KIND_ARY: [IFormKind; 13] = [
     IFormKind::Call,
     IFormKind::Const,
     IFormKind::AndOr,
-    IFormKind::Container,
     IFormKind::DefRecv,
     IFormKind::ObjectSwitch,
 ];
 
-static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
+static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
     new_typeinfo!(
         IFormLet,
         "IFormLet",
@@ -323,20 +321,6 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 13] = [
         None,
         None,
         Some(IFormAndOr::child_traversal),
-        None,
-    ),
-    new_typeinfo!(
-        IFormContainer,
-        "IFormContainer",
-        std::mem::size_of::<IFormContainer>(),
-        None,
-        IFormContainer::eq,
-        IFormContainer::clone_inner,
-        Display::fmt,
-        Some(IFormContainer::is_type),
-        None,
-        None,
-        Some(IFormContainer::child_traversal),
         None,
     ),
     new_typeinfo!(
@@ -1126,93 +1110,6 @@ impl Debug for IFormAndOr {
 }
 
 impl AsIForm for IFormAndOr {}
-
-#[derive(Debug, Copy, Clone)]
-pub enum ContainerKind {
-    //TODO
-    //List,
-    Array,
-    Tuple,
-}
-
-pub struct IFormContainer {
-    exprs: Ref<Array<IForm>>,
-    kind: ContainerKind,
-}
-
-impl NaviType for IFormContainer {
-    fn typeinfo() -> &'static TypeInfo {
-        &IFORM_TYPEINFO_ARY[IFormKind::Container as usize]
-    }
-
-    fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
-        //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
-        unsafe {
-            let exprs = Array::clone_inner(self.exprs.as_ref(), allocator)?.into_reachable();
-
-            Self::alloc(&exprs, self.kind, allocator)
-        }
-    }
-}
-
-impl IFormContainer {
-    fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        &IFORM_TYPEINFO_ARY[IFormKind::Container as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
-    }
-
-    fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
-        callback(self.exprs.cast_mut_value(), arg);
-    }
-
-    pub fn alloc<A: Allocator>(exprs: &Reachable<Array<IForm>>, kind: ContainerKind, allocator: &mut A) -> NResult<Self, OutOfMemory> {
-        let ptr = allocator.alloc::<IFormContainer>()?;
-        unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormContainer {
-                    exprs: exprs.raw_ptr().into(),
-                    kind: kind,
-                });
-        }
-
-        Ok(ptr.into_ref())
-    }
-
-    pub fn len_exprs(&self) -> usize {
-        self.exprs.as_ref().len()
-    }
-
-    pub fn get_expr(&self, index: usize) -> Ref<IForm> {
-        self.exprs.as_ref().get(index)
-    }
-
-    pub fn kind(&self) -> ContainerKind {
-        self.kind
-    }
-
-    fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(IF{:?} {})", self.kind, self.exprs.as_ref())
-    }
-}
-
-impl PartialEq for IFormContainer {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other)
-    }
-}
-
-impl Display for IFormContainer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt(false, f)
-    }
-}
-
-impl Debug for IFormContainer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt(true, f)
-    }
-}
-
-impl AsIForm for IFormContainer {}
 
 pub struct IFormDefRecv {
     pattern: Ref<Any>,

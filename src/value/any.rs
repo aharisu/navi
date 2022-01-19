@@ -269,11 +269,19 @@ mod tests {
             let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
+            let program = "(= [1 \"2\" :3] (array 1 \"2\" :3))";
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            assert!(result.as_ref().is_true());
+
             let program = "(= [1 \"2\" :3] [1 \"2\" '3])";
             let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= {1 \"2\" :3} {1 \"2\" :3})";
+            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            assert!(result.as_ref().is_true());
+
+            let program = "(= {1 \"2\" :3} (tuple 1 \"2\" :3))";
             let result = eval::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 

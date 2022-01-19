@@ -247,6 +247,8 @@ fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Ob
         toplevel: false,
     };
 
+    let app = pass_transform(&tuple::literal::tuple().into_value(), &mut ctx, obj)?.reach(obj);
+
     let count = tuple.as_ref().len();
     let mut builder_args = ArrayBuilder::<IForm>::new(count, obj)?;
 
@@ -254,11 +256,10 @@ fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Ob
         let iform = pass_transform(&tuple.as_ref().get(index).reach(obj), &mut ctx, obj)?;
         unsafe { builder_args.push_uncheck(&iform, obj) };
     }
-
     let args = builder_args.get().reach(obj);
 
     //IFormCallを作成して戻り値にする
-    alloc_into_iform(IFormContainer::alloc(&args, iform::ContainerKind::Tuple, obj))
+    alloc_into_iform(IFormCall::alloc(&app, &args, obj))
 }
 
 fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
@@ -267,6 +268,8 @@ fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &m
         toplevel: false,
     };
 
+    let app = pass_transform(&array::literal::array().into_value(), &mut ctx, obj)?.reach(obj);
+
     let count = array.as_ref().len();
     let mut builder_args = ArrayBuilder::<IForm>::new(count, obj)?;
 
@@ -274,11 +277,10 @@ fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &m
         let iform = pass_transform(&array.as_ref().get(index).reach(obj), &mut ctx, obj)?;
         unsafe { builder_args.push_uncheck(&iform, obj) };
     }
-
     let args = builder_args.get().reach(obj);
 
     //IFormCallを作成して戻り値にする
-    alloc_into_iform(IFormContainer::alloc(&args, iform::ContainerKind::Array, obj))
+    alloc_into_iform(IFormCall::alloc(&app, &args, obj))
 }
 
 fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
@@ -709,9 +711,6 @@ mod codegen {
             IFormKind::AndOr => {
                 codegen_andor(unsafe { iform.cast_unchecked::<IFormAndOr>() }, ctx, obj)
             },
-            IFormKind::Container => {
-                codegen_container(unsafe { iform.cast_unchecked::<IFormContainer>() }, ctx, obj)
-            },
             IFormKind::DefRecv => {
                 codegen_defrecv(unsafe { iform.cast_unchecked::<IFormDefRecv>() }, ctx, obj)
             },
@@ -985,26 +984,6 @@ mod codegen {
                 write_u16(offset as u16, &mut ctx.buf);
             }
         }
-    }
-
-    fn codegen_container(iform: &Reachable<IFormContainer>, ctx: &mut CGCtx, obj: &mut Object) {
-        write_u8(vm::tag::CALL_PREPARE, &mut ctx.buf);
-
-        //eval and push argument
-        let num_args = iform.as_ref().len_exprs();
-        for index in 0..num_args {
-            let arg = iform.as_ref().get_expr(index).reach(obj);
-            pass_codegen(&arg, ctx, obj);
-            write_u8(vm::tag::PUSH_ARG_UNCHECK, &mut ctx.buf);
-        }
-
-        //call
-        let tag = match iform.as_ref().kind() {
-            iform::ContainerKind::Tuple => vm::tag::TUPLE,
-            iform::ContainerKind::Array => vm::tag::ARRAY,
-        };
-
-        write_u8(tag, &mut ctx.buf);
     }
 
     fn codegen_defrecv(iform: &Reachable<IFormDefRecv>, ctx: &mut CGCtx, obj: &mut Object) {

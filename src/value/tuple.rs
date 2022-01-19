@@ -289,6 +289,17 @@ impl TupleBuilder {
     }
 }
 
+fn func_tuple(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    let mut builder = TupleBuilder::new(num_rest, obj)?;
+
+    for index in 0 .. num_rest {
+        let v = vm::refer_rest_arg::<Any>(0, index, obj);
+        builder.push(&v, obj)?;
+    }
+
+    Ok(builder.get().into_value())
+}
+
 fn func_is_tuple(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Any>(0, obj);
     if v.is_type(tuple::Tuple::typeinfo()) {
@@ -317,6 +328,16 @@ fn func_tuple_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception>
         Ok(tuple.as_ref().get(index))
     }
 }
+
+static FUNC_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("tuple",
+            &[
+            Param::new_no_force("values", ParamKind::Rest, Any::typeinfo()),
+            ],
+            func_tuple)
+    )
+});
 
 static FUNC_IS_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
@@ -350,6 +371,7 @@ static FUNC_TUPLE_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
 });
 
 pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("tuple", &Ref::new(&FUNC_TUPLE.value));
     obj.define_global_value("tuple?", &Ref::new(&FUNC_IS_TUPLE.value));
     obj.define_global_value("tuple-len", &Ref::new(&FUNC_TUPLE_LEN.value));
     obj.define_global_value("tuple-ref", &Ref::new(&FUNC_TUPLE_REF.value));
@@ -359,6 +381,10 @@ pub mod literal {
     use crate::ptr::*;
     use crate::value::func::Func;
     use super::*;
+
+    pub fn tuple() -> Reachable<Func> {
+        Reachable::new_static(&FUNC_TUPLE.value)
+    }
 
     pub fn is_tuple() -> Reachable<Func> {
         Reachable::new_static(&FUNC_IS_TUPLE.value)
