@@ -426,49 +426,49 @@ impl Heap {
     }
 
     fn gc_compaction_256<R: GCRootValueHolder>(&mut self, root: &mut R) {
-        println!("compaction: 256");
+        //println!("compaction: 256");
         //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
         let mut flags = [0u16; 256 >> SIZE_BIT_SHIFT];
         self.gc_compaction_body(&mut flags, root);
     }
 
     fn gc_compaction_512<R: GCRootValueHolder>(&mut self, root: &mut R) {
-        println!("compaction: 512");
+        //println!("compaction: 512");
         //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
         let mut flags = [0u16; 512 >> SIZE_BIT_SHIFT];
         self.gc_compaction_body(&mut flags, root);
     }
 
     fn gc_compaction_1k<R: GCRootValueHolder>(&mut self, root: &mut R) {
-        println!("compaction: 1k");
+        //println!("compaction: 1k");
         //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
         let mut flags = [0u16; 1024 * 1 >> SIZE_BIT_SHIFT];
         self.gc_compaction_body(&mut flags, root);
     }
 
     fn gc_compaction_2k<R: GCRootValueHolder>(&mut self, root: &mut R) {
-        println!("compaction: 2k");
+        //println!("compaction: 2k");
         //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
         let mut flags = [0u16; 1024 * 2 >> SIZE_BIT_SHIFT];
         self.gc_compaction_body(&mut flags, root);
     }
 
     fn gc_compaction_8k<R: GCRootValueHolder>(&mut self, root: &mut R) {
-        println!("compaction: 8k");
+        //println!("compaction: 8k");
         //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
         let mut flags = [0u16; 1024 * 8 >> SIZE_BIT_SHIFT];
         self.gc_compaction_body(&mut flags, root);
     }
 
     fn gc_compaction_16k<R: GCRootValueHolder>(&mut self, root: &mut R) {
-        println!("compaction: 16k");
+        //println!("compaction: 16k");
         //16kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
         let mut flags = [0u16; 1024 * 16 >> SIZE_BIT_SHIFT];
         self.gc_compaction_body(&mut flags, root);
     }
 
     fn gc_compaction_32k<R: GCRootValueHolder>(&mut self, root: &mut R) {
-        println!("compaction: 32k");
+        //println!("compaction: 32k");
 
         //32kサイズのヒープ内に存在する可能性がある値すべてのGCフラグを保持できる大きさの配列
         //※最後のシフトは8,または16で割り算することと同じ意味。
@@ -791,7 +791,7 @@ impl Heap {
     fn grow_copying<R: GCRootValueHolder>(&mut self, next_heap_size: HeapSize, root: &mut R) {
         //コピー先の新しいヒープを作成
         let new_layout = Self::get_alloc_layout(next_heap_size);
-        println!("copying:{:?} {:?}", next_heap_size, new_layout);
+        //println!("copying:{:?} {:?}", next_heap_size, new_layout);
 
         let new_heap_ptr = unsafe { alloc::alloc(new_layout) };
 
