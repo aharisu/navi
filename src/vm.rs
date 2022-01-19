@@ -830,7 +830,11 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
         }
     }
 
-    Ok(obj.vm_state().acc.clone())
+    let result = obj.vm_state().acc.clone();
+    //accに入ったままだとGC時に回収されないため、結果の値をaccから外す
+    obj.vm_state().acc = bool::Bool::false_().into_ref().into_value();
+
+    Ok(result)
 }
 
 #[inline]
