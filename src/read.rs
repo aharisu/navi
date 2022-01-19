@@ -49,13 +49,7 @@ impl Iterator for StdinChars {
             self.buf.clear();
         }
 
-        //TODO chが\d(0x04)だったときにNoneを返して終了させるか？
-        //もしくは(exit)のように終了専用の関数を準備するべきか？
-        if ch == 4 as char {
-            None
-        } else {
-            Some(ch)
-        }
+        Some(ch)
     }
 }
 
