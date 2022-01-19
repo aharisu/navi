@@ -339,6 +339,41 @@ mod tests {
     }
 
     #[test]
+    fn test_remove_reply() {
+        let mut standalone = object::new_object();
+
+        {
+            let program = "(let obj (spawn))";
+            let new_obj_ref = eval::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
+            standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
+
+            let program = "(def-recv {:add-one @n} (+ n 1))";
+            eval::<Any>(program, standalone.mut_object());
+
+            standalone = object::return_object_switch(standalone).unwrap();
+
+            //send結果をそのまま破棄する
+            let program = "(send obj {:add-one 5})";
+            eval::<Any>(program, standalone.mut_object()).capture(standalone.mut_object());
+            //GCを実行して、使用しなかったReplyを回収させる
+            standalone.mut_object().do_gc();
+
+            //objの処理が終わるまで適当に待つ
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+
+            //自分自身のメールボックスに返信がないか確認
+            let count_resultbox = {
+                let mailbox = standalone.mailbox().lock().unwrap();
+                mailbox.count_resultbox()
+            };
+            assert_eq!(count_resultbox, 0);
+
+        }
+    }
+
+    #[test]
     fn test_dup() {
         let mut standalone = object::new_object();
 

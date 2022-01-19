@@ -147,23 +147,25 @@ impl MailBox {
         self.values.inbox.pop()
     }
 
-    //TODO Result<Any>を受け取る
     pub fn recv_reply(&mut self, result: Result<&Reachable<Any>, Exception>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
-        match result {
-            Ok(v) => {
-                //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
-                let mut allocator = AnyAllocator::MailBox(self);
-                let cloned = crate::value::value_clone(v, &mut allocator)?;
+        //返信を受け取るVec内に既にReplyTokenに対応する値が入っている場合、返信不要のマークなので何もしない。
+        if self.try_take_reply(reply_token).is_none() {
+            match result {
+                Ok(v) => {
+                    //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
+                    let mut allocator = AnyAllocator::MailBox(self);
+                    let cloned = crate::value::value_clone(v, &mut allocator)?;
 
-                self.values.result_box.push((reply_token, Ok(cloned)));
-            }
-            Err(e) => {
-                //受け取ったエラー内容をすべて自分自身のヒープ内にコピーする
-                //※エラー内にはエラー追加情報のためにオブジェクトが含まれる可能性があるため、コピーを行います
-                let mut allocator = AnyAllocator::MailBox(self);
-                let cloned = unsafe { e.value_clone_gcunsafe(&mut allocator) }?;
+                    self.values.result_box.push((reply_token, Ok(cloned)));
+                }
+                Err(e) => {
+                    //受け取ったエラー内容をすべて自分自身のヒープ内にコピーする
+                    //※エラー内にはエラー追加情報のためにオブジェクトが含まれる可能性があるため、コピーを行います
+                    let mut allocator = AnyAllocator::MailBox(self);
+                    let cloned = unsafe { e.value_clone_gcunsafe(&mut allocator) }?;
 
-                self.values.result_box.push((reply_token, Err(cloned)));
+                    self.values.result_box.push((reply_token, Err(cloned)));
+                }
             }
         }
 
@@ -178,12 +180,30 @@ impl MailBox {
             })
     }
 
+    pub fn discard_reply(&mut self, reply_token: ReplyToken) {
+        //まだ返信を受け取っていなければ
+        if self.try_take_reply(reply_token).is_none() {
+            //どんな値でもいいので、事前に返信を受け取るためのVecにreply_tokenを入れておく。
+            self.values.result_box.push((reply_token, Err(Exception::OutOfMemory)));
+        }
+    }
+
     pub(super) fn give_object_ownership(&mut self, obj: Arc<RefCell<Object>>) {
         self.obj = Some(obj);
     }
 
     pub(super) fn take_object_ownership(&mut self) -> Arc<RefCell<Object>> {
         self.obj.take().unwrap()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn count_inbox(&self) -> usize {
+        self.values.inbox.len()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn count_resultbox(&self) -> usize {
+        self.values.result_box.len()
     }
 
 }

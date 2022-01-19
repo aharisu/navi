@@ -13,7 +13,9 @@ pub struct Reply {
     reply_token: ReplyToken,
 
     reply_value: Option<NResult<Any, Exception>>,
-    refer_mailbox: Option<Arc<Mutex<crate::object::mailbox::MailBox>>>,
+
+    myself_mailbox: Option<Arc<Mutex<crate::object::mailbox::MailBox>>>,
+    dest_mailbox: Option<Arc<Mutex<crate::object::mailbox::MailBox>>>,
 }
 
 static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
@@ -25,7 +27,7 @@ static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
     Reply::clone_inner,
     Display::fmt,
     None,
-    None,
+    Some(Reply::finalize),
     None,
     Some(Reply::child_traversal),
     Some(Reply::_check_reply_dummy),
@@ -80,18 +82,50 @@ impl Reply {
         if cap.as_ref().reply_value.is_some() {
             Ok(true)
         } else {
-            match obj.try_take_reply(cap.as_ref().reply_token) {
-                ResultNone::Ok(result) => {
-                    cap.as_mut().reply_value = Some(result);
-                    //値を受け取ったので、MailBoxへの参照を削除する
-                    cap.as_mut().refer_mailbox = None;
-                    Ok(true)
+            //自分自身のメールボックスのロックを取得
+            //※メールボックスから取得した値をObject内のヒープにcloneするまでロックを保持しておく必要があります。
+            let mut mailbox = cap.as_ref().myself_mailbox.as_ref().unwrap().lock().unwrap();
+            match mailbox.try_take_reply(cap.as_ref().reply_token) {
+                Some(reply) => {
+                    match reply {
+                        Ok(result) => {
+                            let result = unsafe { result.into_reachable() };
+                            //valはMailBox内のヒープに確保された値なので、Object内ヒープに値をクローンする
+                            let mut allocator = AnyAllocator::Object(obj);
+                            match crate::value::value_clone(&result, &mut allocator) {
+                                Ok(cloned) => {
+                                    cap.as_mut().reply_value = Some(Ok(cloned));
+                                    //値を受け取ったので、MailBoxへの参照を削除する
+                                    cap.as_mut().myself_mailbox = None;
+                                    cap.as_mut().dest_mailbox = None;
+                                    return Ok(true);
+                                }
+                                Err(oom) => {
+                                    return Err(oom);
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            //errはMailBox内のヒープに確保された値なので、Object内ヒープにクローンする
+                            let mut allocator = AnyAllocator::Object(obj);
+                            match unsafe { err.value_clone_gcunsafe(&mut allocator) } {
+                                Ok(cloned) => {
+                                    cap.as_mut().reply_value = Some(Err(cloned));
+                                    //値を受け取ったので、MailBoxへの参照を削除する
+                                    cap.as_mut().myself_mailbox = None;
+                                    cap.as_mut().dest_mailbox = None;
+                                    return Ok(true);
+                                }
+                                Err(oom) => {
+                                    return Err(oom);
+                                }
+                            }
+
+                        }
+                    }
                 }
-                ResultNone::Err(oom) => {
-                    Err(oom)
-                }
-                ResultNone::None => {
-                    Ok(false)
+                None => {
+                    return Ok(false);
                 }
             }
         }
@@ -103,14 +137,18 @@ impl Reply {
         unreachable!()
     }
 
-    pub fn alloc<A: Allocator>(token: ReplyToken, refer_mailbox: Arc<Mutex<crate::object::mailbox::MailBox>>, allocator: &mut A) -> NResult<Reply, OutOfMemory> {
+    pub fn alloc<A: Allocator>(token: ReplyToken
+        , myself_mailbox: Arc<Mutex<crate::object::mailbox::MailBox>>
+        , dest_mailbox: Arc<Mutex<crate::object::mailbox::MailBox>>
+        , allocator: &mut A) -> NResult<Reply, OutOfMemory> {
         let ptr = allocator.alloc::<Reply>()?;
 
         unsafe {
             std::ptr::write(ptr.as_ptr(), Reply {
                 reply_token: token,
                 reply_value: None,
-                refer_mailbox: Some(refer_mailbox),
+                myself_mailbox: Some(myself_mailbox),
+                dest_mailbox: Some(dest_mailbox),
             });
         }
 
@@ -119,6 +157,26 @@ impl Reply {
         crate::value::set_has_replytype_flag(&mut result);
 
         Ok(result)
+    }
+
+    fn finalize(&mut self) {
+        //まだ返信を受け取っていなければ
+        if let Some(mailbox) = self.myself_mailbox.as_ref() {
+            match mailbox.lock() {
+                Ok(mut mailbox) => {
+                    //メールボックスに対して、受け取った返信を破棄するように指定しておく
+                    mailbox.discard_reply(self.reply_token);
+                }
+                Err(_) => {
+                    //do nothing
+                }
+            }
+        }
+
+        //内部で保持しているArcをデクリメントしないといけないのでDrop処理を実行する
+        unsafe {
+            std::ptr::drop_in_place(self)
+        }
     }
 }
 

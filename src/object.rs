@@ -332,69 +332,19 @@ impl Object {
     pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: MessageKind) -> NResult<Any, Exception> {
         if let Some(mailbox) = self.mailbox.upgrade() {
             //戻り値を受け取るために自分自身のメールボックスをメッセージ送信相手に渡す
-            let reply_token = target_obj.as_ref().recv_message(message, mailbox)?;
+            let reply_token = target_obj.as_ref().recv_message(message, Arc::clone(&mailbox))?;
             //MailBoxを保持しているObjectRef値がなくなってしまうと、メッセージを送信した先のオブジェクトが削除される可能性がある。
             //そうなると一生Replyを受け取ることができなくなるため、ArcをReply内にも保持させる。
-            let refer_mailbox = target_obj.as_ref().mailbox();
+            let dest_mailbox = target_obj.as_ref().mailbox();
 
             //返信を受け取るための特別な値を生成して返す
-            let reply = crate::value::reply::Reply::alloc(reply_token, refer_mailbox, self)?;
+            let reply = crate::value::reply::Reply::alloc(reply_token, mailbox, dest_mailbox, self)?;
             Ok(reply.into_value())
 
         } else {
             //mailboxが取得できない場合は、自分自身のオブジェクトが削除されようとしているとき。
             //処理を継続できないため無効な値を返して処理を終了させる
             Err(Exception::MySelfObjectDeleted)
-        }
-    }
-
-    pub fn try_take_reply(&mut self, reply_token: ReplyToken) -> ResultNone<NResult<Any, Exception>, OutOfMemory> {
-        if let Some(mailbox) = self.mailbox.upgrade() {
-            //自分のオブジェクトに対応するメールボックスのロックを取得
-            let mut mailbox = mailbox.lock().unwrap();
-
-            //メールボックスに返信がないか確認
-            match mailbox.try_take_reply(reply_token) {
-                Some(reply) => {
-                    //MailBoxのロックを保持している間は、MailBox内ヒープのGCは発生しないため強制的にReachableに変換する。
-                    match reply {
-                        Ok(result) => {
-                            let result = unsafe { result.into_reachable() };
-                            //valはMailBox内のヒープに確保された値なので、Object内ヒープに値をクローンする
-                            let mut allocator = AnyAllocator::Object(self);
-                            match crate::value::value_clone(&result, &mut allocator) {
-                                Ok(cloned) => {
-                                    ResultNone::Ok(Ok(cloned))
-                                }
-                                Err(oom) => {
-                                    ResultNone::Err(oom)
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            //errはMailBox内のヒープに確保された値なので、Object内ヒープにクローンする
-                            let mut allocator = AnyAllocator::Object(self);
-                            match unsafe { err.value_clone_gcunsafe(&mut allocator) } {
-                                Ok(cloned) => {
-                                    ResultNone::Ok(Err(cloned))
-                                }
-                                Err(oom) => {
-                                    ResultNone::Err(oom)
-                                }
-                            }
-                        }
-                    }
-                }
-                None => {
-                    ResultNone::None
-                }
-            }
-
-        } else {
-            //MailBoxが先に削除されているケースは、MailBoxがどのオブジェクトからも参照されなくなり、ARcによりすでにDropされてしまっているケース。※Standalone時を除く。
-            //MailBoxとObjectは一心同体ですぐに今実行中のオブジェクトも削除される。
-            //処理を継続する必要はないためNoneを返して実行を中断させる
-            ResultNone::None
         }
     }
 
@@ -789,6 +739,17 @@ impl StandaloneObject {
     pub fn mut_object(&mut self) -> &mut Object {
         &mut self.object
     }
+
+    #[inline]
+    pub fn mailbox(&self) -> &Arc<Mutex<MailBox>> {
+        &self.mailbox
+    }
+
+    #[inline]
+    pub fn mut_mailbox(&mut self) -> &mut Arc<Mutex<MailBox>> {
+        &mut self.mailbox
+    }
+
 }
 
 impl Debug for StandaloneObject {
