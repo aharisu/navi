@@ -6,6 +6,7 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::mem::size_of;
 
+use crate::err::OutOfMemory;
 use crate::object::StandaloneObject;
 use crate::object::mm::usize_to_ptr;
 
@@ -530,12 +531,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     if let Some(param) = param {
                         // reply check
                         if param.force && arg.has_replytype() {
-                            //スタック領域内のFPtrをCapとして扱わせる
-                            let mut cap = Cap::new(&mut arg as *mut Ref<Any>);
-                            //返信がないかを確認
-                            let result = crate::value::check_reply(&mut cap, obj);
-                            //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
-                            std::mem::forget(cap);
+                            let result = check_reply(&mut arg, obj);
 
                             //まだ返信がない場合は、
                             if result? == false {
@@ -607,7 +603,21 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 obj.vm_state().acc = bool::Bool::true_().into_ref().into_value();
             }
             tag::OBJECT_SWITCH => {
-                let target_obj = obj.vm_state().acc.clone();
+                let mut target_obj = obj.vm_state().acc.clone();
+
+                // reply check
+                if target_obj.has_replytype() {
+                    let result = check_reply(&mut target_obj, obj);
+                    //まだ返信がない場合は、
+                    if result? == false {
+                        //もう一度OBJECT_SWITCHが実行できるように、現在位置-1をresume後のPCとする
+                        obj.vm_state().suspend_pc = (program.position() - 1) as usize;
+
+                        //引数の値にReply待ちを含んでいるため、返信を待つ
+                        return Err(ExecException::WaitReply);
+                    }
+                }
+
                 if let Some(target_obj) = target_obj.try_cast::<object_ref::ObjectRef>() {
                     //ObjectRefからObjectを取得(この時点でスケジューラからは切り離されている)
                     let mailbox = target_obj.as_ref().mailbox();
@@ -821,6 +831,18 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     }
 
     Ok(obj.vm_state().acc.clone())
+}
+
+#[inline]
+fn check_reply(v: &mut Ref<Any>, obj: &mut Object) -> Result<bool, OutOfMemory> {
+    //スタック領域内のFPtrをCapとして扱わせる
+    let mut cap = Cap::new(v as *mut Ref<Any>);
+    //返信がないかを確認
+    let result = crate::value::check_reply(&mut cap, obj);
+    //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
+    std::mem::forget(cap);
+
+    result
 }
 
 pub fn write_u8<T: Write>(v: u8, buf: &mut T) {
