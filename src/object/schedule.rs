@@ -7,8 +7,8 @@ use super::Object;
 
 pub struct Scheduler {
     tx: mpsc::Sender<Envelope>,
+    #[allow(dead_code)]
     join_handle: thread::JoinHandle<()>,
-    //obj: Vec<Weak<Object>>,
 }
 
 impl Scheduler {

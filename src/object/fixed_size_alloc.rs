@@ -66,6 +66,7 @@ impl <T> FixedSizeAllocator<T> {
         chunk.free(ptr);
     }
 
+    #[allow(dead_code)]
     pub unsafe fn used_vec(&self) -> Vec<bool> {
         self.chunk_ptr.as_ref().used_vec()
     }
@@ -216,6 +217,7 @@ impl <T> Chunk<T> {
         };
     }
 
+    #[allow(dead_code)]
     pub unsafe fn used_vec(&self) -> Vec<bool> {
         //for debugging
 
