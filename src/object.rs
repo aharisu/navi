@@ -245,6 +245,7 @@ impl Object {
 
     fn register_core_global(&mut self) {
         register_global(self);
+        number::register_global(self);
         object_ref::register_global(self);
         syntax::register_global(self);
         any::register_global(self);
@@ -690,7 +691,7 @@ static SYMBOL_MSG: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(||
     symbol::gensym_static("msg")
 });
 
-fn func_exit(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+fn func_exit(_num_rest: usize, _obj: &mut Object) -> NResult<Any, Exception> {
     //終了させるための関数なので、エラーとしてExitを返すだけ
     Err(Exception::Exit)
 }
