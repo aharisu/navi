@@ -423,8 +423,8 @@ fn func_is_list(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 fn func_list_len(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<List>(0, obj);
 
-    let num = number::Integer::alloc(v.as_ref().count() as i64, obj)?;
-    Ok(num.into_value())
+    let num = number::make_integer(v.as_ref().count() as i64, obj)?;
+    Ok(num)
 }
 
 fn func_list_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
@@ -527,14 +527,14 @@ mod tests {
         {
             let mut builder = ListBuilder::new(obj);
 
-            builder.append(&number::Integer::alloc(1, obj).unwrap().into_value().reach(obj), obj).unwrap();
-            builder.append(&number::Integer::alloc(2, obj).unwrap().into_value().reach(obj), obj).unwrap();
-            builder.append(&number::Integer::alloc(3, obj).unwrap().into_value().reach(obj), obj).unwrap();
+            builder.append(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
+            builder.append(&number::make_integer(2, obj).unwrap().reach(obj), obj).unwrap();
+            builder.append(&number::make_integer(3, obj).unwrap().reach(obj), obj).unwrap();
             let result = builder.get().capture(obj);
 
-            let _1 = number::Integer::alloc(1, ans_obj).unwrap().into_value().reach(ans_obj);
-            let _2 = number::Integer::alloc(2, ans_obj).unwrap().into_value().reach(ans_obj);
-            let _3 = number::Integer::alloc(3, ans_obj).unwrap().into_value().reach(ans_obj);
+            let _1 = number::make_integer(1, ans_obj).unwrap().reach(ans_obj);
+            let _2 = number::make_integer(2, ans_obj).unwrap().reach(ans_obj);
+            let _3 = number::make_integer(3, ans_obj).unwrap().reach(ans_obj);
 
             let ans = list::List::nil();
             let ans = list::List::alloc(&_3, &ans, ans_obj).unwrap().reach(obj);

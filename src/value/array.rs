@@ -337,8 +337,8 @@ fn func_is_array(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> 
 fn func_array_len(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<Array<Any>>(0, obj);
 
-    let list = number::Integer::alloc(v.as_ref().len() as i64, obj)?;
-    Ok(list.into_value())
+    let list = number::make_integer(v.as_ref().len() as i64, obj)?;
+    Ok(list)
 }
 
 fn func_array_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
@@ -441,7 +441,7 @@ mod tests {
         {
             let mut builder = ListBuilder::new(obj);
 
-            builder.append(&number::Integer::alloc(1, obj).unwrap().into_value().reach(obj), obj).unwrap();
+            builder.append(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
             builder.append(&number::Real::alloc(3.14, obj).unwrap().into_value().reach(obj), obj).unwrap();
             builder.append(list::List::nil().cast_value(), obj).unwrap();
             builder.append(bool::Bool::true_().cast_value(), obj).unwrap();
@@ -450,7 +450,7 @@ mod tests {
             let list = list.reach(obj);
             let ary = array::Array::from_list(&list, Some(size), obj).unwrap();
 
-            let ans= number::Integer::alloc(1, ans_obj).unwrap().into_value();
+            let ans= number::make_integer(1, ans_obj).unwrap();
             assert_eq!(ary.as_ref().get(0).as_ref(), ans.as_ref());
 
             let ans= number::Real::alloc(3.14, ans_obj).unwrap().into_value();

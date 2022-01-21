@@ -314,7 +314,7 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Any>>, patterns:
 
                 //(equal? ???-len len)
                 let equal = {
-                    let v1 = number::Integer::alloc(container_len as i64, obj)?.into_value().reach(obj);
+                    let v1 = number::make_integer(container_len as i64, obj)?.reach(obj);
                     cons_list3(value::any::literal::equal().cast_value(), &v1, &len_symbol, obj)?
                 };
                 //((equal? ???-len len))
@@ -339,7 +339,7 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Any>>, patterns:
 
                     //(???-ref container index)
                     let container_ref = cons_list3(ref_func.cast_value(), target_expr
-                        , &number::Integer::alloc(index as i64, obj)?.into_value().reach(obj)
+                        , &number::make_integer(index as i64, obj)?.reach(obj)
                         , obj)?;
 
                     //(let v0 (???-ref container index))

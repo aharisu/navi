@@ -209,7 +209,7 @@ fn read_number_or_symbol<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &m
     match str.parse::<i64>() {
         Ok(num) => {
             //integer
-            let num = number::Integer::alloc(num, obj)?;
+            let num = number::make_integer(num, obj)?;
             Ok(num.into_value())
         },
         Err(_) => match str.parse::<f64>() {
@@ -410,24 +410,24 @@ mod tests {
         {
             let program = "1";
 
-            let result = read::<number::Integer>(program, obj);
-            let ans = number::Integer::alloc(1, ans_obj).unwrap();
+            let result = read::<Any>(program, obj);
+            let ans = number::make_integer(1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "-1";
 
-            let result = read::<number::Integer>(program, obj);
-            let ans = number::Integer::alloc(-1, ans_obj).unwrap();
+            let result = read::<Any>(program, obj);
+            let ans = number::make_integer(-1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "+1";
 
-            let result = read::<number::Integer>(program, obj);
-            let ans = number::Integer::alloc(1, ans_obj).unwrap();
+            let result = read::<Any>(program, obj);
+            let ans = number::make_integer(1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
@@ -592,9 +592,9 @@ mod tests {
 
             let result = read::<Any>(program, obj);
 
-            let _1 = number::Integer::alloc(1, ans_obj).unwrap().into_value().reach(ans_obj);
-            let _2 = number::Integer::alloc(2, ans_obj).unwrap().into_value().reach(ans_obj);
-            let _3 = number::Integer::alloc(3, ans_obj).unwrap().into_value().reach(ans_obj);
+            let _1 = number::make_integer(1, ans_obj).unwrap().reach(ans_obj);
+            let _2 = number::make_integer(2, ans_obj).unwrap().reach(ans_obj);
+            let _3 = number::make_integer(3, ans_obj).unwrap().reach(ans_obj);
 
             let ans = list::List::nil();
             let ans = list::List::alloc(&_3, &ans, ans_obj).unwrap().reach(ans_obj);
@@ -611,7 +611,7 @@ mod tests {
             let result = read::<Any>(program, obj);
 
 
-            let _1 = number::Integer::alloc(1, ans_obj).unwrap().into_value().reach(ans_obj);
+            let _1 = number::make_integer(1, ans_obj).unwrap().reach(ans_obj);
             let _3_14 = number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj);
             let hohoho = string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj);
             let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj);
@@ -649,9 +649,9 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append( &number::Integer::alloc(1, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::Integer::alloc(2, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::Integer::alloc(3, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.append( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.append( &number::make_integer(2, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.append( &number::make_integer(3, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
             let ans = builder.get().capture(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
@@ -663,7 +663,7 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append( &number::Integer::alloc(1, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.append( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
             builder.append( &number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
             builder.append( &string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
             builder.append( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
@@ -694,9 +694,9 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append( &number::Integer::alloc(1, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::Integer::alloc(2, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::Integer::alloc(3, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.append( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.append( &number::make_integer(2, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.append( &number::make_integer(3, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
             let ans = builder.get().reach(ans_obj);
             let ans = tuple::Tuple::from_list(&ans, None, ans_obj).unwrap().reach(ans_obj);
 
@@ -709,7 +709,7 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append( &number::Integer::alloc(1, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.append( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
             builder.append( &number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
             builder.append( &string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
             builder.append( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();

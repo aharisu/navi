@@ -96,10 +96,14 @@ impl Any {
 
     pub fn try_cast<U: NaviType>(&self) -> Option<&U> {
         if self.is::<U>() {
-            Some(unsafe { &*(self as *const Any as *const U) })
+            Some(self.cast_unchecked())
         } else {
             None
         }
+    }
+
+    pub fn cast_unchecked<U: NaviType>(&self) -> &U {
+        unsafe { std::mem::transmute::<&Any, &U>(self) }
     }
 
     //Value型のインスタンスは存在しないため、これらのメソッドが呼び出されることはない
@@ -158,8 +162,9 @@ mod tests {
         let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
-        //int
-        let v = number::Integer::alloc(10, obj).unwrap().into_value();
+        //integer
+        let v = number::make_integer(10, obj).unwrap();
+        assert!(v.as_ref().is::<number::Fixnum>());
         assert!(v.as_ref().is::<number::Integer>());
         assert!(v.as_ref().is::<number::Real>());
         assert!(v.as_ref().is::<number::Number>());
@@ -176,7 +181,7 @@ mod tests {
         assert!(!v.as_ref().is::<string::NString>());
 
         //list
-        let item = number::Integer::alloc(10, obj).unwrap().into_value().reach(obj);
+        let item = number::make_integer(10, obj).unwrap().reach(obj);
         let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).unwrap().into_value().reach(obj);
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());

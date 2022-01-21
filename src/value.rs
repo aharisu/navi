@@ -67,9 +67,12 @@ use once_cell::sync::Lazy;
 //xxxx xxxx xxx1 0010 tagged value
 
 
+pub const IMMIDATE_FIXNUM: usize = 0b110;
+pub const FIXNUM_MASK_BITS:usize = 3;
+
 // [tagged value]
 // Nil, true, false, ...
-const IMMIDATE_TAGGED_VALUE: usize = 0b0001_0010;
+const IMMIDATE_TAGGED_VALUE: usize = 0b1_0010;
 
 
 const fn tagged_value(tag: usize) -> usize {
@@ -90,7 +93,8 @@ enum PtrKind {
     True,
     False,
     Unit,
-    MatchFail
+    MatchFail,
+    Fixnum,
 }
 
 fn pointer_kind<T>(ptr: *const T) -> PtrKind {
@@ -99,6 +103,8 @@ fn pointer_kind<T>(ptr: *const T) -> PtrKind {
     //下位2bitが00なら生ポインタ
     if value & 0b11 == 0 {
         PtrKind::Ptr
+    } else if value & 0b111 ==  IMMIDATE_FIXNUM {
+        PtrKind::Fixnum
     } else {
         //残りは下位16bitで判断する
         match value &0xFFFF {
@@ -145,6 +151,9 @@ pub fn get_typeinfo<T: NaviType>(this: &T) -> &'static TypeInfo{
         }
         PtrKind::MatchFail => {
             crate::value::syntax::r#match::MatchFail::typeinfo()
+        }
+        PtrKind::Fixnum => {
+            crate::value::number::Fixnum::typeinfo()
         }
         PtrKind::Ptr => {
             mm::get_typeinfo(ptr)

@@ -895,18 +895,19 @@ mod tests {
         let obj = &mut obj;
 
         {
-            let _1 = number::Integer::alloc(1, obj).unwrap().into_value().capture(obj);
+            let _0 = number::make_integer(0, obj).unwrap().capture(obj);
+            let _1 = number::Real::alloc(1f64, obj).unwrap().capture(obj);
             {
-                let _2 = number::Integer::alloc(2, obj).unwrap().into_value().capture(obj);
-                let _3 = number::Integer::alloc(3, obj).unwrap().into_value().capture(obj);
+                let _2 = number::Real::alloc(2f64, obj).unwrap().capture(obj);
+                let _3 = number::Real::alloc(3f64, obj).unwrap().capture(obj);
 
                 obj.do_gc();
-                let used = (std::mem::size_of::<GCHeader>() + std::mem::size_of::<number::Integer>()) * 3;
+                let used = (std::mem::size_of::<GCHeader>() + std::mem::size_of::<number::Real>()) * 3;
                 assert_eq!(obj.heap_used(), used);
             }
 
             obj.do_gc();
-            let used = (std::mem::size_of::<GCHeader>() + std::mem::size_of::<number::Integer>()) * 1;
+            let used = (std::mem::size_of::<GCHeader>() + std::mem::size_of::<number::Real>()) * 1;
             assert_eq!(obj.heap_used(), used);
         }
 

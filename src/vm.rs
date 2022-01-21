@@ -973,8 +973,8 @@ mod tests {
             eval::<Any>(program, obj).capture(obj);
 
             let program = "(loop 100000)";
-            let result = eval::<number::Integer>(program, obj).capture(obj);
-            let ans = number::Integer::alloc(0, ans_obj).unwrap();
+            let result = eval::<Any>(program, obj).capture(obj);
+            let ans = number::make_integer(0, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }

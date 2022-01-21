@@ -218,7 +218,7 @@ mod tests {
             let mut ans = eval::<reply::Reply>(program, standalone.mut_object()).capture(standalone.mut_object());
             let ans = get_reply_value(&mut ans, standalone.mut_object()).unwrap();
             assert!(ans.is::<number::Integer>());
-            assert_eq!(unsafe { ans.cast_unchecked::<number::Integer>().as_ref().get() }, 10);
+            assert_eq!(number::get_integer(&ans), 10);
 
             //sendの戻り値はReply型
             let program = "(let a (send obj 2))";

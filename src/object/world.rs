@@ -63,12 +63,12 @@ mod tests {
         let obj = &mut obj;
 
         {
-            let v = number::Integer::alloc(1, obj).unwrap().into_value();
+            let v = number::make_integer(1, obj).unwrap();
             obj.define_global_value("symbol", &v);
 
             let symbol = symbol::Symbol::alloc(&"symbol".to_string(), obj).unwrap();
             let result = world_get(symbol.as_ref(), obj).reach(obj);
-            let ans = number::Integer::alloc(1, obj).unwrap().into_value().reach(obj);
+            let ans = number::make_integer(1, obj).unwrap().reach(obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
 

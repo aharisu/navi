@@ -312,8 +312,8 @@ fn func_is_tuple(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> 
 fn func_tuple_len(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let v = vm::refer_arg::<tuple::Tuple>(0, obj);
 
-    let num = number::Integer::alloc(v.as_ref().len as i64, obj)?;
-    Ok(num.into_value())
+    let num = number::make_integer(v.as_ref().len as i64, obj)?;
+    Ok(num)
 }
 
 fn func_tuple_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
