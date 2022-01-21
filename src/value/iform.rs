@@ -888,6 +888,7 @@ impl AsIForm for IFormSeq {}
 pub struct IFormCall {
     app: Ref<IForm>,
     args: Ref<Array<IForm>>,
+    is_tail: bool,
 }
 
 impl NaviType for IFormCall {
@@ -901,7 +902,7 @@ impl NaviType for IFormCall {
             let app = IForm::clone_inner(self.app.as_ref(), allocator)?.into_reachable();
             let args = Array::clone_inner(self.args.as_ref(), allocator)?.into_reachable();
 
-            Self::alloc(&app, &args, allocator)
+            Self::alloc(&app, &args, self.is_tail, allocator)
         }
     }
 }
@@ -917,12 +918,13 @@ impl IFormCall {
         callback(self.args.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(app: &Reachable<IForm>, args: &Reachable<Array<IForm>>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(app: &Reachable<IForm>, args: &Reachable<Array<IForm>>, is_tail: bool, allocator: &mut A) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormCall>()?;
         unsafe {
             std::ptr::write(ptr.as_ptr(), IFormCall {
                     app: app.raw_ptr().into(),
                     args: args.raw_ptr().into(),
+                    is_tail,
                 });
         }
 
@@ -941,8 +943,16 @@ impl IFormCall {
         self.args.as_ref().get(index)
     }
 
+    pub fn is_tail(&self) -> bool {
+        self.is_tail
+    }
+
     fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(IFCall {} {})", self.app.as_ref(), self.args.as_ref())
+        if self.is_tail {
+            write!(f, "(IFTailCall {} {})", self.app.as_ref(), self.args.as_ref())
+        } else {
+            write!(f, "(IFCall {} {})", self.app.as_ref(), self.args.as_ref())
+        }
     }
 }
 

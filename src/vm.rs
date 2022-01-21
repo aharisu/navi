@@ -37,12 +37,14 @@ pub mod tag {
     pub const CLOSURE:u8 = 13;
     pub const RETURN:u8 = 14;
     pub const CALL_PREPARE:u8 = 15;
+    pub const CALL_TAIL_PREPARE:u8 = 22;
     pub const CALL:u8 = 18;
+    pub const CALL_TAIL:u8 = 17;
     pub const AND:u8 = 19;
     pub const OR:u8 = 20;
     pub const MATCH_SUCCESS:u8 = 21;
 
-    //miss number 17, 22, 23
+    //miss number 23
     //next number 26
 }
 
@@ -721,7 +723,41 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 //argpポインタを新しく追加したポインタに差し替える
                 obj.vm_state().argp = push(new_env, &mut obj.vm_state().stack);
             }
-            tag::CALL => {
+            tag::CALL_TAIL_PREPARE => {
+                //末尾文脈のCALLではContinuationフレームを積まない
+                let new_env = Environment {
+                    up: std::ptr::null_mut(), //準備段階ではupポインタはNULLにする
+                    size: 0,
+                };
+                //argpポインタを新しく追加したポインタに差し替える
+                obj.vm_state().argp = push(new_env, &mut obj.vm_state().stack);
+            }
+            tag::CALL |
+            tag::CALL_TAIL => {
+                //TODO よく使う命令にif文を増やしたくない。どうにかして共通部分をくくりだしたい
+                if tag == tag::CALL_TAIL {
+                    //現在のローカルフレームを破棄する
+                    unsafe {
+                        let vmstate = obj.vm_state();
+
+                        //Stack内の破棄するローカルフレームのバイト数を計算
+                        let discard_bytes = size_of::<Environment>() + (*vmstate.env).size * size_of::<Ref<Any>>();
+                        //Callする関数用の新しいローカルフレームのバイト数を計算
+                        let new_frame_bytes = size_of::<Environment>() + (*vmstate.argp).size * size_of::<Ref<Any>>();
+
+                        //破棄するローカルフレームを上書きするように、新しいローカルフレームの位置をずらす。
+                        std::ptr::copy(vmstate.argp as *mut u8, vmstate.env as * mut u8, new_frame_bytes);
+                        //argpポインタをずらした先のアドレスに修正
+                        vmstate.argp = vmstate.env;
+
+                        //フレームをずらしたことにより使用しなくなった領域分、スタックポインタを戻す
+                        pop_from_size(&mut vmstate.stack, discard_bytes);
+
+                        //envポインタをロールバック
+                        obj.vm_state().env = (*obj.vm_state().env).up;
+                    }
+                }
+
                 //引数構築の完了処理を行う。
                 complete_arg!();
 
@@ -792,11 +828,13 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                         return Err(ExecException::Exception(err::Exception::Other(format!("Invalid arguments. require:{} actual:{}", num_require, num_args))));
                     }
 
-                    //実行するプログラムが保存されたバッファを切り替えるため
-                    //現在実行中のプログラムをContinuationの中に保存する
-                    unsafe {
-                        (*obj.vm_state().cont).code = Some(obj.vm_state().code.clone());
-                        (*obj.vm_state().cont).pc = program.position();
+                    if tag != tag::CALL_TAIL {
+                        //実行するプログラムが保存されたバッファを切り替えるため
+                        //現在実行中のプログラムをContinuationの中に保存する
+                        unsafe {
+                            (*obj.vm_state().cont).code = Some(obj.vm_state().code.clone());
+                            (*obj.vm_state().cont).pc = program.position();
+                        }
                     }
 
                     let code = closure.as_ref().code();
@@ -897,4 +935,47 @@ fn read_usize<T: Read>(buf: &mut T) -> usize {
     buf.read_exact(&mut tmp).unwrap();
 
     usize::from_le_bytes(tmp)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::object::Object;
+    use crate::read::*;
+    use crate::value::*;
+    use crate::value::any::Any;
+    use crate::ptr::*;
+
+    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
+        let mut reader = Reader::new(program.chars().peekable());
+        let result = crate::read::read(&mut reader, obj);
+        assert!(result.is_ok());
+        let sexp = result.unwrap();
+
+        let sexp = sexp.reach(obj);
+        let result = crate::eval::eval(&sexp, obj).unwrap();
+        let result = result.try_cast::<T>();
+        assert!(result.is_some());
+
+        result.unwrap().clone()
+    }
+
+
+    #[test]
+    fn test_tail_rec() {
+        let mut obj = Object::new_for_test();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new_for_test();
+        let ans_obj = &mut ans_obj;
+
+        {
+            let program = "(let loop (fun (n) (if (= n 0) n (loop (- n 1)))))";
+            eval::<Any>(program, obj).capture(obj);
+
+            let program = "(loop 100000)";
+            let result = eval::<number::Integer>(program, obj).capture(obj);
+            let ans = number::Integer::alloc(0, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+    }
 }

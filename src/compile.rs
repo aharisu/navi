@@ -11,6 +11,7 @@ use crate::value::symbol::Symbol;
 use crate::value::list::List;
 use crate::value::syntax::Syntax;
 use crate::value::iform::*;
+use crate::value::func::*;
 
 struct LocalVar {
     pub name: Cap<Symbol>,
@@ -22,6 +23,7 @@ struct LocalVar {
 pub struct CCtx<'a> {
     frames: &'a mut Vec<Vec<LocalVar>>,
     toplevel: bool,
+    tail: bool,
 }
 
 #[derive(Debug)]
@@ -67,15 +69,19 @@ impl From<SyntaxException> for Exception {
     }
 }
 
-pub fn compile(sexp: &Reachable<Any>, obj: &mut Object) -> NResult<compiled::Code, SyntaxException> {
+pub fn compile_transform(sexp: &Reachable<Any>, obj: &mut Object) -> NResult<iform::IForm, SyntaxException> {
     let mut frames = Vec::new();
     let mut ctx = CCtx {
         frames: &mut frames,
         toplevel: true,
+        tail: false,
     };
 
-    let iform = pass_transform(sexp, &mut ctx, obj)?.reach(obj);
-    //dbg!((sexp.as_ref(), iform.as_ref()));
+    pass_transform(sexp, &mut ctx, obj)
+}
+
+pub fn compile(sexp: &Reachable<Any>, obj: &mut Object) -> NResult<compiled::Code, SyntaxException> {
+    let iform = compile_transform(sexp, obj)?.reach(obj);
 
     let code = codegen::code_generate(&iform, obj)?;
     Ok(code)
@@ -203,6 +209,7 @@ fn transform_symbol(symbol: &Reachable<Symbol>, ctx: &mut CCtx, obj: &mut Object
 }
 
 fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+    let is_tail = ctx.tail;
     let app = list.as_ref().head();
 
     //Syntaxを適用しているなら、Syntaxを適用して変換する
@@ -222,6 +229,7 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
+        tail: false,
     };
 
     //適用される値を変換
@@ -238,13 +246,15 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     let args = builder_args.get().reach(obj);
 
     //IFormCallを作成して戻り値にする
-    alloc_into_iform(IFormCall::alloc(&app, &args, obj))
+    alloc_into_iform(IFormCall::alloc(&app, &args, is_tail, obj))
 }
 
 fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+    let is_tail = ctx.tail;
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
+        tail: false,
     };
 
     let app = pass_transform(&tuple::literal::tuple().into_value(), &mut ctx, obj)?.reach(obj);
@@ -259,13 +269,15 @@ fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Ob
     let args = builder_args.get().reach(obj);
 
     //IFormCallを作成して戻り値にする
-    alloc_into_iform(IFormCall::alloc(&app, &args, obj))
+    alloc_into_iform(IFormCall::alloc(&app, &args, is_tail, obj))
 }
 
 fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+    let is_tail = ctx.tail;
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
+        tail: false,
     };
 
     let app = pass_transform(&array::literal::array().into_value(), &mut ctx, obj)?.reach(obj);
@@ -280,7 +292,7 @@ fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &m
     let args = builder_args.get().reach(obj);
 
     //IFormCallを作成して戻り値にする
-    alloc_into_iform(IFormCall::alloc(&app, &args, obj))
+    alloc_into_iform(IFormCall::alloc(&app, &args, is_tail, obj))
 }
 
 fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
@@ -293,15 +305,21 @@ fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mu
 }
 
 fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
-    let mut ctx = CCtx {
+    let mut test_ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
+        tail: false,
     };
-
-    let pred = pass_transform(&args.as_ref().head().reach(obj), &mut ctx, obj)?.reach(obj);
+    let pred = pass_transform(&args.as_ref().head().reach(obj), &mut test_ctx, obj)?.reach(obj);
 
     let args = args.as_ref().tail();
     let true_ = args.as_ref().head().reach(obj);
+
+    let mut ctx = CCtx {
+        frames: ctx.frames,
+        toplevel: false,
+        tail: ctx.tail,
+    };
 
     let args = args.as_ref().tail();
     let false_ = if args.as_ref().is_nil() {
@@ -324,19 +342,24 @@ fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NRes
         let clause = args.as_ref().head();
         if let Some(clause) = clause.try_cast::<List>() {
             let test = clause.as_ref().head().reach(obj);
+            let then_clause = clause.as_ref().tail().reach(obj);
 
             //最後の節のTEST式がシンボルのelseなら、無条件でbody部分を実行するように変換する
             if is_last {
                 if let Some(else_) = test.try_cast::<Symbol>() {
                     if else_.as_ref().as_ref() == "else" {
-                        return transform_begin(&clause.as_ref().tail().reach(obj), ctx, obj);
+                        return transform_begin(&then_clause, ctx, obj);
                     }
                 }
             }
 
-            let then_clause = clause.as_ref().tail().reach(obj);
+            let mut test_ctx = CCtx {
+                frames: ctx.frames,
+                toplevel: false,
+                tail: false,
+            };
             //TEST部分を変換
-            let test_iform = pass_transform(&test, ctx, obj)?.reach(obj);
+            let test_iform = pass_transform(&test, &mut test_ctx, obj)?.reach(obj);
             //TESTの結果がtrueだったときに実行する式を変換
             let exprs_iform = transform_begin(&then_clause, ctx, obj)?.reach(obj);
             //TESTの結果がfalseだったときの次の節を変換
@@ -363,6 +386,7 @@ fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NRes
         let mut ctx = CCtx {
             frames: ctx.frames,
             toplevel: false,
+            tail: ctx.tail,
         };
 
         cond_inner(args, &mut ctx, obj)
@@ -375,8 +399,25 @@ fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     let size = body.as_ref().count();
     let mut builder = array::ArrayBuilder::new(size, obj)?;
 
-    for sexp in body.iter(obj) {
-        let iform = pass_transform(&sexp.reach(obj), ctx, obj)?;
+    for (index, sexp) in body.iter(obj).enumerate() {
+        //最後の式か？
+        let mut ctx = if index == size - 1 {
+            //最後の式ならもともとのtail文脈を引き継ぐ
+            CCtx {
+                frames: ctx.frames,
+                toplevel: ctx.toplevel,
+                tail: ctx.tail,
+            }
+        } else {
+            //途中の式はすべてtail文脈ではない
+            CCtx {
+                frames: ctx.frames,
+                toplevel: ctx.toplevel,
+                tail: false,
+            }
+        };
+
+        let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj)?;
         unsafe { builder.push_uncheck(&iform, obj) };
     }
 
@@ -428,6 +469,7 @@ fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
         let mut ctx = CCtx {
             frames: ctx.frames,
             toplevel: true,
+            tail: true,
         };
 
         //ローカルフレーム内でBody部分を変換
@@ -453,6 +495,7 @@ fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NRe
     let mut ctx = CCtx {
         frames: ctx.frames,
         toplevel: true,
+        tail: ctx.tail,
     };
 
     //ローカルフレームが積まれた状態でBody部分を変換
@@ -473,6 +516,7 @@ fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
         let mut ctx = CCtx {
             frames: ctx.frames,
             toplevel: false,
+            tail: false,
         };
 
         let value = args.as_ref().tail().as_ref().head().reach(obj);
@@ -498,6 +542,7 @@ fn syntax_let_global(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -
         let mut ctx = CCtx {
             frames: ctx.frames,
             toplevel: false,
+            tail: false,
         };
 
         let value = args.as_ref().tail().as_ref().head().reach(obj);
@@ -536,11 +581,6 @@ fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NRe
 }
 
 fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
-    let mut ctx = CCtx {
-        frames: ctx.frames,
-        toplevel: false,
-    };
-
     //fail-catchはmatch式の中でだけ使用される特殊な構文
     //引数の式を評価し、値がFAILでなければその値を返す。
     //引数全てFAILならFAILを返す。
@@ -551,7 +591,24 @@ fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -
 
     let mut builder = array::ArrayBuilder::new(size, obj)?;
 
-    for sexp in args.iter(obj) {
+    for (index, sexp) in args.iter(obj).enumerate() {
+        //最後の式か？
+        let mut ctx = if index == size - 1 {
+            //最後の式ならもともとのtail文脈を引き継ぐ
+            CCtx {
+                frames: ctx.frames,
+                toplevel: false,
+                tail: ctx.tail,
+            }
+        } else {
+            //途中の式はすべてtail文脈ではない
+            CCtx {
+                frames: ctx.frames,
+                toplevel: false,
+                tail: false,
+            }
+        };
+
         let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj)?;
         unsafe { builder.push_uncheck(&iform, obj) };
     }
@@ -560,11 +617,6 @@ fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -
 }
 
 fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
-    let mut ctx = CCtx {
-        frames: ctx.frames,
-        toplevel: false,
-    };
-
     let size = args.as_ref().count();
     //(and)のように引数が一つもなければ
     if size == 0 {
@@ -573,7 +625,23 @@ fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
     } else {
         let mut builder = array::ArrayBuilder::new(size, obj)?;
 
-        for sexp in args.iter(obj) {
+        for (index, sexp) in args.iter(obj).enumerate() {
+            //最後の式か？
+            let mut ctx = if index == size - 1 {
+                //最後の式ならもともとのtail文脈を引き継ぐ
+                CCtx {
+                    frames: ctx.frames,
+                    toplevel: false,
+                    tail: ctx.tail,
+                }
+            } else {
+                //途中の式はすべてtail文脈ではない
+                CCtx {
+                    frames: ctx.frames,
+                    toplevel: false,
+                    tail: false,
+                }
+            };
             let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj)?;
             unsafe { builder.push_uncheck(&iform, obj) };
         }
@@ -583,11 +651,6 @@ fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
 }
 
 fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
-    let mut ctx = CCtx {
-        frames: ctx.frames,
-        toplevel: false,
-    };
-
     let size = args.as_ref().count();
     //(or)のように引数が一つもなければ
     if size == 0 {
@@ -596,7 +659,23 @@ fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResul
     } else {
         let mut builder = array::ArrayBuilder::new(size, obj)?;
 
-        for sexp in args.iter(obj) {
+        for (index, sexp) in args.iter(obj).enumerate() {
+            //最後の式か？
+            let mut ctx = if index == size - 1 {
+                //最後の式ならもともとのtail文脈を引き継ぐ
+                CCtx {
+                    frames: ctx.frames,
+                    toplevel: false,
+                    tail: ctx.tail,
+                }
+            } else {
+                //途中の式はすべてtail文脈ではない
+                CCtx {
+                    frames: ctx.frames,
+                    toplevel: false,
+                    tail: false,
+                }
+            };
             let iform = pass_transform(&sexp.reach(obj), &mut ctx, obj)?;
             unsafe { builder.push_uncheck(&iform, obj) };
         }
@@ -911,7 +990,11 @@ mod codegen {
     }
 
     fn codegen_call(iform: &Reachable<IFormCall>, ctx: &mut CGCtx, obj: &mut Object) {
-        write_u8(vm::tag::CALL_PREPARE, &mut ctx.buf);
+        if iform.as_ref().is_tail() {
+            write_u8(vm::tag::CALL_TAIL_PREPARE, &mut ctx.buf);
+        } else {
+            write_u8(vm::tag::CALL_PREPARE, &mut ctx.buf);
+        }
 
         //eval app
         pass_codegen(&iform.as_ref().app().reach(obj), ctx, obj);
@@ -926,7 +1009,11 @@ mod codegen {
         }
 
         //apply
-        write_u8(vm::tag::CALL, &mut ctx.buf);
+        if iform.as_ref().is_tail() {
+            write_u8(vm::tag::CALL_TAIL, &mut ctx.buf);
+        } else {
+            write_u8(vm::tag::CALL, &mut ctx.buf);
+        }
     }
 
     fn codegen_const(iform: &Reachable<IFormConst>, ctx: &mut CGCtx, obj: &mut Object) {
@@ -1046,6 +1133,20 @@ mod codegen {
 
 }
 
+fn func_compile(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    let v = crate::vm::refer_arg::<Any>(0, obj).reach(obj);
+
+    let compiled = compile(&v, obj)?;
+    Ok(compiled.into_value())
+}
+
+fn func_compile_transform(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    let v = crate::vm::refer_arg::<Any>(0, obj).reach(obj);
+
+    let compiled = compile_transform(&v, obj)?;
+    Ok(compiled.into_value())
+}
+
 static SYMBOL_APP: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(|| {
     symbol::gensym_static("app")
 });
@@ -1118,6 +1219,24 @@ static SYNTAX_FAIL_CATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(syntax::Syntax::new("fail-catch", 0, 0, true, syntax_fail_catch))
 });
 
+static FUNC_COMPILE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("compile", &[
+            Param::new("v", ParamKind::Require, Any::typeinfo()),
+            ],
+            func_compile)
+    )
+});
+
+static FUNC_COMPILE_TRANSFORM: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("compile-transform", &[
+            Param::new("v", ParamKind::Require, Any::typeinfo()),
+            ],
+            func_compile_transform)
+    )
+});
+
 pub fn register_global(obj: &mut Object) {
     obj.define_global_value("if", &Ref::new(&SYNTAX_IF.value));
     obj.define_global_value("begin", &Ref::new(&SYNTAX_BEGIN.value));
@@ -1135,6 +1254,8 @@ pub fn register_global(obj: &mut Object) {
     obj.define_global_value("or", &Ref::new(&SYNTAX_OR.value));
     obj.define_global_value("object-switch", &Ref::new(&SYNTAX_OBJECT_SWITCH.value));
     obj.define_global_value("return-object-switch", &Ref::new(&SYNTAX_RETURN_OBJECT_SWITCH.value));
+    obj.define_global_value("compile", &Ref::new(&FUNC_COMPILE.value));
+    obj.define_global_value("compile-transform", &Ref::new(&FUNC_COMPILE_TRANSFORM.value));
 }
 
 pub mod literal {
