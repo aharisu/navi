@@ -10,7 +10,7 @@ fn main() {
     let mut reader = Reader::new(StdinChars::new().peekable());
 
     loop {
-        print!("navi> ");
+        print!("navi #{}> ", standalone.object().id());
         stdout().flush().unwrap();
         match navi::read::read(&mut reader, standalone.mut_object()) {
             Ok(v) => {
