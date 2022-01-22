@@ -129,6 +129,16 @@ fn func_equal(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     }
 }
 
+fn func_print(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    for index in 0 .. num_rest {
+        let v = vm::refer_rest_arg::<Any>(0, index, obj);
+        print!("{}", v.as_ref());
+    }
+
+    println!();
+    Ok(tuple::Tuple::unit().into_ref().into_value())
+}
+
 static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("=",
@@ -140,8 +150,19 @@ static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
+static FUNC_PRINT: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("print",
+            &[
+            Param::new("values", ParamKind::Rest, Any::typeinfo()),
+            ],
+            func_print)
+    )
+});
+
 pub fn register_global(obj: &mut Object) {
     obj.define_global_value("=", &Ref::new(&FUNC_EQUAL.value));
+    obj.define_global_value("print", &Ref::new(&FUNC_PRINT.value));
 }
 
 pub mod literal {
