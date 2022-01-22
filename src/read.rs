@@ -291,12 +291,28 @@ const fn is_whitespace(ch: char) -> bool {
     }
 }
 
+fn read_line_comment<I: Iterator<Item=char>>(reader: &mut Reader<I>) {
+    loop {
+        if let Some(ch) = reader.input.next() {
+            if ch == '\n' {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+}
+
 fn skip_whitespace<I: Iterator<Item=char>>(reader: &mut Reader<I>) {
     let mut next = reader.input.peek();
     while let Some(ch) = next {
         if is_whitespace(*ch) {
             //Skip!!
             reader.input.next();
+            next = reader.input.peek();
+        } else if *ch == ';' {
+            read_line_comment(reader);
+
             next = reader.input.peek();
         } else {
             next = None;
@@ -362,6 +378,24 @@ mod tests {
         let result = result.as_ref().try_cast::<T>();
         assert!(result.is_some());
         Ref::new(result.unwrap())
+    }
+
+    #[test]
+    fn read_comment() {
+        let mut obj = Object::new_for_test();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new_for_test();
+        let ans_obj = &mut ans_obj;
+
+        {
+            let program = r#" ;1 2 3
+            4
+            "#;
+
+            let result = read::<Any>(program, obj);
+            let ans = number::make_integer(4, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
     }
 
     #[test]
