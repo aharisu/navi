@@ -217,12 +217,12 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
         //get binding variable
         if let Some(val) = get_binding_variable(symbol.as_ref(), ctx, obj) {
             if let Some(syntax) = val.try_cast::<Syntax>() {
-                return transform_syntax(&syntax.clone().reach(obj), &list.as_ref().tail().reach(obj), ctx, obj);
+                return transform_syntax(&syntax.clone().reach(obj), list, ctx, obj);
             }
         }
 
     } else if let Some(syntax) = app.try_cast::<Syntax>() {
-        return transform_syntax(&syntax.clone().reach(obj), &list.as_ref().tail().reach(obj), ctx, obj);
+        return transform_syntax(&syntax.clone().reach(obj), list, ctx, obj);
     }
 
     //Syntax以外の場合は関数呼び出しとして変換する
@@ -295,13 +295,19 @@ fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &m
     alloc_into_iform(IFormCall::alloc(&app, &args, is_tail, obj))
 }
 
-fn transform_syntax(syntax: &Reachable<Syntax>, args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn transform_syntax(syntax: &Reachable<Syntax>, list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
     let syntax = syntax.as_ref();
+    let args = list.as_ref().tail().reach(obj);
 
-    //TODO 引数の数や型のチェック
-
-    //Syntaxを実行してIFormに変換する
-    syntax.transform(args, ctx, obj)
+    //引数の数や型のチェック
+    if syntax.check_arguments(&args) {
+        //Syntaxを実行してIFormに変換する
+        syntax.transform(&args, ctx, obj)
+    } else {
+        Err(SyntaxException::MalformedFormat(
+            err::MalformedFormat::new(Some(list.make().into_value()), "Malformed format syntax.")
+        ))
+    }
 }
 
 fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
@@ -1189,19 +1195,19 @@ mod codegen {
                 if sym.as_ref() == symbol.as_ref() {
                     return localrefer(LocalRefer::Normal(frame_offset, localframe.frame.len() - cell_offset - 1), symbol, free_vars_frames, obj);
                 }
-                }
+            }
 
             if let Some(free_vars) = localframe.free_vars.as_mut() {
                 for (cell_offset, (sym, _)) in free_vars.iter().rev().enumerate() {
                     if sym.as_ref() == symbol.as_ref() {
                         return localrefer(LocalRefer::FreeVar(frame_offset, cell_offset), symbol, free_vars_frames, obj);
                     }
-            }
+                }
 
                 free_vars_frames.push((free_vars, frame_offset));
                 frame_offset = 0;
             } else {
-            frame_offset += 1;
+                frame_offset += 1;
             }
         }
 
