@@ -20,6 +20,7 @@ pub mod tag {
     pub const JUMP_OFFSET: u8 = 0;
     pub const IF: u8 = 1;
     pub const REF_LOCAL: u8 = 2;
+    pub const REF_FREE: u8 = 23;
     pub const REF_GLOBAL: u8 = 3;
     pub const CONST_CAPTURE: u8 = 4;
     pub const CONST_STATIC: u8 = 5;
@@ -35,6 +36,8 @@ pub mod tag {
     pub const POP_ENV:u8 = 11;
     pub const PUSH_EMPTY_ENV:u8 = 12;
     pub const CLOSURE:u8 = 13;
+    pub const CAPTURE_FREE_REF_LOCAL: u8 = 27;
+    pub const CAPTURE_FREE_REF_FREE: u8 = 28;
     pub const RETURN:u8 = 14;
     pub const CALL_PREPARE:u8 = 15;
     pub const CALL_TAIL_PREPARE:u8 = 22;
@@ -44,8 +47,7 @@ pub mod tag {
     pub const OR:u8 = 20;
     pub const MATCH_SUCCESS:u8 = 21;
 
-    //miss number 23
-    //next number 26
+    //next number 29
 }
 
 #[derive(Debug)]
@@ -149,7 +151,7 @@ fn pop_from_size(stack: &mut VMStack, decriment: usize) {
 
 #[inline]
 pub fn refer_arg<T: NaviType>(index: usize, obj: &mut Object) -> Ref<T> {
-    let v = refer_local_var(obj.vm_state().env, index + 1);
+    let v = refer_local_var(obj.vm_state().env, 0, index + 1);
     //Funcの引数はすべて型チェックされている前提なのでuncheckedでキャストする
     unsafe { v.cast_unchecked::<T>().clone() }
 }
@@ -159,7 +161,13 @@ pub fn refer_rest_arg<T: NaviType>(index: usize, rest_index: usize, obj: &mut Ob
     refer_arg::<T>(index + rest_index, obj)
 }
 
-fn refer_local_var(env: *const Environment, index: usize) -> Ref<Any> {
+fn refer_local_var(mut env: *const Environment, mut frame_offset: usize, index: usize) -> Ref<Any> {
+    //目的の位置まで環境を上に上に順に辿っていく
+    while frame_offset > 0 {
+        env = unsafe { (*env).up };
+        frame_offset -= 1;
+    }
+
     //目的の環境内にあるローカルフレームから値を取得
     unsafe {
         //ローカルフレームは環境ヘッダの後ろ側にある
@@ -474,18 +482,26 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 reduce!(1);
             }
             tag::REF_LOCAL => {
-                let mut frame_offset = read_u16(&mut program);
+                let frame_offset = read_u16(&mut program);
                 let cell_index = read_u16(&mut program);
 
-                //目的の位置まで環境を上に上に順に辿っていく
-                let mut target_env = obj.vm_state().env;
-                while frame_offset > 0 {
-                    target_env = unsafe { (*target_env).up };
-                    frame_offset -= 1;
-                }
+                //目的の環境内にあるローカルフレームから値を取得
+                obj.vm_state().acc = refer_local_var(obj.vm_state().env, frame_offset as usize, cell_index as usize);
+            }
+            tag::REF_FREE => {
+                let frame_offset = read_u16(&mut program);
+                let cell_index = read_u16(&mut program);
 
                 //目的の環境内にあるローカルフレームから値を取得
-                obj.vm_state().acc = refer_local_var(target_env, cell_index as usize);
+                let closure = refer_local_var(obj.vm_state().env, frame_offset as usize, 0);
+                if let Some(closure) = closure.try_cast::<compiled::Closure>() {
+                    //クロージャ内で保持している自由変数を取得
+                    obj.vm_state().acc = closure.as_ref().get(cell_index as usize);
+
+                } else {
+                    //0番目の値がclosure以外の場合、不具合なのでパニックさせる
+                    panic!("need closure. but got {}", closure.as_ref())
+                }
             }
             tag::REF_GLOBAL => {
                 let const_index = read_u16(&mut program);
@@ -517,7 +533,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                 let argp_env = obj.vm_state().argp;
                 //引数準備中フレームからappを取得
-                let app = refer_local_var(argp_env, 0);
+                let app = refer_local_var(argp_env, 0, 0);
                 if let Some(func) = app.try_cast::<func::Func>() {
                     let index = unsafe { (*argp_env).size - 1 };
                     let parameter = func.as_ref().get_paramter();
@@ -688,6 +704,9 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 //Closure本体式の長さ
                 let body_size = read_u16(&mut program) as usize;
 
+                //自由変数の数
+                let num_free_vars = read_u16(&mut program) as usize;
+
                 //プログラムの中からClosureの本体を切り出す
                 let mut closure_body:Vec<u8> = Vec::new();
                 let cur = program.position() as usize;
@@ -697,10 +716,50 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 //読み込んだClosure本体のデータ分、プログラムカウンタを進める
                 program.seek(SeekFrom::Current(body_size as i64)).unwrap();
 
-                obj.vm_state().acc = compiled::Closure::alloc(closure_body, constants, num_args, obj)?.into_value();
+                obj.vm_state().acc = compiled::Closure::alloc(closure_body, constants, num_args, num_free_vars, obj)?.into_value();
 
                 reduce!(5);
             }
+            tag::CAPTURE_FREE_REF_LOCAL => {
+                let frame_offset = read_u16(&mut program);
+                let cell_index = read_u16(&mut program);
+
+                //目的の環境内にあるローカルフレームから値を取得
+                let v = refer_local_var(obj.vm_state().env, frame_offset as usize, cell_index as usize);
+
+                let closure = &mut obj.vm_state().acc;
+                let cell_index = read_u16(&mut program);
+                if let Some(closure) = closure.try_cast_mut::<compiled::Closure>() {
+                    closure.set(&v, cell_index as usize)
+                } else {
+                    panic!("need closure. but got {}", closure.as_ref())
+                }
+            }
+            tag::CAPTURE_FREE_REF_FREE => {
+                let frame_offset = read_u16(&mut program);
+                let cell_index = read_u16(&mut program);
+
+                //目的の環境内にあるローカルフレームから値を取得
+                let closure = refer_local_var(obj.vm_state().env, frame_offset as usize, 0);
+                if let Some(closure) = closure.try_cast::<compiled::Closure>() {
+                    //クロージャ内で保持している自由変数を取得
+                    let v = closure.as_ref().get(cell_index as usize);
+
+                    let closure = &mut obj.vm_state().acc;
+                    let set_cell_index = read_u16(&mut program);
+                    if let Some(closure) = closure.try_cast_mut::<compiled::Closure>() {
+                        closure.set(&v, set_cell_index as usize)
+                    } else {
+                        panic!("need closure. but got {}", closure.as_ref())
+                    }
+
+                } else {
+                    //0番目の値がclosure以外の場合、不具合なのでパニックさせる
+                    panic!("need closure. but got {}", closure.as_ref())
+                }
+
+            }
+
             tag::RETURN => {
                 //Continuationに保存されている状態を復元
                 tag_return!();
@@ -763,7 +822,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                 let env = obj.vm_state().env;
                 //ローカルフレームの0番目にappが入っているので取得
-                let app = refer_local_var(env, 0);
+                let app = refer_local_var(env, 0, 0);
 
                 if let Some(func) = app.try_cast::<func::Func>() {
                     //関数に渡そうとしている引数の数(先頭に必ずfunc自身が入っているので-1する)
@@ -970,12 +1029,57 @@ mod tests {
 
         {
             let program = "(let loop (fun (n) (if (= n 0) n (loop (- n 1)))))";
-            eval::<Any>(program, obj).capture(obj);
+            eval::<Any>(program, obj);
 
             let program = "(loop 100000)";
             let result = eval::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(0, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
+
     }
+
+    #[test]
+    fn test_free_var() {
+        let mut obj = Object::new_for_test();
+        let obj = &mut obj;
+        let mut ans_obj = Object::new_for_test();
+        let ans_obj = &mut ans_obj;
+
+        {
+            let program = "(let add-x (local (let x ((fun () 10))) (fun (n) (+ x n))))";
+
+            eval::<Any>(program, obj);
+
+            let program = "(add-x 1)";
+            let result = eval::<Any>(program, obj).capture(obj);
+            let ans = number::make_integer(11, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
+        {
+            let program = r#"
+            (let add
+                (local
+                    (let x ((fun () 10)))
+                    (let y ((fun () 20)))
+                    (fun ()
+                        (let z ((fun () 30)))
+                        (fun (n)
+                            (local
+                                (let zz ((fun () 40)))
+                                (+ x y z zz n))))))"#;
+            eval::<Any>(program, obj);
+
+            let program = "(let add (add))";
+            eval::<Any>(program, obj);
+
+            let program = "(add 1)";
+            let result = eval::<Any>(program, obj).capture(obj);
+            let ans = number::make_integer(101, ans_obj).unwrap();
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
+    }
+
 }

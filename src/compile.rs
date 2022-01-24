@@ -728,12 +728,17 @@ mod codegen {
     use crate::value::symbol::Symbol;
     use crate::vm::{write_u16, write_u8, write_usize};
 
+    struct LocalFrame {
+        frame: Vec<Cap<Symbol>>,
+        free_vars: Option<Vec<(Cap<Symbol>, LocalRefer)>>,
+    }
+
     //
     // Code Generation Arg
     struct CGCtx<'a> {
         pub buf: Vec<u8>,
         pub constants: &'a mut Vec<Cap<Any>>,
-        pub frames: &'a mut Vec<Vec<Cap<Symbol>>>,
+        pub frames: &'a mut Vec<LocalFrame>,
     }
 
     impl <'a> CGCtx<'a> {
@@ -761,7 +766,7 @@ mod codegen {
 
     pub fn code_generate(iform: &Reachable<IForm>, obj: &mut Object) -> NResult<compiled::Code, OutOfMemory> {
         let mut constants:Vec<Cap<Any>> = Vec::new();
-        let mut frames:Vec<Vec<Cap<Symbol>>> = Vec::new();
+        let mut frames:Vec<LocalFrame> = Vec::new();
 
         let mut ctx = CGCtx {
             buf: Vec::new(),
@@ -838,7 +843,7 @@ mod codegen {
             //ローカルフレーム内に新しいシンボルを追加
             let symbol = iform.as_ref().symbol();
             let symbol = symbol.capture(obj);
-            ctx.frames.last_mut().unwrap().push(symbol);
+            ctx.frames.last_mut().unwrap().frame.push(symbol);
         }
     }
 
@@ -895,7 +900,10 @@ mod codegen {
     fn codegen_local(iform: &Reachable<IFormLocal>, ctx: &mut CGCtx, obj: &mut Object) {
         //新しいフレームをpush
         write_u8(vm::tag::PUSH_EMPTY_ENV, &mut ctx.buf);
-        ctx.frames.push(Vec::new());
+        ctx.frames.push(LocalFrame {
+            frame: Vec::new(),
+            free_vars: None,
+        });
 
         //bodの式を順に評価
         pass_codegen(&iform.as_ref().body().reach(obj), ctx, obj);
@@ -905,13 +913,21 @@ mod codegen {
         ctx.frames.pop();
     }
 
-    fn codegen_lref(iform: &Reachable<IFormLRef>, ctx: &mut CGCtx, _obj: &mut Object) {
-        let (frame_offset, cell_index) = lookup_local_refer(iform.as_ref().symbol().as_ref(), ctx);
+    fn codegen_lref(iform: &Reachable<IFormLRef>, ctx: &mut CGCtx, obj: &mut Object) {
+        let (tag, frame_offset, cell_index) = match lookup_local_refer(iform.as_ref().symbol(), ctx, obj) {
+            LocalRefer::Normal(frame_offset, cell_index) => {
+                (vm::tag::REF_LOCAL, frame_offset, cell_index)
+            }
+            LocalRefer::FreeVar(frame_offset, cell_index) => {
+                (vm::tag::REF_FREE, frame_offset, cell_index)
+            }
+        };
+
         debug_assert!(frame_offset < u16::MAX as usize);
         debug_assert!(cell_index < u16::MAX as usize);
 
         //タグ
-        write_u8(vm::tag::REF_LOCAL, &mut ctx.buf);
+        write_u8(tag, &mut ctx.buf);
         //フレームインデックス
         write_u16(frame_offset as u16, &mut ctx.buf);
         //フレーム内インデックス
@@ -937,7 +953,6 @@ mod codegen {
         write_u8(iform.as_ref().len_params() as u8, &mut ctx.buf);
 
         let mut new_frame: Vec<Cap<Symbol>> = Vec::new();
-        //TODO ダミーシンボルめんどくさい。
         //クロージャフレームの最初にはクロージャ自身が入っているためダミーのシンボルを先頭に追加
         new_frame.push(super::literal::app_symbol().make().capture(obj));
 
@@ -945,7 +960,10 @@ mod codegen {
             new_frame.push(iform.as_ref().get_param(index).capture(obj));
         }
 
-        ctx.frames.push(new_frame);
+        ctx.frames.push(LocalFrame {
+            frame: new_frame,
+            free_vars: Some(Vec::new()),
+        });
         let mut constants:Vec<Cap<Any>> = Vec::new();
         let buf_body = {
             let mut ctx_body = CGCtx {
@@ -956,9 +974,12 @@ mod codegen {
             //クロージャの本体を変換
             pass_codegen(&iform.as_ref().body().reach(obj), &mut ctx_body, obj);
 
+            //リターンタグ
+            write_u8(vm::tag::RETURN, &mut ctx_body.buf);
+
             ctx_body.buf
         };
-        ctx.frames.pop();
+        let free_vars = ctx.frames.pop().unwrap().free_vars.unwrap();
 
         let closure_constant_start = ctx.constants.len();
         let closure_constant_len = constants.len();
@@ -971,16 +992,43 @@ mod codegen {
         //Closure内で使用した定数を追加する
         ctx.constants.extend(constants);
 
-        //本体の長さを書き込む(本体の末尾にRETURNタグが書き込まれるので+1している)
-        let size = buf_body.len() + 1;
+        //本体の長さを書き込む
+        let size = buf_body.len();
         debug_assert!(size < u16::MAX as usize);
         write_u16(size as u16, &mut ctx.buf);
+
+        //自由変数の数を書き込む
+        let num_free_vars = free_vars.len();
+        debug_assert!(num_free_vars < u16::MAX as usize);
+        write_u16(num_free_vars as u16, &mut ctx.buf);
 
         //本体を書き込む
         ctx.buf.extend(buf_body);
 
-        //リターンタグ
-        write_u8(vm::tag::RETURN, &mut ctx.buf);
+        //Closureに自由変数を取り込むための命令を書き込む
+        for (index, (_, refer)) in free_vars.into_iter().enumerate() {
+
+            let (tag, frame_offset, cell_index) = match refer {
+                LocalRefer::Normal(frame_offset, cell_index) => {
+                    (vm::tag::CAPTURE_FREE_REF_LOCAL, frame_offset, cell_index)
+                }
+                LocalRefer::FreeVar(frame_offset, cell_index) => {
+                    (vm::tag::CAPTURE_FREE_REF_FREE, frame_offset, cell_index)
+                }
+            };
+
+            debug_assert!(frame_offset < u16::MAX as usize);
+            debug_assert!(cell_index < u16::MAX as usize);
+
+            //タグ
+            write_u8(tag, &mut ctx.buf);
+            //参照先フレームインデックス
+            write_u16(frame_offset as u16, &mut ctx.buf);
+            //参照先フレーム内インデックス
+            write_u16(cell_index as u16, &mut ctx.buf);
+            //書き込み先のインデックス
+            write_u16(index as u16, &mut ctx.buf);
+        }
     }
 
     fn codegen_seq(iform: &Reachable<IFormSeq>, ctx: &mut CGCtx, obj: &mut Object) {
@@ -1110,25 +1158,56 @@ mod codegen {
         }
     }
 
-    fn lookup_local_refer(symbol: &Symbol, ctx: &CGCtx) -> (usize, usize) {
-        let mut frame_offset = 0;
-        //この関数内ではGCが発生しないため値を直接参照する
-        for frame in ctx.frames.iter().rev() {
-            let mut cell_offset = 0;
-            for sym in frame.iter().rev() {
-                if sym.as_ref() == symbol {
-                    return (frame_offset, frame.len() - cell_offset - 1);
+    enum LocalRefer {
+        Normal(usize, usize),
+        FreeVar(usize, usize),
+    }
+
+    fn lookup_local_refer(symbol: Ref<Symbol>, ctx: &mut CGCtx, obj: &mut Object) -> LocalRefer {
+
+        fn localrefer(refer: LocalRefer, symbol: Ref<Symbol>, free_vars_frames: Vec<(&mut Vec<(Cap<Symbol>, LocalRefer)>, usize)>, obj: &mut Object) -> LocalRefer {
+            if free_vars_frames.is_empty() {
+                refer
+            } else {
+                let mut refer = refer;
+                for (free_vars, frame_offset) in free_vars_frames.into_iter().rev() {
+                    let pos = free_vars.len();
+                    free_vars.push((symbol.clone().capture(obj), refer));
+
+                    refer = LocalRefer::FreeVar(frame_offset, pos);
                 }
 
-                cell_offset += 1;
+                refer
+            }
+        }
+
+        let mut frame_offset = 0;
+        let mut free_vars_frames: Vec<(&mut Vec<(Cap<Symbol>, LocalRefer)>, usize)> = Vec::new();
+        //この関数内ではGCが発生しないため値を直接参照する
+        for localframe in ctx.frames.iter_mut().rev() {
+            for (cell_offset, sym) in localframe.frame.iter().rev().enumerate() {
+                if sym.as_ref() == symbol.as_ref() {
+                    return localrefer(LocalRefer::Normal(frame_offset, localframe.frame.len() - cell_offset - 1), symbol, free_vars_frames, obj);
+                }
+                }
+
+            if let Some(free_vars) = localframe.free_vars.as_mut() {
+                for (cell_offset, (sym, _)) in free_vars.iter().rev().enumerate() {
+                    if sym.as_ref() == symbol.as_ref() {
+                        return localrefer(LocalRefer::FreeVar(frame_offset, cell_offset), symbol, free_vars_frames, obj);
+                    }
             }
 
+                free_vars_frames.push((free_vars, frame_offset));
+                frame_offset = 0;
+            } else {
             frame_offset += 1;
+            }
         }
 
         //pass1のtransformの時点でローカル変数の解決は完了している
         //ここで見つからないのは不具合なのでpanicさせる
-        panic!("local variable not found {}", symbol);
+        panic!("local variable not found {}", symbol.as_ref());
     }
 
 }

@@ -114,13 +114,14 @@ impl Debug for Code {
 pub struct Closure {
     code: Code,
     num_args: usize,
+    num_free_vars: usize,
 }
 
 static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure,
     "Closure",
-    std::mem::size_of::<Closure>(),
-    None,
+    0,
+    Some(Closure::size_of),
     Closure::eq,
     Closure::clone_inner,
     Display::fmt,
@@ -128,7 +129,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     None,
     Some(Closure::child_traversal),
-    None,
+    Some(Closure::check_reply),
 );
 
 impl NaviType for Closure {
@@ -145,14 +146,32 @@ impl NaviType for Closure {
             ;
         let constants = constants?;
 
-        Self::alloc(program, &constants, self.num_args, allocator)
+        let mut closure = Self::alloc(program, &constants, self.num_args, self.num_free_vars, allocator)?;
+
+        for index in 0 .. self.num_free_vars {
+            let child = self.get_inner(index);
+            let child = child.cast_value();
+            let cloned = Any::clone_inner(child.as_ref(), allocator)?;
+
+            closure.set_uncheck(cloned.raw_ptr(), index);
+        }
+
+        Ok(closure)
     }
 }
 
 impl Closure {
+    fn size_of(&self) -> usize {
+        std::mem::size_of::<Closure>()
+            + self.num_free_vars * std::mem::size_of::<Ref<Any>>()
+    }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         self.code.child_traversal(arg, callback);
+
+        for index in 0 .. self.num_free_vars {
+            callback(self.get_inner(index), arg);
+        }
     }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
@@ -160,8 +179,32 @@ impl Closure {
         || app::App::typeinfo() == other_typeinfo
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Any>], num_args: usize, allocator: &mut A) -> NResult<Self, OutOfMemory> {
-        let ptr = allocator.alloc::<Closure>()?;
+    fn check_reply(cap: &mut Cap<Closure>, obj: &mut Object) -> Result<bool, OutOfMemory> {
+        for index in 0.. cap.as_ref().num_free_vars {
+            let child_v = cap.as_ref().get_inner(index);
+            //子要素がReply型を持っている場合は
+            if child_v.has_replytype() {
+
+                //返信がないか確認する
+                let mut child_v = child_v.clone().capture(obj);
+                if crate::value::check_reply(&mut child_v, obj)? {
+                    //返信があった場合は、内部ポインタを返信結果の値に上書きする
+                    cap.as_ref().get_inner(index).update_pointer(child_v.raw_ptr());
+                } else {
+                    //子要素にReplyを含む値が残っている場合は、全体をfalseにする
+                    return Ok(false);
+                }
+            }
+        }
+
+        //内部にReply型を含まなくなったのでフラグを下す
+        crate::value::clear_has_replytype_flag(cap.mut_refer());
+
+        Ok(true)
+    }
+
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Any>], num_args: usize, num_free_vars: usize, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc_with_additional_size::<Closure>(num_free_vars * std::mem::size_of::<Ref<Any>>())?;
 
         let constants = constants.into_iter()
             .map(|c| c.clone())
@@ -175,6 +218,7 @@ impl Closure {
                     constants: constants,
                 },
                 num_args: num_args,
+                num_free_vars,
             })
         }
 
@@ -190,6 +234,25 @@ impl Closure {
         //Codeへの参照をReachableで確保することでClosure自体もGCされないようにする
         Ref::new(&self.code)
     }
+
+    pub fn get(&self, index: usize) -> Ref<Any> {
+        self.get_inner(index).clone()
+    }
+
+    fn get_inner<'a>(&'a self, index: usize) -> &'a mut Ref<Any> {
+        let ptr = self as *const Closure;
+        unsafe {
+            //ポインタをClosure構造体の後ろに移す
+            let ptr = ptr.add(1);
+            //Closure構造体の後ろにはallocで確保した保存領域がある
+            let storage_ptr = ptr as *mut Ref<Any>;
+            //保存領域内の指定indexに移動
+            let storage_ptr = storage_ptr.add(index);
+
+            &mut *(storage_ptr)
+        }
+    }
+
 }
 
 impl Eq for Closure { }
@@ -209,5 +272,32 @@ impl Display for Closure {
 impl Debug for Closure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#compiled_closure")
+    }
+}
+
+impl Ref<Closure> {
+    fn set_uncheck(&mut self, v: *mut Any, index: usize) {
+        let ptr = self.as_mut() as *mut Closure;
+        unsafe {
+            //ポインタをArray構造体の後ろに移す
+            let ptr = ptr.add(1);
+            //Closure構造体の後ろにはallocで確保した保存領域がある
+            let storage_ptr = ptr as *mut Ref<Any>;
+            //保存領域内の指定indexに移動
+            let storage_ptr = storage_ptr.add(index);
+            //指定indexにポインタを書き込む
+            std::ptr::write(storage_ptr, v.into());
+        };
+
+    }
+
+    pub fn set<V: ValueHolder<Any>>(&mut self, v: &V, index: usize) {
+        debug_assert!(index < self.as_ref().num_free_vars);
+
+        self.set_uncheck(v.raw_ptr(), index);
+
+        if v.has_replytype() {
+            crate::value::set_has_replytype_flag(self);
+        }
     }
 }
