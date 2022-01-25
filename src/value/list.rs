@@ -361,7 +361,7 @@ impl ListBuilder {
         }
     }
 
-    pub fn append(&mut self, v: &Reachable<Any>, obj: &mut Object) -> Result<(), OutOfMemory> {
+    pub fn push(&mut self, v: &Reachable<Any>, obj: &mut Object) -> Result<(), OutOfMemory> {
         let cell = List::alloc_tail(v, obj)?;
 
         if self.start.is_none() {
@@ -527,9 +527,9 @@ mod tests {
         {
             let mut builder = ListBuilder::new(obj);
 
-            builder.append(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
-            builder.append(&number::make_integer(2, obj).unwrap().reach(obj), obj).unwrap();
-            builder.append(&number::make_integer(3, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(2, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(3, obj).unwrap().reach(obj), obj).unwrap();
             let result = builder.get().capture(obj);
 
             let _1 = number::make_integer(1, ans_obj).unwrap().reach(ans_obj);

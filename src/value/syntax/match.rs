@@ -98,33 +98,33 @@ pub fn translate(args: &Reachable<List>, obj: &mut Object) -> NResult<List, Synt
 
 
     let mut builder_local = ListBuilder::new(obj);
-    builder_local.append(compile::literal::local().cast_value(), obj)?;
+    builder_local.push(compile::literal::local().cast_value(), obj)?;
 
     //generate unique symbol
     let expr_tmp_symbol = symbol::Symbol::gensym("e", obj)?.into_value().reach(obj);
     //(let e target_exp)
     let let_ = {
         let mut builder_let = ListBuilder::new(obj);
-        builder_let.append(compile::literal::let_().cast_value(), obj)?;
-        builder_let.append(&expr_tmp_symbol, obj)?;
-        builder_let.append(&args.as_ref().head().reach(obj), obj)?; //マッチ対象の値を一時変数に代入する
+        builder_let.push(compile::literal::let_().cast_value(), obj)?;
+        builder_let.push(&expr_tmp_symbol, obj)?;
+        builder_let.push(&args.as_ref().head().reach(obj), obj)?; //マッチ対象の値を一時変数に代入する
 
         builder_let.get().into_value()
     };
     //(local (let e e target_exp))
-    builder_local.append(&let_.reach(obj), obj)?;
+    builder_local.push(&let_.reach(obj), obj)?;
 
     let mut cond_vec: Vec<Reachable<Any>> = Vec::new();
     cond_vec.push(expr_tmp_symbol);
 
     let body = translate_inner(cond_vec, patterns, obj)?;
-    builder_local.append(&body.reach(obj), obj)?;
+    builder_local.push(&body.reach(obj), obj)?;
 
     //最後にmatchに失敗した値を捕まえてfalseを返すfail-catchを追加
     let mut builder_catch = ListBuilder::new(obj);
-    builder_catch.append(compile::literal::fail_catch().cast_value(), obj)?;
-    builder_catch.append(&builder_local.get().into_value().reach(obj), obj)?;
-    builder_catch.append(bool::Bool::false_().cast_value(), obj)?;
+    builder_catch.push(compile::literal::fail_catch().cast_value(), obj)?;
+    builder_catch.push(&builder_local.get().into_value().reach(obj), obj)?;
+    builder_catch.push(bool::Bool::false_().cast_value(), obj)?;
 
     Ok(builder_catch.get())
 }
@@ -181,11 +181,11 @@ fn translate_inner(exprs: Vec<Reachable<Any>>, patterns: Vec<MatchClause>, obj: 
 
     } else {
         let mut builder = ListBuilder::new(obj);
-        builder.append(compile::literal::fail_catch().cast_value(), obj)?;
+        builder.push(compile::literal::fail_catch().cast_value(), obj)?;
 
         for (kind, patterns) in grouping {
             let exp = trans(kind, &exprs, &patterns, obj)?;
-            builder.append(&exp.reach(obj), obj)?;
+            builder.push(&exp.reach(obj), obj)?;
         }
         Ok(builder.get().into_value())
     }
@@ -278,36 +278,36 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Any>>, patterns:
     let target_expr = exprs.last().unwrap();
 
     let mut builder_if = ListBuilder::new(obj);
-    builder_if.append(compile::literal::if_().cast_value(), obj)?;
+    builder_if.push(compile::literal::if_().cast_value(), obj)?;
 
     //predicate
-    builder_if.append(&cons_list2(is_type_func.cast_value(), target_expr, obj)?.reach(obj), obj)?;
+    builder_if.push(&cons_list2(is_type_func.cast_value(), target_expr, obj)?.reach(obj), obj)?;
 
     // true clause
     let true_clause = {
         let mut builder_local = ListBuilder::new(obj);
         //(local)
-        builder_local.append(compile::literal::local().cast_value(), obj)?;
+        builder_local.push(compile::literal::local().cast_value(), obj)?;
 
         //generate unique symbol
         let len_symbol = symbol::Symbol::gensym("len", obj)?.into_value().reach(obj);
         let let_ = {
             //(let len (???-len target))
             let mut builder_let = ListBuilder::new(obj);
-            builder_let.append(compile::literal::let_().cast_value(), obj)?;
-            builder_let.append(&len_symbol, obj)?;
-            builder_let.append(&cons_list2(len_func.cast_value(), target_expr, obj)?.reach(obj), obj)?;
+            builder_let.push(compile::literal::let_().cast_value(), obj)?;
+            builder_let.push(&len_symbol, obj)?;
+            builder_let.push(&cons_list2(len_func.cast_value(), target_expr, obj)?.reach(obj), obj)?;
 
             builder_let.get().into_value()
         };
         // (local (let len (???-len target)))
-        builder_local.append(&let_.reach(obj), obj)?;
+        builder_local.push(&let_.reach(obj), obj)?;
 
         //(cond ...)
         let cond = {
             let mut builder_cond = ListBuilder::new(obj);
             //(cond)
-            builder_cond.append(compile::literal::cond().cast_value(), obj)?;
+            builder_cond.push(compile::literal::cond().cast_value(), obj)?;
 
             for (container_len, mut clauses) in group.into_iter() {
                 let mut builder_cond_clause = ListBuilder::new(obj);
@@ -318,11 +318,11 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Any>>, patterns:
                     cons_list3(value::any::literal::equal().cast_value(), &v1, &len_symbol, obj)?
                 };
                 //((equal? ???-len len))
-                builder_cond_clause.append(&equal.reach(obj), obj)?;
+                builder_cond_clause.push(&equal.reach(obj), obj)?;
 
                 //(local)
                 let mut builder_inner_local = ListBuilder::new(obj);
-                builder_inner_local.append(compile::literal::local().cast_value(), obj)?;
+                builder_inner_local.push(compile::literal::local().cast_value(), obj)?;
 
                 let mut exprs:Vec<Reachable<Any>> = clone_veccap(&exprs[0..exprs.len()-1], obj);
 
@@ -331,10 +331,10 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Any>>, patterns:
                 for index in (0..container_len).rev() {
                     let mut builder_binder = ListBuilder::new(obj);
                     //(let)
-                    builder_binder.append(compile::literal::let_().cast_value(), obj)?;
+                    builder_binder.push(compile::literal::let_().cast_value(), obj)?;
                     //(let v0)
                     let symbol = symbol::Symbol::gensym(String::from("v") + &index.to_string() , obj)?.into_value().reach(obj);
-                    builder_binder.append(&symbol, obj)?;
+                    builder_binder.push(&symbol, obj)?;
                     exprs.push(symbol);
 
                     //(???-ref container index)
@@ -343,10 +343,10 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Any>>, patterns:
                         , obj)?;
 
                     //(let v0 (???-ref container index))
-                    builder_binder.append(&container_ref.reach(obj), obj)?;
+                    builder_binder.push(&container_ref.reach(obj), obj)?;
 
                     //(local (let v0 (???-ref container index)) ...)
-                    builder_inner_local.append(&builder_binder.get().into_value().reach(obj), obj)?;
+                    builder_inner_local.push(&builder_binder.get().into_value().reach(obj), obj)?;
                 }
 
                 //各Clauseの先頭要素にあるコンテナを展開して、Pattern配列に追加する
@@ -361,32 +361,32 @@ fn translate_container_match<T: NaviType>(exprs: &Vec<Reachable<Any>>, patterns:
                 //(local ... (let v1 (???-ref container 1)) (let v0 (???-ref container 0))
                 //  inner matcher ...)
                 let matcher= translate_inner(exprs, clauses, obj)?;
-                builder_inner_local.append(&matcher.reach(obj), obj)?;
+                builder_inner_local.push(&matcher.reach(obj), obj)?;
 
                 //((equal? container-len len)
                 // (local ........))
-                builder_cond_clause.append(&builder_inner_local.get().into_value().reach(obj), obj)?;
+                builder_cond_clause.push(&builder_inner_local.get().into_value().reach(obj), obj)?;
 
                 //(cond
                 //  ((equal? container-len len)
                 //      (local ........)))
-                builder_cond.append(&builder_cond_clause.get().into_value().reach(obj), obj)?;
+                builder_cond.push(&builder_cond_clause.get().into_value().reach(obj), obj)?;
             }
-            builder_cond.append(&cons_cond_fail(obj)?.reach(obj), obj)?;
+            builder_cond.push(&cons_cond_fail(obj)?.reach(obj), obj)?;
 
             builder_cond.get()
         };
 
         //(local (let len (container-len target))
         //  (cond ...))
-        builder_local.append(&cond.into_value().reach(obj), obj)?;
+        builder_local.push(&cond.into_value().reach(obj), obj)?;
         builder_local.get()
     };
 
-    builder_if.append(&true_clause.into_value().reach(obj), obj)?;
+    builder_if.push(&true_clause.into_value().reach(obj), obj)?;
 
     //マッチ失敗用の値をfalse節に追加
-    builder_if.append(MatchFail::fail().cast_value(), obj)?;
+    builder_if.push(MatchFail::fail().cast_value(), obj)?;
 
     Ok(builder_if.get().into_value())
 }
@@ -416,7 +416,7 @@ fn translate_literal(exprs: &Vec<Reachable<Any>>, patterns: &Vec<MatchClause>, o
     let target = exprs.pop().unwrap();
 
     let mut builder_cond = ListBuilder::new(obj);
-    builder_cond.append(compile::literal::cond().cast_value(), obj)?;
+    builder_cond.push(compile::literal::cond().cast_value(), obj)?;
 
     for (literal, patterns) in group.into_iter() {
         let mut builder_cond_clause = ListBuilder::new(obj);
@@ -427,7 +427,7 @@ fn translate_literal(exprs: &Vec<Reachable<Any>>, patterns: &Vec<MatchClause>, o
             , &literal
             , obj)?;
         //((equal? target literal))
-        builder_cond_clause.append(&equal.reach(obj), obj)?;
+        builder_cond_clause.push(&equal.reach(obj), obj)?;
 
         //ReachableはCloneを実装していないため自動クローンしない。
         //値のMoveが必要なので新しいReachableを作成する
@@ -437,15 +437,15 @@ fn translate_literal(exprs: &Vec<Reachable<Any>>, patterns: &Vec<MatchClause>, o
             ;
         //((equal? target literal) next-match)
         let matcher= translate_inner(exprs, patterns, obj)?;
-        builder_cond_clause.append(&matcher.reach(obj), obj)?;
+        builder_cond_clause.push(&matcher.reach(obj), obj)?;
 
         //(cond ((equal? target literal) next-match))
         let cond_clause = builder_cond_clause.get().into_value();
-        builder_cond.append(&cond_clause.reach(obj), obj)?;
+        builder_cond.push(&cond_clause.reach(obj), obj)?;
     }
 
     //最後にマッチ失敗の節を追加
-    builder_cond.append(&cons_cond_fail(obj)?.reach(obj), obj)?;
+    builder_cond.push(&cons_cond_fail(obj)?.reach(obj), obj)?;
 
     Ok(builder_cond.get().into_value())
 }
@@ -455,7 +455,7 @@ fn translate_bind(exprs: &Vec<Reachable<Any>>, patterns: &Vec<MatchClause>, obj:
     let target = exprs.pop().unwrap();
 
     let mut builder_catch = ListBuilder::new(obj);
-    builder_catch.append(compile::literal::fail_catch().cast_value(), obj)?;
+    builder_catch.push(compile::literal::fail_catch().cast_value(), obj)?;
 
     //TODO 最適化のために同じシンボルごとにグルーピングを行いたい
     for (pattern, body) in patterns.iter() {
@@ -479,30 +479,30 @@ fn translate_bind(exprs: &Vec<Reachable<Any>>, patterns: &Vec<MatchClause>, obj:
                 patterns.push((pattern, body));
 
                 let matcher= translate_inner(exprs, patterns, obj)?;
-                builder_catch.append(&matcher.reach(obj), obj)?;
+                builder_catch.push(&matcher.reach(obj), obj)?;
 
             } else {
                 let mut builder_local = ListBuilder::new(obj);
-                builder_local.append(compile::literal::local().cast_value(), obj)?;
+                builder_local.push(compile::literal::local().cast_value(), obj)?;
 
                 //(let x target)
                 let let_ = {
                     let mut builder_let = ListBuilder::new(obj);
-                    builder_let.append(compile::literal::let_().cast_value(), obj)?;
-                    builder_let.append(&val.reach(obj), obj)?;
-                    builder_let.append(&target, obj)?;
+                    builder_let.push(compile::literal::let_().cast_value(), obj)?;
+                    builder_let.push(&val.reach(obj), obj)?;
+                    builder_let.push(&target, obj)?;
                     builder_let.get().into_value()
                 };
 
                 //(local (let x target))
-                builder_local.append(&let_.reach(obj), obj)?;
+                builder_local.push(&let_.reach(obj), obj)?;
 
                 let mut patterns: Vec<MatchClause> = Vec::new();
                 patterns.push((pattern, body));
                 let matcher= translate_inner(exprs, patterns, obj)?;
-                builder_local.append(&matcher.reach(obj), obj)?;
+                builder_local.push(&matcher.reach(obj), obj)?;
 
-                builder_catch.append(&builder_local.get().into_value().reach(obj), obj)?;
+                builder_catch.push(&builder_local.get().into_value().reach(obj), obj)?;
             }
         } else {
             return Err(err::TypeMismatch::new(val, symbol::Symbol::typeinfo()).into());
@@ -527,25 +527,25 @@ fn clone_veccap(vec: &[Reachable<Any>], obj: &mut Object) -> Vec<Reachable<Any>>
 
 fn cons_list2(v1: &Reachable<Any>, v2: &Reachable<Any>, obj: &mut Object) -> NResult<Any, OutOfMemory> {
     let mut builder = ListBuilder::new(obj);
-    builder.append(v1, obj)?;
-    builder.append(v2, obj)?;
+    builder.push(v1, obj)?;
+    builder.push(v2, obj)?;
 
     Ok(builder.get().into_value())
 }
 
 fn cons_list3(v1: &Reachable<Any>, v2: &Reachable<Any>, v3: &Reachable<Any>, obj: &mut Object) -> NResult<Any, OutOfMemory> {
     let mut builder = ListBuilder::new(obj);
-    builder.append(v1, obj)?;
-    builder.append(v2, obj)?;
-    builder.append(v3, obj)?;
+    builder.push(v1, obj)?;
+    builder.push(v2, obj)?;
+    builder.push(v3, obj)?;
 
     Ok(builder.get().into_value())
 }
 
 fn cons_cond_fail(obj: &mut Object) -> NResult<Any, OutOfMemory> {
     let mut builder = ListBuilder::new(obj);
-    builder.append(&literal::else_symbol().into_value(), obj)?;
-    builder.append(MatchFail::fail().cast_value(), obj)?;
+    builder.push(&literal::else_symbol().into_value(), obj)?;
+    builder.push(MatchFail::fail().cast_value(), obj)?;
 
     Ok(builder.get().into_value())
 }

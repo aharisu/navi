@@ -148,7 +148,7 @@ fn read_sequence<I: Iterator<Item=char>>(end_char:char, reader: &mut Reader<I>, 
             Some(_) => {
                 //再帰的にreadを呼び出す
                 let v = read_internal(reader, obj)?;
-                builder.append(&v.reach(obj), obj)?;
+                builder.push(&v.reach(obj), obj)?;
             }
         }
     }
@@ -199,8 +199,8 @@ fn read_with_modifier<I: Iterator<Item=char>>(modifier: &Reachable<Any>, reader:
     let sexp = sexp.reach(obj);
 
     let mut builder = ListBuilder::new(obj);
-    builder.append(modifier, obj)?;
-    builder.append(&sexp, obj)?;
+    builder.push(modifier, obj)?;
+    builder.push(&sexp, obj)?;
     Ok(builder.get().into_value())
 }
 
@@ -683,9 +683,9 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::make_integer(2, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::make_integer(3, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::make_integer(2, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::make_integer(3, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
             let ans = builder.get().capture(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
@@ -697,10 +697,10 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
             let ans = builder.get().reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
@@ -728,9 +728,9 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::make_integer(2, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::make_integer(3, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::make_integer(2, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::make_integer(3, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
             let ans = builder.get().reach(ans_obj);
             let ans = tuple::Tuple::from_list(&ans, None, ans_obj).unwrap().reach(ans_obj);
 
@@ -743,10 +743,10 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.append( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder.push( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
             let ans = builder.get().reach(ans_obj);
             let ans = tuple::Tuple::from_list(&ans, None, ans_obj).unwrap().reach(ans_obj);
 
@@ -770,8 +770,8 @@ mod tests {
             let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.append(compile::literal::quote().cast_value(), ans_obj).unwrap();
-            builder.append(&symbol, ans_obj).unwrap();
+            builder.push(compile::literal::quote().cast_value(), ans_obj).unwrap();
+            builder.push(&symbol, ans_obj).unwrap();
             let ans = builder.get().reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());

@@ -441,10 +441,10 @@ mod tests {
         {
             let mut builder = ListBuilder::new(obj);
 
-            builder.append(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
-            builder.append(&number::Real::alloc(3.14, obj).unwrap().into_value().reach(obj), obj).unwrap();
-            builder.append(list::List::nil().cast_value(), obj).unwrap();
-            builder.append(bool::Bool::true_().cast_value(), obj).unwrap();
+            builder.push(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::Real::alloc(3.14, obj).unwrap().into_value().reach(obj), obj).unwrap();
+            builder.push(list::List::nil().cast_value(), obj).unwrap();
+            builder.push(bool::Bool::true_().cast_value(), obj).unwrap();
 
             let (list, size) = builder.get_with_size();
             let list = list.reach(obj);

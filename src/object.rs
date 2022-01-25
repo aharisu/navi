@@ -436,20 +436,20 @@ impl Object {
         if obj.values.get_mut().receiver_closure.is_none() {
             let mut builder_fun = ListBuilder::new(obj);
             //(fun)
-            builder_fun.append(compile::literal::fun().cast_value(), obj)?;
+            builder_fun.push(compile::literal::fun().cast_value(), obj)?;
             //(msg_var)
             let paramter = list::List::alloc_tail(literal::msg_symbol().cast_value(), obj)?.into_value();
             //(fun (msg_var))
-            builder_fun.append(&paramter.reach(obj), obj)?;
+            builder_fun.push(&paramter.reach(obj), obj)?;
 
             //パターンマッチ部分を構築
             //(match msg_var (pattern body) (pattern2 body2) ...)
             let match_ = {
                 let mut builder_match = ListBuilder::new(obj);
                 //(match)
-                builder_match.append(compile::literal::match_().cast_value(), obj)?;
+                builder_match.push(compile::literal::match_().cast_value(), obj)?;
                 //(match msg_var)
-                builder_match.append(literal::msg_symbol().cast_value(), obj)?;
+                builder_match.push(literal::msg_symbol().cast_value(), obj)?;
 
                 for (pattern, body) in obj.values.get_mut().receiver_vec.clone().into_iter() {
                     //(pattern body)
@@ -457,12 +457,12 @@ impl Object {
                     let body = body.reach(obj);
 
                     let clause = list::List::alloc(&pattern, &body, obj)?.into_value().reach(obj);
-                    builder_match.append(&clause, obj)?;
+                    builder_match.push(&clause, obj)?;
                 }
                 builder_match.get()
             };
             //(fun (msg_var) (match msg_var (pattern body) (pattern2 body2) ...))
-            builder_fun.append(&match_.into_value().reach(obj), obj)?;
+            builder_fun.push(&match_.into_value().reach(obj), obj)?;
 
             //メッセージレシーバ用のクロージャをコンパイル
             let receiver = builder_fun.get().into_value().reach(obj);
