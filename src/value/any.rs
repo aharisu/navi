@@ -175,7 +175,7 @@ pub mod literal {
 
 #[cfg(test)]
 mod tests {
-    use crate::read::Reader;
+    use crate::eval::exec;
     use crate::value::*;
 
     #[test]
@@ -208,21 +208,6 @@ mod tests {
         assert!(!v.as_ref().is::<string::NString>());
     }
 
-    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
-        let mut reader = Reader::new(program.chars().peekable());
-        let result = crate::read::read(&mut reader, obj);
-        assert!(result.is_ok());
-        let sexp = result.unwrap();
-
-        let sexp = sexp.reach(obj);
-        let result = crate::eval::eval(&sexp, obj).unwrap();
-        let result = result.try_cast::<T>();
-        assert!(result.is_some());
-
-        result.unwrap().clone()
-    }
-
-
     #[test]
     fn equal() {
         let mut obj = Object::new_for_test();
@@ -230,103 +215,103 @@ mod tests {
 
         {
             let program = "(= 1 1)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1 1.0)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1.0 1)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 3.14 3.14)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 1 1.001)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= \"hoge\" \"hoge\")";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= \"hoge\" \"hogehoge\")";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= \"hoge\" \"huga\")";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= 'symbol 'symbol)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 'symbol 'other)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= :keyword :keyword)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= 'symbol 'other)";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= '(1 \"2\" :3) '(1 \"2\" :3))";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= '(1 \"2\" :3) '(1 \"2\" '3))";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= [1 \"2\" :3] [1 \"2\" :3])";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= [1 \"2\" :3] (array 1 \"2\" :3))";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= [1 \"2\" :3] [1 \"2\" '3])";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= {1 \"2\" :3} {1 \"2\" :3})";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= {1 \"2\" :3} (tuple 1 \"2\" :3))";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(= {1 \"2\" :3} {1 \"2\" '3})";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 
         {
             let program = "(= 1 \"1\")";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= '(1 2 3) [1 2 3])";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(= {} [])";
-            let result = eval::<bool::Bool>(program, obj).reach(obj);
+            let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
 

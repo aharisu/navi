@@ -999,26 +999,11 @@ fn read_usize<T: Read>(buf: &mut T) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use crate::eval::exec;
     use crate::object::Object;
-    use crate::read::*;
     use crate::value::*;
     use crate::value::any::Any;
     use crate::ptr::*;
-
-    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
-        let mut reader = Reader::new(program.chars().peekable());
-        let result = crate::read::read(&mut reader, obj);
-        assert!(result.is_ok());
-        let sexp = result.unwrap();
-
-        let sexp = sexp.reach(obj);
-        let result = crate::eval::eval(&sexp, obj).unwrap();
-        let result = result.try_cast::<T>();
-        assert!(result.is_some());
-
-        result.unwrap().clone()
-    }
-
 
     #[test]
     fn test_tail_rec() {
@@ -1029,10 +1014,10 @@ mod tests {
 
         {
             let program = "(let loop (fun (n) (if (= n 0) n (loop (- n 1)))))";
-            eval::<Any>(program, obj);
+            exec::<Any>(program, obj);
 
             let program = "(loop 100000)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(0, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -1049,10 +1034,10 @@ mod tests {
         {
             let program = "(let add-x (local (let x ((fun () 10))) (fun (n) (+ x n))))";
 
-            eval::<Any>(program, obj);
+            exec::<Any>(program, obj);
 
             let program = "(add-x 1)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(11, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -1069,13 +1054,13 @@ mod tests {
                             (local
                                 (let zz ((fun () 40)))
                                 (+ x y z zz n))))))"#;
-            eval::<Any>(program, obj);
+            exec::<Any>(program, obj);
 
             let program = "(let add (add))";
-            eval::<Any>(program, obj);
+            exec::<Any>(program, obj);
 
             let program = "(add 1)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(101, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }

@@ -55,26 +55,28 @@ pub fn eval(sexp: &Reachable<Any>, obj: &mut Object) -> Result<Ref<Any>, EvalErr
 }
 
 #[cfg(test)]
+pub fn exec<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
+    let mut reader = crate::read::Reader::new(program.chars().peekable());
+    let result = crate::read::read(&mut reader, obj);
+    assert!(result.is_ok());
+    let sexp = result.unwrap();
+
+    let sexp = sexp.reach(obj);
+    let result = crate::eval::eval(&sexp, obj).unwrap();
+    let result = result.try_cast::<T>();
+    assert!(result.is_some());
+
+    result.unwrap().clone()
+}
+
+#[cfg(test)]
 mod tests {
+    use crate::eval::exec;
     use crate::object::Object;
-    use crate::read::*;
     use crate::value::*;
     use crate::value::any::Any;
     use crate::ptr::*;
 
-    fn eval<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
-        let mut reader = Reader::new(program.chars().peekable());
-        let result = crate::read::read(&mut reader, obj);
-        assert!(result.is_ok());
-        let sexp = result.unwrap();
-
-        let sexp = sexp.reach(obj);
-        let result = crate::eval::eval(&sexp, obj).unwrap();
-        let result = result.try_cast::<T>();
-        assert!(result.is_some());
-
-        result.unwrap().clone()
-    }
 
 
     #[test]
@@ -86,63 +88,63 @@ mod tests {
 
         {
             let program = "(abs 1)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(abs -1)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(abs -3.14)";
-            let result = eval::<number::Real>(program, obj).capture(obj);
+            let result = exec::<number::Real>(program, obj).capture(obj);
             let ans = number::Real::alloc(3.14, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(+ 1)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 3.14)";
-            let result = eval::<number::Real>(program, obj).capture(obj);
+            let result = exec::<number::Real>(program, obj).capture(obj);
             let ans = number::Real::alloc(3.14, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 1 2 3 -4)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1 + 2 + 3 + -4, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(+ 1.5 2 3 -4.5)";
-            let result = eval::<number::Real>(program, obj).capture(obj);
+            let result = exec::<number::Real>(program, obj).capture(obj);
             let ans = number::Real::alloc(2.0, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(- 1)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(-1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(- 3.14)";
-            let result = eval::<number::Real>(program, obj).capture(obj);
+            let result = exec::<number::Real>(program, obj).capture(obj);
             let ans = number::Real::alloc(-3.14, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(- 1 2 3 -4)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1 - 2 - 3 - -4, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(let fib (fun (n) (if (or (= n 0) (= n 1)) n (+ (fib (- n 2)) (fib (- n 1))))))";
-            eval::<Any>(program, obj);
+            exec::<Any>(program, obj);
             let program = "(fib 10)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(55, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -160,17 +162,17 @@ mod tests {
 
         {
             let program = "(if (= 1 1) 10 100)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(10, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(if (= 1 2) 10 100)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(100, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(if (= 1 2) 10)";
-            let result = eval::<bool::Bool>(program, obj).capture(obj);
+            let result = exec::<bool::Bool>(program, obj).capture(obj);
             assert!(result.as_ref().is_false());
         }
     }
@@ -185,26 +187,26 @@ mod tests {
 
         {
             let program = "(cond ((= 1 1) 1) ((= 1 1) 2) (else 3))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(cond ((= 1 2) 1) ((= 1 1) 2) (else 3))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(2, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(cond ((= 1 2) 1) ((= 1 3) 2) (else 3))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(3, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(cond ((= 1 2) 1) ((= 1 3) 2))";
-            let result = eval::<bool::Bool>(program, obj).capture(obj);
+            let result = exec::<bool::Bool>(program, obj).capture(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(cond)";
-            let result = eval::<bool::Bool>(program, obj).capture(obj);
+            let result = exec::<bool::Bool>(program, obj).capture(obj);
             assert!(result.as_ref().is_false());
         }
     }
@@ -218,41 +220,41 @@ mod tests {
 
         {
             let program = "(let a 1)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "a";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(let a 2)";
-            eval::<Any>(program, obj);
+            exec::<Any>(program, obj);
             let program = "a";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(2, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(local (let a 3) a)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(3, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(local (let a 3) (let a 4) a)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(4, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "a";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(2, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(local (let-global a 3))";
-            eval::<Any>(program, obj);
+            exec::<Any>(program, obj);
             let program = "a";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(3, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -267,12 +269,12 @@ mod tests {
 
         {
             let program = "((fun (a) (+ 10 a)) 1)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(11, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "((fun (a b) (+ a b) (+ ((fun (a) (+ a 10)) b) a)) 100 200)";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(310, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -287,12 +289,12 @@ mod tests {
 
         {
             let program = "(local (let a 1) (+ 10 a))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(11, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(local (let a 100) (let b 200) (+ a b) (+ (local (let a b) (+ a 10)) a))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(310, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
@@ -306,23 +308,23 @@ mod tests {
 
         {
             let program = "(and)";
-            let result = eval::<bool::Bool>(program, obj).capture(obj);
+            let result = exec::<bool::Bool>(program, obj).capture(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(and true true)";
-            let result = eval::<bool::Bool>(program, obj).capture(obj);
+            let result = exec::<bool::Bool>(program, obj).capture(obj);
             assert!(result.as_ref().is_true());
 
             let program = "(and true true false)";
-            let result = eval::<bool::Bool>(program, obj).capture(obj);
+            let result = exec::<bool::Bool>(program, obj).capture(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(or)";
-            let result = eval::<bool::Bool>(program, obj).capture(obj);
+            let result = exec::<bool::Bool>(program, obj).capture(obj);
             assert!(result.as_ref().is_false());
 
             let program = "(or false (= 1 1))";
-            let result = eval::<bool::Bool>(program, obj).capture(obj);
+            let result = exec::<bool::Bool>(program, obj).capture(obj);
             assert!(result.as_ref().is_true());
         }
     }
@@ -336,65 +338,65 @@ mod tests {
 
         {
             let program = "(match 1 (2 2) (3 3) (4 4) (1 1))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match 1 (2 2))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = bool::Bool::false_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(match '((1 2) 3) (((4 5) 6) 1) (((7 8) 9) 2) ((10 (11 12)) 3) (((1 2) 3) 4))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(4, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match {{1 2} 3} ({{4 5} 6} 1) ({{1 2} 3} 2) ({10 {11 12}} 3))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(2, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match [[1 2] 3] ([4 [5 6]] 1) ([[7 8] 9] 2) ([1 [2 3]] 3))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = bool::Bool::false_().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(match {{1 2} [3 '(4 5)]} ({{4 5} 6} 1) ((10 (11 12)) 2) ({{1 2} 3 (4 5)} 3) ({{1 2} [3 (4 5)]} 4))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(4, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(match {1 2 3} ({1 3 2} 1) ({1 2 3} 2))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(2, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
         {
             let program = "(match 1 (@x x))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match 1 (@x x) (@a (+ a a)))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(1, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match {1 2} ({@a @b} (+ a b)))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(3, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let program = "(match {1 '(2 3) [4 '(5)]} ({@a @_ [@b @_]} (+ a b)))";
-            let result = eval::<Any>(program, obj).capture(obj);
+            let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(5, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
