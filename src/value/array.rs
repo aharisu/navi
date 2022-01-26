@@ -446,7 +446,8 @@ mod tests {
             builder.push(list::List::nil().cast_value(), obj).unwrap();
             builder.push(bool::Bool::true_().cast_value(), obj).unwrap();
 
-            let (list, size) = builder.get_with_size();
+            let size = builder.len();
+            let list = builder.get();
             let list = list.reach(obj);
             let ary = array::Array::from_list(&list, Some(size), obj).unwrap();
 

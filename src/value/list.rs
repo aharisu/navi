@@ -417,17 +417,6 @@ impl ListBuilder {
     }
 
 
-    pub fn get_with_size(self) -> (Ref<List>, usize) {
-        (
-            if let Some(start) = self.start {
-                start.take()
-            } else {
-                list::List::nil().into_ref()
-            }
-            , self.len
-        )
-    }
-
 }
 
 fn func_cons(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
