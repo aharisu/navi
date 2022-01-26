@@ -212,6 +212,16 @@ impl List {
 
 }
 
+impl Ref<List> {
+    pub fn set_has_reply_flag(&mut self, to_index: usize) {
+        value::set_has_replytype_flag(self);
+        if 0 < to_index {
+            self.as_mut().next.set_has_reply_flag(to_index - 1);
+        }
+    }
+
+}
+
 impl Eq for List { }
 
 impl PartialEq for List {
@@ -380,6 +390,10 @@ impl ListBuilder {
         Ok(())
     }
 
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
     pub fn get(self) -> Ref<List> {
         let result = if let Some(start) = self.start {
             start.take()
@@ -389,6 +403,19 @@ impl ListBuilder {
 
         result
     }
+
+    pub fn append_get(mut self, tail: &Ref<List>) -> Ref<List> {
+        match &mut self.end {
+            Some(end) => {
+                end.as_mut().next.update_pointer(tail.raw_ptr());
+                self.start.unwrap().take()
+            }
+            None => {
+                tail.clone()
+            }
+        }
+    }
+
 
     pub fn get_with_size(self) -> (Ref<List>, usize) {
         (
@@ -409,6 +436,37 @@ fn func_cons(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 
     let list = list::List::alloc(&v.reach(obj), &tail.reach(obj), obj)?;
     Ok(list.into_value())
+}
+
+fn func_list(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    if num_rest == 0 {
+        Ok(list::List::nil().make().into_value())
+
+    } else {
+        let mut builder = ListBuilder::new(obj);
+        let mut last_hasreply_index = 0;
+
+        for index in 0 .. num_rest {
+            let v = vm::refer_rest_arg::<Any>(0, index, obj);
+            let has_reply = value::has_replytype(&v);
+
+            builder.push(&v.reach(obj), obj)?;
+
+            if  has_reply {
+                last_hasreply_index = builder.len();
+            }
+        }
+
+        let mut list = builder.get();
+
+        //Replyを持つセルの前方のリストに対してフラグを立てたいので、
+        //一番最初のセルにだけReplyを持っている場合は何もしない。
+        if last_hasreply_index != 0 {
+            list.set_has_reply_flag(last_hasreply_index - 1);
+        }
+
+        Ok(list.into_value())
+    }
 }
 
 fn func_is_list(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
@@ -436,6 +494,41 @@ fn func_list_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> 
     Ok(v.as_ref().get(index).clone())
 }
 
+fn func_append(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    if num_rest == 0 {
+        Ok(list::List::nil().make().into_value())
+
+    } else {
+        let mut builder = ListBuilder::new(obj);
+        let mut last_hasreply_index = 0;
+        for index in 0 .. num_rest -1 {
+            let list = vm::refer_rest_arg::<List>(0, index, obj).reach(obj);
+            for v in list.iter(obj) {
+                let has_reply = value::has_replytype(&v);
+                builder.push(&v.reach(obj), obj)?;
+
+                if  has_reply {
+                    last_hasreply_index = builder.len();
+                }
+            }
+        }
+
+        let last = vm::refer_rest_arg::<List>(0, num_rest - 1, obj);
+        if value::has_replytype(&last) {
+            last_hasreply_index = num_rest - 1;
+        }
+        let mut list = builder.append_get(&last);
+
+        //Replyを持つセルの前方のリストに対してフラグを立てたいので、
+        //一番最初のセルにだけReplyを持っている場合は何もしない。
+        if last_hasreply_index != 0 {
+            list.set_has_reply_flag(last_hasreply_index - 1);
+        }
+
+        Ok(list.into_value())
+    }
+}
+
 static FUNC_CONS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("cons",
@@ -444,6 +537,16 @@ static FUNC_CONS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
             Param::new_no_force("tail", ParamKind::Require, list::List::typeinfo()),
             ],
             func_cons)
+    )
+});
+
+static FUNC_LIST: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("list",
+            &[
+            Param::new_no_force("values", ParamKind::Rest, Any::typeinfo()),
+            ],
+            func_list)
     )
 });
 
@@ -478,11 +581,23 @@ static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
+static FUNC_APPEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("append",
+            &[
+            Param::new("list", ParamKind::Rest, list::List::typeinfo()),
+            ],
+            func_append)
+    )
+});
+
 pub fn register_global(obj: &mut Object) {
     obj.define_global_value("cons", &Ref::new(&FUNC_CONS.value));
+    obj.define_global_value("list", &Ref::new(&FUNC_LIST.value));
     obj.define_global_value("list?", &Ref::new(&FUNC_IS_LIST.value));
     obj.define_global_value("list-len", &Ref::new(&FUNC_LIST_LEN.value));
     obj.define_global_value("list-ref", &Ref::new(&FUNC_LIST_REF.value));
+    obj.define_global_value("append", &Ref::new(&FUNC_APPEND.value));
 }
 
 pub mod literal {
@@ -504,11 +619,13 @@ pub mod literal {
 
 #[cfg(test)]
 mod tests {
+    use crate::eval::exec;
     use crate::value::*;
-    use crate::value::list::ListBuilder;
+    use crate::object;
+    use super::*;
 
     #[test]
-    fn test() {
+    fn test_builder() {
         let mut obj = Object::new_for_test();
         let obj = &mut obj;
 
@@ -545,4 +662,99 @@ mod tests {
         }
 
     }
+
+    #[test]
+    fn test_construct() {
+        let mut standalone = crate::object::new_object();
+
+        let ans = {
+            let obj = standalone.mut_object();
+            let mut builder = ListBuilder::new(obj);
+
+            builder.push(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(2, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(3, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(4, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(5, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(6, obj).unwrap().reach(obj), obj).unwrap();
+            builder.push(&number::make_integer(7, obj).unwrap().reach(obj), obj).unwrap();
+            builder.get().capture(obj)
+        };
+
+        {
+            let program = "(let obj (spawn))";
+            let new_obj_ref = exec::<value::object_ref::ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+
+            //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
+            standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
+
+            let program = "(def-recv @n n)";
+            exec::<Any>(program, standalone.mut_object());
+
+            //操作対象のオブジェクトを最初のオブジェクトに戻す
+            standalone = object::return_object_switch(standalone).unwrap();
+        }
+
+        {
+            let program = "(list)";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert!(result.as_ref().is_nil());
+
+            let program = "(list 1 2 3 4 5 6 7)";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(force (list 1 (send obj 2) 3 4 (send obj 5) 6 (send obj 7)))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(force (list (send obj 1) 2 3 4 5 6 7))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(force (list 1 2 3 4 5 6 (send obj 7)))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
+        {
+            let program = "(append)";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert!(result.as_ref().is_nil());
+
+            let program = "(append '(1 2) '(3 4) '(5 6 7))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(append '(1 2) '(3 4 5 6 7))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(append '(1 2 3 4 5 6 7))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(force (append (list (send obj 1) 2) '(3 4 5 6 7)))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(force (append (list 1 (send obj 2)) (list 3 (send obj 4)) '(5 6 7)))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(force (append (list 1 (send obj 2)) (list 3 (send obj 4)) (list 5 6 (send obj 7))))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(force (append (list (send obj 1) 2) '(3 4) '(5 6 7)))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+
+            let program = "(force (append '(1 2) '(3 4) (list 5 6 (send obj 7))))";
+            let result = exec::<List>(program, standalone.mut_object());
+            assert_eq!(result.as_ref(), ans.as_ref());
+        }
+
+    }
+
 }
