@@ -52,10 +52,6 @@ pub mod tag {
 
 #[derive(Debug)]
 pub enum ExecException {
-    TimeLimit,
-    WaitReply,
-    MySelfObjectDeleted,
-    Exit,
     ObjectSwitch(StandaloneObject),
     Exception(err::Exception),
 }
@@ -339,29 +335,39 @@ pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj:
 
         //CALLを実行。結果を返り値にする
         match execute(obj) {
+            Ok(result) => {
+                return Ok(result);
+            }
+            Err(ExecException::ObjectSwitch(standalone)) => {
+                return Err(ExecException::ObjectSwitch(standalone));
+            }
             //特定のエラーは補足して処理を継続する
-            Err(ExecException::TimeLimit) => {
+            Err(ExecException::Exception(err)) => {
+                match err {
+                    err::Exception::TimeLimit => {
                 if limit == WorkTimeLimit::Inf {
                     //実行時間がInfの場合はloopを継続して終了まで実行させる
                     //loopを継続させるためにここでは何もしない
                 } else {
                     //実行時間に制限があるときだけ、エラーを返す
-                    return Err(ExecException::TimeLimit);
+                            return Err(ExecException::Exception(err));
                 }
             }
-            Err(ExecException::WaitReply) => {
+                    err::Exception::WaitReply => {
                 if limit == WorkTimeLimit::Inf {
                     //他スレッドの処理が終わるまで時スレッドの処理をブロックして待つ。
                     //3ミリ秒という数字に理由はない。
                     std::thread::sleep(std::time::Duration::from_millis(3));
                 } else {
                     //実行時間に制限があるときだけ、エラーを返す
-                    return Err(ExecException::WaitReply);
+                            return Err(ExecException::Exception(err));
                 }
             }
             other => {
                 //その他の戻り値はそのまま返す
-                return other;
+                        return Err(ExecException::Exception(other));
+                    }
+                }
             }
         }
     }
@@ -445,7 +451,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 //続きから実行できるように、PCを設定
                 obj.vm_state().suspend_pc = program.position() as usize;
 
-                return Err(ExecException::TimeLimit);
+                return Err(ExecException::Exception(err::Exception::TimeLimit));
             } else {
                 acc_reduce = 0;
                 obj.vm_state().reductions = remain;
@@ -557,16 +563,16 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                                 obj.vm_state().suspend_pc = (program.position() - 1) as usize;
 
                                 //引数の値にReply待ちを含んでいるため、返信を待つ
-                                return Err(ExecException::WaitReply);
+                                return Err(ExecException::Exception(err::Exception::WaitReply));
                             }
                         }
 
                         // type check
                         if arg.is_type(param.typeinfo) == false {
-                            return Err(ExecException::Exception(err::Exception::Other(format!("mismatched type.\nThe {} argument of function {}.\n  expected:{}\n  found:{}"
-                                , (index + 1), func.as_ref().name()
-                                , param.typeinfo.name, get_typename(arg.as_ref())
-                            ))));
+                            return Err(ExecException::Exception(err::Exception::ArgTypeMismatch(
+                                err::ArgTypeMismatch::new(
+                                    String::from(func.as_ref().name()), index + 1,
+                                    arg, param.typeinfo))));
                         }
                     }
 
@@ -632,7 +638,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                         obj.vm_state().suspend_pc = (program.position() - 1) as usize;
 
                         //引数の値にReply待ちを含んでいるため、返信を待つ
-                        return Err(ExecException::WaitReply);
+                        return Err(ExecException::Exception(err::Exception::WaitReply));
                     }
                 }
 
@@ -857,28 +863,20 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                     //関数本体を実行
                     let result = func.as_ref().apply(num_args_remain, obj);
-                    //リターン処理を実行
-                    tag_return!();
 
                     match result {
                         Ok(v) => {
+                    //リターン処理を実行
+                    tag_return!();
+
                             obj.vm_state().acc = v;
-                        }
-                        Err(err::Exception::MySelfObjectDeleted) => {
-                            //現在実行中のオブジェクトが削除されようとしているのでこれ以上何もしない
-                            return Err(ExecException::MySelfObjectDeleted);
-                        }
-                        Err(err::Exception::Exit) => {
-                            //プログラムを終了させるためのエラー
-                            return Err(ExecException::Exit);
+
+                            reduce_with_check_timelimit!(10);
                         }
                         Err(err) => {
                             return Err(ExecException::Exception(err));
                         }
                     }
-
-                    reduce_with_check_timelimit!(10);
-
                 } else if let Some(closure) = app.try_cast::<compiled::Closure>() {
                     //引数の数などが正しいかを確認
                     let num_require = closure.as_ref().arg_descriptor();

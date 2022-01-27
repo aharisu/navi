@@ -5,6 +5,7 @@ use crate::ptr::*;
 use crate::err::*;
 use crate::value::any::Any;
 use crate::vm;
+use crate::vm::ExecException;
 
 #[macro_export]
 macro_rules! cap_eval {
@@ -19,7 +20,6 @@ macro_rules! cap_eval {
 #[derive(Debug)]
 pub enum EvalError {
     ObjectSwitch(StandaloneObject),
-    Exit,
     Exception(Exception),
 }
 
@@ -27,10 +27,6 @@ pub fn eval(sexp: &Reachable<Any>, obj: &mut Object) -> Result<Ref<Any>, EvalErr
 
     fn inner(code: &Reachable<compiled::Code>, obj: &mut Object) -> Result<Ref<Any>, EvalError> {
         match vm::code_execute(code, vm::WorkTimeLimit::Inf, obj) {
-            Err(vm::ExecException::TimeLimit) => unreachable!(),
-            Err(vm::ExecException::WaitReply) => unreachable!(),
-            Err(vm::ExecException::MySelfObjectDeleted) => unreachable!(),
-            Err(vm::ExecException::Exit) => Err(EvalError::Exit),
             Err(vm::ExecException::Exception(e)) => Err(EvalError::Exception(e)),
             Err(vm::ExecException::ObjectSwitch(o)) => Err(EvalError::ObjectSwitch(o)),
             Ok(v) => Ok(v),

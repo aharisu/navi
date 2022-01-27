@@ -506,36 +506,40 @@ impl Object {
                     self.do_work(remain)
                 }
             }
-            Err(vm::ExecException::TimeLimit) => {
-                //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
-                Ok(())
-            },
-            Err(vm::ExecException::WaitReply) => {
-                //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
-                Ok(())
-            }
-            Err(vm::ExecException::MySelfObjectDeleted) => {
-                //実行中のオブジェクトが削除されようとしているので、これ以上何もせずに終了させる
-                Ok(())
-            }
-            Err(vm::ExecException::Exit) => {
-                //メインプロセス以外でのExitは無視
-                //TODO Exitはプロセスを削除するか？
-                Ok(())
-            }
             Err(vm::ExecException::ObjectSwitch(_)) => {
                 //Objectの切り替えはグローバル環境のトップレベルでのみ許可されているため、ここでは絶対に発生しない。
                 unreachable!()
             }
             Err(vm::ExecException::Exception(e)) => {
-                self.send_reply(Err(e), reply_to_mailbox, reply_token)?;
+                match e {
+                    Exception::TimeLimit => {
+                //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
+                self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
+                Ok(())
+                    }
+                    Exception::WaitReply => {
+                //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
+                self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
+                Ok(())
+            }
+                    Exception::MySelfObjectDeleted => {
+                //実行中のオブジェクトが削除されようとしているので、これ以上何もせずに終了させる
+                Ok(())
+            }
+                    Exception::Exit => {
+                //メインプロセス以外でのExitは無視
+                //TODO Exitはプロセスを削除するか？
+                Ok(())
+            }
+                    other => {
+                        self.send_reply(Err(other), reply_to_mailbox, reply_token)?;
 
                 //残ったreductions分もう一度do_workを実行する
                 let remain = self.vm_state().remain_reductions();
                 self.do_work(remain)
-            },
+                    }
+                }
+            }
         }
     }
 
