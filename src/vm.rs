@@ -6,8 +6,12 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::mem::size_of;
 
+use once_cell::sync::Lazy;
+
+use crate::err::NResult;
 use crate::err::OutOfMemory;
 use crate::object::StandaloneObject;
+use crate::object::mm::GCAllocationStruct;
 use crate::object::mm::usize_to_ptr;
 
 use crate::object::Object;
@@ -43,11 +47,12 @@ pub mod tag {
     pub const CALL_TAIL_PREPARE:u8 = 22;
     pub const CALL:u8 = 18;
     pub const CALL_TAIL:u8 = 17;
+    pub const CALL_RESUME_FUNC:u8 = 29;
     pub const AND:u8 = 19;
     pub const OR:u8 = 20;
     pub const MATCH_SUCCESS:u8 = 21;
 
-    //next number 29
+    //next number 30
 }
 
 #[derive(Debug)]
@@ -89,15 +94,35 @@ struct Environment {
     //ローカル変数への参照がsize分だけココ以降のデータ内に保存されている。
 }
 
+#[repr(C)]
+struct FuncSuspendInfo {
+    code: Ref<compiled::Code>,
+    pc: u64,
+    resume_func: fn(&mut Object) -> NResult<Any, err::Exception>,
+}
+
+pub fn save_func_suspend_info(resume_func: fn(&mut Object) -> NResult<Any, err::Exception>, obj: &mut Object) {
+    let info = FuncSuspendInfo {
+        code: obj.vm_state().code.clone(),
+        pc: obj.vm_state().pc,
+        resume_func: resume_func,
+    };
+    obj.vm_state().stack.push(info);
+
+    //スタックに保存されたresume_funcを呼ぶための命令を実行するコードをvm_satateに設定
+    obj.vm_state().code = literal::code_call_suspend_func().make();
+    obj.vm_state().pc = 0;
+}
+
 #[derive(Debug)]
-struct VMStack {
+pub struct VMStack {
     stack: *mut u8,
     pos: *mut u8,
     stack_layout: std::alloc::Layout,
 }
 
 impl VMStack {
-    pub fn new(size: usize) -> Self {
+    fn new(size: usize) -> Self {
         let layout = std::alloc::Layout::from_size_align(size, size_of::<usize>()).unwrap();
         let stack = unsafe { std::alloc::alloc(layout) };
 
@@ -107,6 +132,35 @@ impl VMStack {
             stack_layout: layout,
         }
     }
+
+    pub fn push<T>(&mut self, v: T) -> *mut T {
+        let t_ptr = unsafe {
+            let t_ptr = self.pos as *mut T;
+
+            self.pos = self.pos.add(size_of::<T>());
+            t_ptr.write(v);
+
+            t_ptr
+        };
+
+        t_ptr
+    }
+
+    pub fn pop<T>(&mut self) -> T {
+        unsafe {
+            self.pos = self.pos.sub(size_of::<T>());
+            let t_ptr = self.pos as *mut T;
+
+            t_ptr.read()
+        }
+    }
+
+    fn pop_from_size(&mut self, decriment: usize) {
+        unsafe {
+            self.pos = self.pos.sub(decriment);
+        }
+    }
+
 }
 
 impl Drop for VMStack {
@@ -123,25 +177,6 @@ pub fn is_true(v: &Any) -> bool {
         v.is_true()
     } else {
         true
-    }
-}
-
-fn push<T>(v: T, stack: &mut VMStack) -> *mut T {
-    let t_ptr = unsafe {
-        let t_ptr = stack.pos as *mut T;
-
-        stack.pos = stack.pos.add(size_of::<T>());
-        t_ptr.write(v);
-
-        t_ptr
-    };
-
-    t_ptr
-}
-
-fn pop_from_size(stack: &mut VMStack, decriment: usize) {
-    unsafe {
-        stack.pos = stack.pos.sub(decriment);
     }
 }
 
@@ -177,7 +212,7 @@ fn refer_local_var(mut env: *const Environment, mut frame_offset: usize, index: 
 pub struct VMState {
     reductions: usize,
     code: Ref<compiled::Code>,
-    suspend_pc: usize, //途中終了時のプログラムカウンタ
+    pc: u64, //code中の現在プログラムカウンタ
     acc: Ref<Any>,
     stack: VMStack,
     cont: *mut Continuation,
@@ -190,7 +225,7 @@ impl VMState {
         VMState {
             reductions: 0,
             code: Ref::from(std::ptr::null_mut()), //ダミーのためにヌルポインターで初期化
-            suspend_pc: 0,
+            pc: 0,
             acc: bool::Bool::false_().into_ref().into_value(),
             stack: VMStack::new(1024 * 3),
             cont: std::ptr::null_mut(),
@@ -202,6 +237,11 @@ impl VMState {
     #[inline(always)]
     pub fn remain_reductions(&self) -> usize {
         self.reductions
+    }
+
+    #[inline(always)]
+    pub fn stack(&mut self) -> &mut VMStack {
+        &mut self.stack
     }
 
     pub fn for_each_all_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
@@ -250,19 +290,10 @@ impl VMState {
 pub enum WorkTimeLimit {
     Inf,
     Reductions(usize),
+    TakeOver,
 }
 
-pub fn func_call(func: &Reachable<func::Func>, args_iter: impl Iterator<Item=Ref<Any>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
-    app_call(func.cast_value(), args_iter, limit, obj)
-}
-
-pub fn closure_call(closure: &Reachable<compiled::Closure>, args_iter: impl Iterator<Item=Ref<Any>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
-    app_call(closure.cast_value(), args_iter, limit, obj)
-}
-
-fn app_call(app: &Reachable<Any>, args_iter: impl Iterator<Item=Ref<Any>>
+pub fn app_call(app: &Reachable<app::App>, args_iter: impl Iterator<Item=Ref<Any>>
     , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     //ContinuationとEnvironmentのフレームをプッシュ
     {
@@ -281,12 +312,13 @@ fn app_call(app: &Reachable<Any>, args_iter: impl Iterator<Item=Ref<Any>>
     //APPをプッシュ
     {
         let mut buf: Vec<u8> = Vec::with_capacity(1);
-        write_u8(tag::PUSH_APP, &mut buf);
+        //APP型は保証されているので型チェックなしでPUSHさせる
+        write_u8(tag::PUSH_ARG_UNCHECK, &mut buf);
         let code = compiled::Code::new(buf, Vec::new());
         let code = Reachable::new_static(&code);
 
         //accにFuncオブジェクトを設定
-        obj.vm_state().acc = app.make();
+        obj.vm_state().acc = app.cast_value().make();
         //関数呼び出しの準備段階の実行は、実行時間に制限を設けない
         code_execute(&code, WorkTimeLimit::Inf, obj).unwrap();
     }
@@ -308,29 +340,22 @@ fn app_call(app: &Reachable<Any>, args_iter: impl Iterator<Item=Ref<Any>>
         }
     }
 
-    //FuncをCALL命令で実行
-    {
-        //CALLするだけのコードを作成
-        let mut buf: Vec<u8> = Vec::with_capacity(1);
-        write_u8(tag::CALL, &mut buf);
-        let code = compiled::Code::new(buf, Vec::new());
-        let code = Reachable::new_static(&code);
-
-        //コードを実行
-        code_execute(&code, limit, obj)
-    }
+    //CALL命令を実行
+    code_execute(&literal::code_call(), limit, obj)
 }
 
 pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     //実行対象のコードを設定
     obj.vm_state().code = code.make();
-    obj.vm_state().suspend_pc = 0;
+    obj.vm_state().pc = 0;
 
     loop {
         //直接executを実行する場合は最大最後まで実行できるようにするためにのワークサイズを設定する
         obj.vm_state().reductions = match limit {
             WorkTimeLimit::Inf => usize::MAX,
             WorkTimeLimit::Reductions(reductions) => reductions,
+            //少なくとも一つの命令は実行完了できるように最低数(11)を指定する
+            WorkTimeLimit::TakeOver => obj.vm_state().reductions.max(11),
          };
 
         //CALLを実行。結果を返り値にする
@@ -345,26 +370,26 @@ pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj:
             Err(ExecException::Exception(err)) => {
                 match err {
                     err::Exception::TimeLimit => {
-                if limit == WorkTimeLimit::Inf {
-                    //実行時間がInfの場合はloopを継続して終了まで実行させる
-                    //loopを継続させるためにここでは何もしない
-                } else {
-                    //実行時間に制限があるときだけ、エラーを返す
+                        if limit == WorkTimeLimit::Inf {
+                            //実行時間がInfの場合はloopを継続して終了まで実行させる
+                            //loopを継続させるためにここでは何もしない
+                        } else {
+                            //実行時間に制限があるときだけ、エラーを返す
                             return Err(ExecException::Exception(err));
-                }
-            }
+                        }
+                    }
                     err::Exception::WaitReply => {
-                if limit == WorkTimeLimit::Inf {
-                    //他スレッドの処理が終わるまで時スレッドの処理をブロックして待つ。
-                    //3ミリ秒という数字に理由はない。
-                    std::thread::sleep(std::time::Duration::from_millis(3));
-                } else {
-                    //実行時間に制限があるときだけ、エラーを返す
+                        if limit == WorkTimeLimit::Inf {
+                            //他スレッドの処理が終わるまで時スレッドの処理をブロックして待つ。
+                            //3ミリ秒という数字に理由はない。
+                            std::thread::sleep(std::time::Duration::from_millis(3));
+                        } else {
+                            //実行時間に制限があるときだけ、エラーを返す
                             return Err(ExecException::Exception(err));
-                }
-            }
-            other => {
-                //その他の戻り値はそのまま返す
+                        }
+                    }
+                    other => {
+                        //その他の戻り値はそのまま返す
                         return Err(ExecException::Exception(other));
                     }
                 }
@@ -373,14 +398,19 @@ pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj:
     }
 }
 
-pub fn resume(reductions: usize, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
-    obj.vm_state().reductions = reductions;
+pub fn resume(limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
+    obj.vm_state().reductions = match limit {
+        WorkTimeLimit::Inf => usize::MAX,
+        WorkTimeLimit::Reductions(reductions) => reductions,
+        WorkTimeLimit::TakeOver => obj.vm_state().reductions,
+        };
+
     execute(obj)
 }
 
 fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     let mut program = Cursor::new(obj.vm_state().code.as_ref().program());
-    program.seek(SeekFrom::Start(obj.vm_state().suspend_pc as u64)).unwrap();
+    program.seek(SeekFrom::Start(obj.vm_state().pc as u64)).unwrap();
 
     macro_rules! tag_return {
         () => {
@@ -417,7 +447,8 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
     macro_rules! let_local {
         ($exp:expr) => {
-            push($exp, &mut obj.vm_state().stack);
+            let exp = $exp;
+            obj.vm_state().stack.push(exp);
             //新しく追加した分、環境内のローカルフレームサイズを増やす
             unsafe {
                 (*obj.vm_state().env).size += 1;
@@ -427,7 +458,8 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
     macro_rules! push_arg {
         ($exp:expr) => {
-            push($exp, &mut obj.vm_state().stack);
+            let exp = $exp;
+            obj.vm_state().stack.push(exp);
             //新しく追加した分、環境内のローカルフレームサイズを増やす
             unsafe {
                 (*obj.vm_state().argp).size += 1;
@@ -449,7 +481,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
             let remain = obj.vm_state().reductions.saturating_sub(acc_reduce);
             if remain == 0 {
                 //続きから実行できるように、PCを設定
-                obj.vm_state().suspend_pc = program.position() as usize;
+                obj.vm_state().pc = program.position();
 
                 return Err(ExecException::Exception(err::Exception::TimeLimit));
             } else {
@@ -560,7 +592,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                             //まだ返信がない場合は、
                             if result? == false {
                                 //もう一度PUSH_ARGが実行できるように、現在位置-1をresume後のPCとする
-                                obj.vm_state().suspend_pc = (program.position() - 1) as usize;
+                                obj.vm_state().pc = program.position() - 1;
 
                                 //引数の値にReply待ちを含んでいるため、返信を待つ
                                 return Err(ExecException::Exception(err::Exception::WaitReply));
@@ -635,7 +667,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     //まだ返信がない場合は、
                     if result? == false {
                         //もう一度OBJECT_SWITCHが実行できるように、現在位置-1をresume後のPCとする
-                        obj.vm_state().suspend_pc = (program.position() - 1) as usize;
+                        obj.vm_state().pc = program.position() - 1;
 
                         //引数の値にReply待ちを含んでいるため、返信を待つ
                         return Err(ExecException::Exception(err::Exception::WaitReply));
@@ -683,7 +715,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     let local_frame_size = (*obj.vm_state().env).size;
                     //Envヘッダーとローカル変数のサイズ分、スタックポインタを下げる
                     let size = size_of::<Environment>() + (size_of::<Ref<Any>>() * local_frame_size);
-                    pop_from_size(&mut obj.vm_state().stack, size);
+                    obj.vm_state().stack.pop_from_size(size);
 
                     //現在のenvポインタを一つ上の環境に差し替える
                     obj.vm_state().env = (*obj.vm_state().env).up;
@@ -695,7 +727,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     size: 0,
                 };
                 //envポインタを新しく追加したポインタに差し替える
-                obj.vm_state().env = push(new_env, &mut obj.vm_state().stack);
+                obj.vm_state().env = obj.vm_state().stack.push(new_env);
             }
             tag::CLOSURE => {
                 let num_args = read_u8(&mut program) as usize;
@@ -779,14 +811,14 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     argp: obj.vm_state().argp,
                 };
                 //contポインタを新しく追加したポインタに差し替える
-                obj.vm_state().cont = push(new_cont, &mut obj.vm_state().stack);
+                obj.vm_state().cont = obj.vm_state().stack.push(new_cont);
 
                 let new_env = Environment {
                     up: std::ptr::null_mut(), //準備段階ではupポインタはNULLにする
                     size: 0,
                 };
                 //argpポインタを新しく追加したポインタに差し替える
-                obj.vm_state().argp = push(new_env, &mut obj.vm_state().stack);
+                obj.vm_state().argp = obj.vm_state().stack.push(new_env);
             }
             tag::CALL_TAIL_PREPARE => {
                 //末尾文脈のCALLではContinuationフレームを積まない
@@ -795,7 +827,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     size: 0,
                 };
                 //argpポインタを新しく追加したポインタに差し替える
-                obj.vm_state().argp = push(new_env, &mut obj.vm_state().stack);
+                obj.vm_state().argp = obj.vm_state().stack.push(new_env);
             }
             tag::CALL |
             tag::CALL_TAIL => {
@@ -816,7 +848,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                         vmstate.argp = vmstate.env;
 
                         //フレームをずらしたことにより使用しなくなった領域分、スタックポインタを戻す
-                        pop_from_size(&mut vmstate.stack, discard_bytes);
+                        vmstate.stack.  pop_from_size(discard_bytes);
 
                         //envポインタをロールバック
                         obj.vm_state().env = (*obj.vm_state().env).up;
@@ -861,13 +893,25 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                         ))));
                     }
 
+                    //関数内部でPCを参照する場合があるので更新
+                    obj.vm_state().pc = program.position();
+
+                    if tag != tag::CALL_TAIL {
+                        //実行するプログラムが保存されたバッファを切り替えるため
+                        //現在実行中のプログラムをContinuationの中に保存する
+                        unsafe {
+                            (*obj.vm_state().cont).code = Some(obj.vm_state().code.clone());
+                            (*obj.vm_state().cont).pc = program.position();
+                        }
+                    }
+
                     //関数本体を実行
                     let result = func.as_ref().apply(num_args_remain, obj);
 
                     match result {
                         Ok(v) => {
-                    //リターン処理を実行
-                    tag_return!();
+                            //リターン処理を実行
+                            tag_return!();
 
                             obj.vm_state().acc = v;
 
@@ -898,9 +942,29 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                     //カーソルをクロージャ本体の実行コードに切り替え
                     program = Cursor::new(code.as_ref().program());
+                    obj.vm_state().pc = 0;
                     obj.vm_state().code = code;
 
                     reduce_with_check_timelimit!(5);
+                }
+            }
+            tag::CALL_RESUME_FUNC => {
+                let suspend_info: FuncSuspendInfo = obj.vm_state().stack.pop();
+                obj.vm_state().code = suspend_info.code;
+                obj.vm_state().pc = suspend_info.pc;
+                let result = (suspend_info.resume_func)(obj);
+                match result {
+                    Ok(v) => {
+                        //リターン処理を実行
+                        tag_return!();
+
+                        obj.vm_state().acc = v;
+
+                        reduce_with_check_timelimit!(10);
+                    }
+                    Err(err) => {
+                        return Err(ExecException::Exception(err));
+                    }
                 }
             }
             tag::AND => {
@@ -994,6 +1058,36 @@ fn read_usize<T: Read>(buf: &mut T) -> usize {
     usize::from_le_bytes(tmp)
 }
 
+static CODE_CALL_SUSPEND_FUNC: Lazy<GCAllocationStruct<compiled::Code>> = Lazy::new(|| {
+    let mut buf: Vec<u8> = Vec::with_capacity(1);
+    write_u8(tag::CALL_RESUME_FUNC, &mut buf);
+    let code = compiled::Code::new(buf, Vec::new());
+    GCAllocationStruct::new(code)
+});
+
+static CODE_CALL: Lazy<GCAllocationStruct<compiled::Code>> = Lazy::new(|| {
+    //CALLするだけのコードを作成
+    let mut buf: Vec<u8> = Vec::with_capacity(1);
+    write_u8(tag::CALL, &mut buf);
+    let code = compiled::Code::new(buf, Vec::new());
+    GCAllocationStruct::new(code)
+});
+
+mod literal {
+    use crate::ptr::Reachable;
+    use crate::value::compiled;
+
+    use super::*;
+
+    pub fn code_call_suspend_func() -> Reachable<compiled::Code> {
+        Reachable::new_static(&CODE_CALL_SUSPEND_FUNC.value)
+    }
+
+    pub fn code_call() -> Reachable<compiled::Code> {
+        Reachable::new_static(&CODE_CALL.value)
+    }
+
+}
 
 #[cfg(test)]
 mod tests {

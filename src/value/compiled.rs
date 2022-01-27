@@ -109,6 +109,8 @@ impl Debug for Code {
     }
 }
 
+//一度生成されたコードオブジェクトは読み込み専用なのでSendマークをつける
+unsafe impl Send for Code {}
 
 #[repr(C)]
 pub struct Closure {
@@ -253,6 +255,18 @@ impl Closure {
         }
     }
 
+}
+
+impl Ref<Closure> {
+    pub fn cast_app(&self) -> &Ref<app::App> {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl Reachable<Closure> {
+    pub fn cast_app(&self) -> &Reachable<app::App> {
+        unsafe { std::mem::transmute(self) }
+    }
 }
 
 impl Eq for Closure { }

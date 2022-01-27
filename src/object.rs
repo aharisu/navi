@@ -20,7 +20,7 @@ use crate::err::*;
 use crate::compile;
 
 use crate::value::any::Any;
-use crate::value::func::Func;
+use crate::value::func::*;
 use crate::value::list::ListBuilder;
 use crate::value::object_ref::ObjectRef;
 use crate::vm::{self, VMState, ExecException};
@@ -361,7 +361,7 @@ impl Object {
 
         match self.values.get_mut().suspend_state.take() {
             SuspendState::VMSuspend(reply_to_mailbox, reply_token) => {
-                let result = vm::resume(reduction_count, self);
+                let result = vm::resume(vm::WorkTimeLimit::Reductions(reduction_count), self);
                 self.apply_message_finish(result, reply_to_mailbox, reply_token)
             }
             SuspendState::WaitReply(reply, reply_to_mailbox, reply_token) => {
@@ -486,7 +486,7 @@ impl Object {
         let limit = vm::WorkTimeLimit::Reductions(reduction_count);
 
         //メッセージをクロージャに適用してパターンマッチを実行する
-        let result = vm::closure_call(&closure, args_iter, limit, obj);
+        let result = vm::app_call(closure.cast_app(), args_iter, limit, obj);
         obj.apply_message_finish(result, reply_to_mailbox, reply_token)
     }
 
@@ -513,30 +513,30 @@ impl Object {
             Err(vm::ExecException::Exception(e)) => {
                 match e {
                     Exception::TimeLimit => {
-                //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
-                Ok(())
+                        //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
+                        self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
+                        Ok(())
                     }
                     Exception::WaitReply => {
-                //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
-                Ok(())
-            }
+                        //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
+                        self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
+                        Ok(())
+                    }
                     Exception::MySelfObjectDeleted => {
-                //実行中のオブジェクトが削除されようとしているので、これ以上何もせずに終了させる
-                Ok(())
-            }
+                        //実行中のオブジェクトが削除されようとしているので、これ以上何もせずに終了させる
+                        Ok(())
+                    }
                     Exception::Exit => {
-                //メインプロセス以外でのExitは無視
-                //TODO Exitはプロセスを削除するか？
-                Ok(())
-            }
+                        //メインプロセス以外でのExitは無視
+                        //TODO Exitはプロセスを削除するか？
+                        Ok(())
+                    }
                     other => {
                         self.send_reply(Err(other), reply_to_mailbox, reply_token)?;
 
-                //残ったreductions分もう一度do_workを実行する
-                let remain = self.vm_state().remain_reductions();
-                self.do_work(remain)
+                        //残ったreductions分もう一度do_workを実行する
+                        let remain = self.vm_state().remain_reductions();
+                        self.do_work(remain)
                     }
                 }
             }
@@ -698,6 +698,39 @@ fn func_exit(_num_rest: usize, _obj: &mut Object) -> NResult<Any, Exception> {
     Err(Exception::Exit)
 }
 
+fn func_sleep(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    let sleep_in_milliseconds = vm::refer_arg::<number::Integer>(0, obj).as_ref().get();
+    let start = std::time::Instant::now();
+
+    func_sleep_result(sleep_in_milliseconds, start, obj)
+}
+
+fn func_sleep_resume(obj: &mut Object) -> NResult<Any, Exception> {
+    let sleep_start: std::time::Instant = obj.vm_state().stack().pop();
+    let sleep_in_milliseconds: i64 = obj.vm_state().stack().pop();
+
+    func_sleep_result(sleep_in_milliseconds, sleep_start, obj)
+}
+
+#[inline]
+fn func_sleep_result(sleep_in_milliseconds: i64, sleep_start: std::time::Instant, obj: &mut Object) -> NResult<Any, Exception> {
+    let end = sleep_start.elapsed();
+
+    //Sleep指定時間を超えていたらすぐに終了
+    if (sleep_in_milliseconds as u128) <= end.as_millis() {
+        Ok(tuple::Tuple::unit().make().into_value())
+
+    } else {
+        //指定時間未満なら関数の処理を一時停止
+        obj.vm_state().stack().push(sleep_in_milliseconds);
+        obj.vm_state().stack().push(sleep_start);
+        vm::save_func_suspend_info(func_sleep_resume, obj);
+
+        //厳密にはタイムリミットではないので専用の例外を作るべきか？
+        Err(crate::err::Exception::TimeLimit)
+    }
+}
+
 static FUNC_EXIT: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
         Func::new("exit",
@@ -706,8 +739,19 @@ static FUNC_EXIT: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     )
 });
 
+static FUNC_SLEEP: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("sleep",
+            &[
+            Param::new("duration_in_milliseconds", ParamKind::Require, number::Integer::typeinfo()),
+            ],
+            func_sleep)
+    )
+});
+
 pub fn register_global(obj: &mut Object) {
     obj.define_global_value("exit", &Ref::new(&FUNC_EXIT.value));
+    obj.define_global_value("sleep", &Ref::new(&FUNC_SLEEP.value));
 }
 
 mod literal {

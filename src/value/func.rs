@@ -131,6 +131,18 @@ impl Func {
     }
 }
 
+impl Ref<Func> {
+    pub fn cast_app(&self) -> &Ref<app::App> {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl Reachable<Func> {
+    pub fn cast_app(&self) -> &Reachable<app::App> {
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
 impl Eq for Func { }
 
 impl PartialEq for Func{
