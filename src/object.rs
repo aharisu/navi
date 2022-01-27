@@ -245,6 +245,7 @@ impl Object {
 
     fn register_core_global(&mut self) {
         register_global(self);
+        crate::eval::register_global(self);
         number::register_global(self);
         object_ref::register_global(self);
         compile::register_global(self);

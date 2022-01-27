@@ -1,9 +1,14 @@
+use once_cell::sync::Lazy;
+
 use crate::object::Object;
 use crate::object::StandaloneObject;
+use crate::object::mm::GCAllocationStruct;
 use crate::value::*;
 use crate::ptr::*;
 use crate::err::*;
 use crate::value::any::Any;
+use crate::value::func::*;
+use crate::value::list::ListBuilder;
 use crate::vm;
 use crate::vm::ExecException;
 
@@ -50,6 +55,75 @@ pub fn eval(sexp: &Reachable<Any>, obj: &mut Object) -> Result<Ref<Any>, EvalErr
     }
 }
 
+fn func_apply(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
+    let app = vm::refer_arg::<app::App>(0, obj).reach(obj);
+
+    let mut last_arg = vm::refer_arg::<Any>(1, obj).reach(obj);
+    let mut builder = ListBuilder::new(obj);
+    for index in 0 .. num_rest {
+        let arg = vm::refer_rest_arg::<Any>(2, index, obj).reach(obj);
+
+        builder.push(&last_arg, obj)?;
+        last_arg = arg;
+    }
+
+    match last_arg.try_cast::<list::List>() {
+        Some(last_arg) => {
+            let args = builder.append_get(&last_arg.make());
+            let iter = args.reach(obj).iter(obj);
+            func_apply_result(vm::app_call(&app, iter, vm::WorkTimeLimit::TakeOver, obj), obj)
+        }
+        None => {
+            Err(Exception::ArgTypeMismatch(ArgTypeMismatch::new(
+                String::from("apply"), 2 + num_rest, last_arg.into_ref(), list::List::typeinfo()
+            )))
+        }
+    }
+}
+
+fn func_apply_resume(obj: &mut Object) -> NResult<Any, Exception> {
+    func_apply_result(vm::resume(vm::WorkTimeLimit::TakeOver, obj), obj)
+}
+
+#[inline]
+fn func_apply_result(result: NResult<Any, ExecException>, obj: &mut Object) -> NResult<Any, Exception> {
+    match result {
+        Ok(result) => {
+            Ok(result)
+        }
+        Err(vm::ExecException::ObjectSwitch(_)) => {
+            //ObjectSwitchは特殊な構文のみ発生させる例外なのでapplyでは発生しない。
+            unreachable!()
+        }
+        Err(vm::ExecException::Exception(err)) => {
+            match err {
+                Exception::WaitReply |
+                Exception::TimeLimit => {
+                    vm::save_func_suspend_info(func_apply_resume, obj);
+                }
+                _ => { }
+            }
+            Err(err)
+        }
+    }
+}
+
+static FUNC_APPLY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
+    GCAllocationStruct::new(
+        Func::new("apply",
+            &[
+            Param::new("app", ParamKind::Require, app::App::typeinfo()),
+            Param::new("arg1", ParamKind::Require, Any::typeinfo()),
+            Param::new("args", ParamKind::Rest, Any::typeinfo()),
+            ],
+            func_apply)
+    )
+});
+
+pub fn register_global(obj: &mut Object) {
+    obj.define_global_value("apply", &Ref::new(&FUNC_APPLY.value));
+}
+
 #[cfg(test)]
 pub fn exec<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
     let mut reader = crate::read::Reader::new(program.chars().peekable());
@@ -72,7 +146,6 @@ mod tests {
     use crate::value::*;
     use crate::value::any::Any;
     use crate::ptr::*;
-
 
 
     #[test]
@@ -396,6 +469,32 @@ mod tests {
             let ans = number::make_integer(5, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
+    }
+
+    #[test]
+    fn test_apply() {
+        let mut obj = Object::new_for_test();
+        let obj = &mut obj;
+
+        let program = "(apply + '(1 2 3 4))";
+        let result = exec::<Any>(program, obj).capture(obj);
+        let ans = number::make_integer(10, obj).unwrap().into_value();
+        assert_eq!(result.as_ref(), ans.as_ref());
+
+        let program = "(apply + 1 '(2 3 4))";
+        let result = exec::<Any>(program, obj).capture(obj);
+        let ans = number::make_integer(10, obj).unwrap().into_value();
+        assert_eq!(result.as_ref(), ans.as_ref());
+
+        let program = "(apply + 1 2 '(3 4))";
+        let result = exec::<Any>(program, obj).capture(obj);
+        let ans = number::make_integer(10, obj).unwrap().into_value();
+        assert_eq!(result.as_ref(), ans.as_ref());
+
+        let program = "(apply (fun (n) (sleep 1000) (+ n 1)) '(1))";
+        let result = exec::<Any>(program, obj).capture(obj);
+        let ans = number::make_integer(2, obj).unwrap().into_value();
+        assert_eq!(result.as_ref(), ans.as_ref());
     }
 
 }
