@@ -1,5 +1,6 @@
 use crate::err::*;
 use crate::value::*;
+use crate::value::app::{Parameter, ParamKind, Param};
 use crate::vm;
 use crate::object::{self, Object};
 use crate::object::mailbox::{MailBox, ReplyToken, MessageKind};
@@ -22,6 +23,7 @@ static OBJECT_TYPEINFO : TypeInfo = new_typeinfo!(
     Display::fmt,
     None,
     Some(ObjectRef::finalize),
+    None,
     None,
     None,
     None,
@@ -123,21 +125,22 @@ fn func_send(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 
 static FUNC_SPAWN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("spawn",
-            &[
+        Func::new("spawn", func_spawn,
+            Parameter::new(&[
             Param::new("object", ParamKind::Optional, ObjectRef::typeinfo()),
-            ],
-            func_spawn)
+            ])
+        )
     )
 });
 
 static FUNC_SEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("send", &[
+        Func::new("send", func_send,
+            Parameter::new(&[
             Param::new("object", ParamKind::Require, ObjectRef::typeinfo()),
             Param::new("message", ParamKind::Require, Any::typeinfo()),
-            ],
-            func_send)
+            ])
+        )
     )
 });
 

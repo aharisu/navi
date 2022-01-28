@@ -20,7 +20,8 @@ use crate::err::*;
 use crate::compile;
 
 use crate::value::any::Any;
-use crate::value::func::*;
+use crate::value::func::Func;
+use crate::value::app::{Parameter, ParamKind, Param};
 use crate::value::list::ListBuilder;
 use crate::value::object_ref::ObjectRef;
 use crate::vm::{self, VMState, ExecException};
@@ -734,19 +735,20 @@ fn func_sleep_result(sleep_in_milliseconds: i64, sleep_start: std::time::Instant
 
 static FUNC_EXIT: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("exit",
-            &[],
-            func_exit)
+        Func::new("exit", func_exit,
+            Parameter::new(&[
+            ])
+        )
     )
 });
 
 static FUNC_SLEEP: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("sleep",
-            &[
+        Func::new("sleep", func_sleep,
+        Parameter::new(&[
             Param::new("duration_in_milliseconds", ParamKind::Require, number::Integer::typeinfo()),
-            ],
-            func_sleep)
+            ])
+        )
     )
 });
 

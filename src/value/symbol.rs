@@ -22,6 +22,7 @@ static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     None,
     None,
+    None,
 );
 
 static GENSYM_COUNTER: AtomicUsize = AtomicUsize::new(0);

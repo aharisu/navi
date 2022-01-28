@@ -2,6 +2,7 @@ use crate::object::mailbox::ReplyToken;
 use crate::ptr::*;
 use crate::err::*;
 use crate::value::*;
+use crate::value::app::{Parameter, ParamKind, Param};
 
 use std::fmt::{Debug, Display};
 use std::sync::{Arc, Mutex};
@@ -31,6 +32,7 @@ static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     Some(Reply::child_traversal),
     Some(Reply::_check_reply_dummy),
+    None,
 );
 
 impl NaviType for Reply {
@@ -211,11 +213,11 @@ fn func_force(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 
 static FUNC_FORCE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("force",
-            &[
+        Func::new("force", func_force,
+            Parameter::new(&[
             Param::new("v", ParamKind::Require, Any::typeinfo()),
-            ],
-            func_force)
+            ])
+        )
     )
 });
 

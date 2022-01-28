@@ -7,7 +7,8 @@ use crate::value::*;
 use crate::ptr::*;
 use crate::err::*;
 use crate::value::any::Any;
-use crate::value::func::*;
+use crate::value::func::Func;
+use crate::value::app::{Parameter, ParamKind, Param};
 use crate::value::list::ListBuilder;
 use crate::vm;
 use crate::vm::ExecException;
@@ -110,13 +111,13 @@ fn func_apply_result(result: NResult<Any, ExecException>, obj: &mut Object) -> N
 
 static FUNC_APPLY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("apply",
-            &[
+        Func::new("apply", func_apply,
+            Parameter::new(&[
             Param::new("app", ParamKind::Require, app::App::typeinfo()),
             Param::new("arg1", ParamKind::Require, Any::typeinfo()),
             Param::new("args", ParamKind::Rest, Any::typeinfo()),
-            ],
-            func_apply)
+            ])
+        )
     )
 });
 

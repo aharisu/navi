@@ -21,6 +21,7 @@ static EXCEPTION_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     Some(Exception::child_traversal),
     None,
+    None,
 );
 
 impl NaviType for Exception {

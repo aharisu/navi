@@ -17,6 +17,7 @@ use crate::object::mm::usize_to_ptr;
 use crate::object::Object;
 use crate::value::*;
 use crate::value::any::Any;
+use crate::value::app;
 use crate::ptr::*;
 use crate::err;
 
@@ -572,48 +573,46 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let argp_env = obj.vm_state().argp;
                 //引数準備中フレームからappを取得
                 let app = refer_local_var(argp_env, 0, 0);
-                if let Some(func) = app.try_cast::<func::Func>() {
-                    let index = unsafe { (*argp_env).size - 1 };
-                    let parameter = func.as_ref().get_paramter();
-                    let param = if parameter.is_empty() {
-                            None
-                        } else if index < parameter.len() {
-                            Some(&parameter[index])
-                        } else if parameter[parameter.len() - 1].kind == func::ParamKind::Rest {
-                            Some(&parameter[parameter.len() - 1])
-                        } else {
-                            None
-                        };
-                    if let Some(param) = param {
-                        // reply check
-                        if param.force && arg.has_replytype() {
-                            let result = check_reply(&mut arg, obj);
+                //PUSH_APPの時点で型チェックされているので無条件でAPPに変換する
+                let app = unsafe { app.cast_unchecked::<app::App>() };
 
-                            //まだ返信がない場合は、
-                            if result? == false {
-                                //もう一度PUSH_ARGが実行できるように、現在位置-1をresume後のPCとする
-                                obj.vm_state().pc = program.position() - 1;
+                let index = unsafe { (*argp_env).size - 1 };
+                let parameter = app.as_ref().parameter();
+                let params = parameter.params();
+                let param = if params.is_empty() {
+                        None
+                    } else if index < params.len() {
+                        Some(&params[index])
+                    } else if params[params.len() - 1].kind == app::ParamKind::Rest {
+                        Some(&params[params.len() - 1])
+                    } else {
+                        None
+                    };
+                if let Some(param) = param {
+                    // reply check
+                    if param.force && arg.has_replytype() {
+                        let result = check_reply(&mut arg, obj);
 
-                                //引数の値にReply待ちを含んでいるため、返信を待つ
-                                return Err(ExecException::Exception(err::Exception::WaitReply));
-                            }
-                        }
+                        //まだ返信がない場合は、
+                        if result? == false {
+                            //もう一度PUSH_ARGが実行できるように、現在位置-1をresume後のPCとする
+                            obj.vm_state().pc = program.position() - 1;
 
-                        // type check
-                        if arg.is_type(param.typeinfo) == false {
-                            return Err(ExecException::Exception(err::Exception::ArgTypeMismatch(
-                                err::ArgTypeMismatch::new(
-                                    String::from(func.as_ref().name()), index + 1,
-                                    arg, param.typeinfo))));
+                            //引数の値にReply待ちを含んでいるため、返信を待つ
+                            return Err(ExecException::Exception(err::Exception::WaitReply));
                         }
                     }
 
-                    push_arg!(arg);
-
-                } else {
-                    push_arg!(obj.vm_state().acc.clone());
+                    // type check
+                    if arg.is_type(param.typeinfo) == false {
+                        return Err(ExecException::Exception(err::Exception::ArgTypeMismatch(
+                            err::ArgTypeMismatch::new(
+                                String::from(app.as_ref().name()), index + 1,
+                                arg, param.typeinfo))));
+                    }
                 }
 
+                push_arg!(arg);
             }
             tag::PUSH_ARG_UNCHECK => {
                 push_arg!(obj.vm_state().acc.clone());
@@ -754,7 +753,13 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 //読み込んだClosure本体のデータ分、プログラムカウンタを進める
                 program.seek(SeekFrom::Current(body_size as i64)).unwrap();
 
-                obj.vm_state().acc = compiled::Closure::alloc(closure_body, constants, num_args, num_free_vars, obj)?.into_value();
+                let params:Vec<app::Param> = (0 .. num_args)
+                    .map(|_| app::Param::new("v", app::ParamKind::Require, any::Any::typeinfo()))
+                    .collect()
+                    ;
+                let parameter = app::Parameter::new(&params);
+
+                obj.vm_state().acc = compiled::Closure::alloc(closure_body, constants, parameter, num_free_vars, obj)?.into_value();
 
                 reduce!(5);
             }
@@ -860,38 +865,42 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                 let env = obj.vm_state().env;
                 //ローカルフレームの0番目にappが入っているので取得
-                let app = refer_local_var(env, 0, 0);
+                let any = refer_local_var(env, 0, 0);
+                //PUSH_APPの時点で型チェックされているので無条件でAPPに変換する
+                let app = unsafe { any.cast_unchecked::<app::App>() };
+                let parameter = app.as_ref().parameter();
 
-                if let Some(func) = app.try_cast::<func::Func>() {
-                    //関数に渡そうとしている引数の数(先頭に必ずfunc自身が入っているので-1する)
-                    let num_args = unsafe { (*env).size } - 1;
-                    let mut num_args_remain = num_args;
+                //関数に渡そうとしている引数の数(先頭に必ずapp自身が入っているので-1する)
+                let num_args = unsafe { (*env).size } - 1;
+                let mut num_args_remain = num_args;
 
-                    if num_args_remain < func.as_ref().num_require() {
-                        //必須の引数が足らないエラー
-                        return Err(ExecException::Exception(err::Exception::Other(format!("Illegal number of argument.\nThe function {}.\n  require:{}, optional:{}, rest:{}\n  but got {} arguments."
-                            , func.as_ref().name()
-                            , func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args
-                        ))));
+                if num_args_remain < parameter.num_require() {
+                    //必須の引数が足らないエラー
+                    return Err(ExecException::Exception(err::Exception::Other(format!("Illegal number of argument.\nThe function {}.\n  require:{}, optional:{}, rest:{}\n  but got {} arguments."
+                        , app.as_ref().name()
+                        , parameter.num_require(),  parameter.num_optional(), parameter.has_rest(), num_args
+                    ))));
+                }
+                num_args_remain -= parameter.num_require();
+
+                if num_args_remain < parameter.num_optional() {
+                    //Optionalに対応する引数がない場合は、足りない分だけUnitをデフォルト値として追加する
+                    for _ in 0..(parameter.num_optional() - num_args_remain) {
+                        let_local!(tuple::Tuple::unit().into_value().make());
                     }
-                    num_args_remain -= func.as_ref().num_require();
+                }
+                num_args_remain = num_args_remain.saturating_sub(parameter.num_optional());
 
-                    if num_args_remain < func.as_ref().num_optional() {
-                        //Optionalに対応する引数がない場合は、足りない分だけUnitをデフォルト値として追加する
-                        for _ in 0..(func.as_ref().num_optional() - num_args_remain) {
-                            let_local!(tuple::Tuple::unit().into_value().make());
-                        }
-                    }
-                    num_args_remain = num_args_remain.saturating_sub(func.as_ref().num_optional());
+                //rest引数がない関数に対して過剰な引数を渡している場合は
+                if num_args_remain != 0 && parameter.has_rest() == false {
+                    //エラー
+                    return Err(ExecException::Exception(err::Exception::Other(format!("Illegal number of argument.\nThe function {}.\n  require:{}, optional:{}, rest:{}\n  but got {} arguments."
+                        , app.as_ref().name()
+                        , parameter.num_require(),  parameter.num_optional(), parameter.has_rest(), num_args
+                    ))));
+                }
 
-                    //rest引数がない関数に対して過剰な引数を渡している場合は
-                    if num_args_remain != 0 && func.as_ref().has_rest() == false {
-                        //エラー
-                        return Err(ExecException::Exception(err::Exception::Other(format!("Illegal number of argument.\nThe function {}.\n  require:{}, optional:{}, rest:{}\n  but got {} arguments."
-                            , func.as_ref().name()
-                            , func.as_ref().num_require(),  func.as_ref().num_optional(), func.as_ref().has_rest(), num_args
-                        ))));
-                    }
+                if let Some(func) = any.try_cast::<func::Func>() {
 
                     //関数内部でPCを参照する場合があるので更新
                     obj.vm_state().pc = program.position();
@@ -921,14 +930,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                             return Err(ExecException::Exception(err));
                         }
                     }
-                } else if let Some(closure) = app.try_cast::<compiled::Closure>() {
-                    //引数の数などが正しいかを確認
-                    let num_require = closure.as_ref().arg_descriptor();
-                    let num_args = unsafe { (*obj.vm_state().env).size } - 1;
-                    if num_require != num_args {
-                        return Err(ExecException::Exception(err::Exception::Other(format!("Invalid arguments. require:{} actual:{}", num_require, num_args))));
-                    }
-
+                } else if let Some(closure) = any.try_cast::<compiled::Closure>() {
                     if tag != tag::CALL_TAIL {
                         //実行するプログラムが保存されたバッファを切り替えるため
                         //現在実行中のプログラムをContinuationの中に保存する

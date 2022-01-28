@@ -5,6 +5,7 @@ use crate::value::{*, self};
 use crate::err::*;
 use crate::ptr::*;
 use crate::vm;
+use crate::value::app::{Parameter, ParamKind, Param};
 use std::fmt::{self, Debug, Display};
 
 pub struct List {
@@ -25,6 +26,7 @@ static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     Some(List::child_traversal),
     Some(List::check_reply),
+    None,
 );
 
 impl NaviType for List {
@@ -520,63 +522,63 @@ fn func_append(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 
 static FUNC_CONS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("cons",
-            &[
+        Func::new("cons", func_cons,
+        Parameter::new(&[
             Param::new_no_force("head", ParamKind::Require, Any::typeinfo()),
             Param::new_no_force("tail", ParamKind::Require, list::List::typeinfo()),
-            ],
-            func_cons)
+            ])
+        )
     )
 });
 
 static FUNC_LIST: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("list",
-            &[
+        Func::new("list", func_list,
+        Parameter::new(&[
             Param::new_no_force("values", ParamKind::Rest, Any::typeinfo()),
-            ],
-            func_list)
+            ])
+        )
     )
 });
 
 static FUNC_IS_LIST: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("list?",
-            &[
+        Func::new("list?", func_is_list,
+        Parameter::new(&[
             Param::new_no_force("x", ParamKind::Require, Any::typeinfo()),
-            ],
-            func_is_list)
+            ])
+        )
     )
 });
 
 static FUNC_LIST_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("list-len",
-            &[
+        Func::new("list-len", func_list_len,
+        Parameter::new(&[
             Param::new_no_force("list", ParamKind::Require, List::typeinfo()),
-            ],
-            func_list_len)
+            ])
+        )
     )
 });
 
 static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("list-ref",
-            &[
+        Func::new("list-ref", func_list_ref,
+        Parameter::new(&[
             Param::new_no_force("list", ParamKind::Require, List::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
-            ],
-            func_list_ref)
+            ])
+        )
     )
 });
 
 static FUNC_APPEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("append",
-            &[
+        Func::new("append", func_append,
+        Parameter::new(&[
             Param::new("list", ParamKind::Rest, list::List::typeinfo()),
-            ],
-            func_append)
+            ])
+        )
     )
 });
 

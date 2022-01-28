@@ -2,6 +2,7 @@ use crate::value::{*, self};
 use crate::ptr::*;
 use crate::err::*;
 use crate::vm;
+use crate::value::app::{Parameter, ParamKind, Param};
 use std::fmt::Display;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
@@ -24,6 +25,7 @@ static ARRAY_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     Some(Array::<Any>::child_traversal),
     Some(Array::<Any>::check_reply),
+    None,
 );
 
 impl <T:NaviType> NaviType for Array<T> {
@@ -358,42 +360,42 @@ fn func_array_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception>
 
 static FUNC_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("array",
-            &[
+        Func::new("array", func_array,
+        Parameter::new(&[
             Param::new_no_force("values", ParamKind::Rest, Any::typeinfo()),
-            ],
-            func_array)
+            ])
+        )
     )
 });
 
 static FUNC_IS_ARRAY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("array?",
-            &[
+        Func::new("array?", func_is_array,
+        Parameter::new(&[
             Param::new_no_force("x", ParamKind::Require, Any::typeinfo()),
-            ],
-            func_is_array)
+            ])
+        )
     )
 });
 
 static FUNC_ARRAY_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("array-len",
-            &[
+        Func::new("array-len", func_array_len,
+        Parameter::new(&[
             Param::new_no_force("array", ParamKind::Require, Array::<Any>::typeinfo()),
-            ],
-            func_array_len)
+            ])
+        )
     )
 });
 
 static FUNC_ARRAY_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("array-ref",
-            &[
+        Func::new("array-ref", func_array_ref,
+        Parameter::new(&[
             Param::new_no_force("array", ParamKind::Require, Array::<Any>::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
-            ],
-            func_array_ref)
+            ])
+        )
     )
 });
 

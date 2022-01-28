@@ -23,6 +23,7 @@ static IFORM_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     None,
     None,
+    None,
 );
 
 pub trait AsIForm : NaviType { }
@@ -196,6 +197,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         Some(IFormLet::child_traversal),
         None,
+        None,
     ),
     new_typeinfo!(
         IFormIf,
@@ -209,6 +211,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormIf::child_traversal),
+        None,
         None,
     ),
     new_typeinfo!(
@@ -224,6 +227,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         Some(IFormLocal::child_traversal),
         None,
+        None,
     ),
     new_typeinfo!(
         IFormLRef,
@@ -237,6 +241,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormLRef::child_traversal),
+        None,
         None,
     ),
     new_typeinfo!(
@@ -252,6 +257,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         Some(IFormGRef::child_traversal),
         None,
+        None,
     ),
     new_typeinfo!(
         IFormFun,
@@ -265,6 +271,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormFun::child_traversal),
+        None,
         None,
     ),
     new_typeinfo!(
@@ -280,6 +287,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         Some(IFormSeq::child_traversal),
         None,
+        None,
     ),
     new_typeinfo!(
         IFormCall,
@@ -293,6 +301,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormCall::child_traversal),
+        None,
         None,
     ),
     new_typeinfo!(
@@ -308,6 +317,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         Some(IFormConst::child_traversal),
         None,
+        None,
     ),
     new_typeinfo!(
         IFormAndOr,
@@ -321,6 +331,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormAndOr::child_traversal),
+        None,
         None,
     ),
     new_typeinfo!(
@@ -336,6 +347,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         Some(IFormDefRecv::child_traversal),
         None,
+        None,
     ),
     new_typeinfo!(
         IFormObjectSwitch,
@@ -349,6 +361,7 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
         None,
         None,
         Some(IFormObjectSwitch::child_traversal),
+        None,
         None,
     ),
 ];

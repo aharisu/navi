@@ -1,7 +1,8 @@
 use crate::err::*;
 use crate::ptr::*;
 use crate::value::*;
-use crate::value::func::*;
+use crate::value::func::Func;
+use crate::value::app::{Parameter, ParamKind, Param};
 use crate::object::Object;
 use crate::object::mm::GCAllocationStruct;
 use crate::vm;
@@ -21,6 +22,7 @@ static FIXNUM_TYPEINFO : TypeInfo = new_typeinfo!(
     Some(Fixnum::is_type),
     None,
     Some(Fixnum::is_comparable),
+    None,
     None,
     None,
 );
@@ -110,6 +112,7 @@ static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
     Some(Integer::is_type),
     None,
     Some(Integer::is_comparable),
+    None,
     None,
     None,
 );
@@ -252,6 +255,7 @@ static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
     Some(Real::is_comparable),
     None,
     None,
+    None,
 );
 
 impl NaviType for Real {
@@ -340,6 +344,7 @@ static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
     Number::eq,
     Number::clone_inner,
     Display::fmt,
+    None,
     None,
     None,
     None,
@@ -486,33 +491,33 @@ fn func_abs(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 
 static FUNC_ADD: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("+",
-            &[
+        Func::new("+", func_add,
+            Parameter::new(&[
             Param::new("num", ParamKind::Require, number::Number::typeinfo()),
             Param::new("rest", ParamKind::Rest, number::Number::typeinfo()),
-            ],
-            func_add)
+            ])
+        )
     )
 });
 
 static FUNC_SUB: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("-",
-            &[
+        Func::new("-", func_sub,
+            Parameter::new(&[
             Param::new("num", ParamKind::Require, number::Number::typeinfo()),
             Param::new("rest", ParamKind::Rest, number::Number::typeinfo()),
-            ],
-            func_sub)
+            ])
+        )
     )
 });
 
 static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("abs",
-            &[
+        Func::new("abs", func_abs,
+            Parameter::new(&[
             Param::new("num", ParamKind::Require, number::Number::typeinfo()),
-            ],
-            func_abs)
+            ])
+        )
     )
 });
 

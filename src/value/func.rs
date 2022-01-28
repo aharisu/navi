@@ -1,52 +1,22 @@
 use crate::value::*;
 use crate::ptr::*;
 use crate::err::*;
-use std::fmt::{Debug, Display};
+use crate::new_app_typeinfo;
+use crate::value::app::{AppTypeInfo, APP_EXTRATYPE_ID};
 
+use std::fmt::{Debug, Display};
 
 pub struct Func {
     name: String,
-    params: Vec<Param>,
     body:  fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>,
-    num_require: u8,
-    num_optional: u8,
-    has_rest: bool,
+    parameter: app::Parameter,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum ParamKind {
-    Require,
-    Optional,
-    Rest,
-}
-
-#[derive(Clone)]
-pub struct Param {
-    pub name: String,
-    pub typeinfo: &'static TypeInfo,
-    pub force: bool,
-    pub kind: ParamKind,
-    //TODO Optionalのデフォルト値
-}
-
-impl Param {
-    pub fn new<T: Into<String>>(name: T, kind: ParamKind, typeinfo: &'static TypeInfo) -> Param {
-        Param {
-            name: name.into(),
-            typeinfo: typeinfo,
-            force: true,
-            kind: kind,
-        }
-    }
-    pub fn new_no_force<T: Into<String>>(name: T, kind: ParamKind, typeinfo: &'static TypeInfo) -> Param {
-        Param {
-            name: name.into(),
-            typeinfo: typeinfo,
-            force: false,
-            kind: kind,
-        }
-    }
-}
+static FUNC_APP_EXTRATYPEINFO: app::AppTypeInfo = new_app_typeinfo!(
+    Func,
+    Func::parameter,
+    Func::name,
+);
 
 static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func,
@@ -61,6 +31,7 @@ static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     None,
     None,
+    Some(&FUNC_APP_EXTRATYPEINFO.base),
 );
 
 impl NaviType for Func {
@@ -81,25 +52,12 @@ impl Func {
         || app::App::typeinfo() == other_typeinfo
     }
 
-    pub fn new<T: Into<String>>(name: T, params: &[Param], body: fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>) -> Func {
-        let mut num_require = 0;
-        let mut num_optional = 0;
-        let mut has_rest = false;
-        params.iter().for_each(|p| {
-            match p.kind {
-                func::ParamKind::Require => num_require += 1,
-                func::ParamKind::Optional => num_optional += 1,
-                func::ParamKind::Rest => has_rest = true,
-            }
-        });
+    pub fn new<T: Into<String>>(name: T, body: fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>, parameter: app::Parameter) -> Func {
 
         Func {
             name: name.into(),
-            params: params.to_vec(),
             body: body,
-            num_require,
-            num_optional,
-            has_rest,
+            parameter,
         }
     }
 
@@ -107,23 +65,9 @@ impl Func {
         self.name.as_str()
     }
 
-    pub fn get_paramter(&self) -> &[Param] {
-        &self.params
-    }
-
     #[inline]
-    pub fn num_require(&self) -> usize {
-        self.num_require as usize
-    }
-
-    #[inline]
-    pub fn num_optional(&self) -> usize {
-        self.num_optional as usize
-    }
-
-    #[inline]
-    pub fn has_rest(&self) -> bool {
-        self.has_rest
+    pub fn parameter(&self) -> &app::Parameter {
+        &self.parameter
     }
 
     pub fn apply(&self, num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {

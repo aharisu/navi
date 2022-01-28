@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! new_typeinfo {
-    ($t:ty, $name:expr, $fixed_size:expr, $variable_size_func:expr, $eq_func:expr, $clone_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, $check_reply_func:expr, ) => {
+    ($t:ty, $name:expr, $fixed_size:expr, $variable_size_func:expr, $eq_func:expr, $clone_func:expr, $print_func:expr, $is_type_func:expr, $finalize_func:expr, $is_comparable_func:expr, $child_traversal_func:expr, $check_reply_func:expr, $extra_typeinfo:expr, ) => {
         TypeInfo {
             name: $name,
             fixed_size: $fixed_size,
@@ -28,6 +28,7 @@ macro_rules! new_typeinfo {
                 Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut Cap<$t>, &mut crate::object::Object) -> Result<bool, crate::err::OutOfMemory>, fn(&mut Cap<Any>, &mut crate::object::Object) -> Result<bool, crate::err::OutOfMemory>>(func) }),
                 None => None
              },
+            extra_typeinfo: $extra_typeinfo,
         }
     };
 }
@@ -256,6 +257,7 @@ pub struct TypeInfo {
     pub is_comparable_func: Option<fn(&TypeInfo) -> bool>,
     pub child_traversal_func: Option<fn(&mut Any, *mut u8, fn(&mut Ref<Any>, *mut u8))>,
     pub check_reply_func: Option<fn(&mut Cap<Any>, &mut Object) -> Result<bool, OutOfMemory>>,
+    pub extra_typeinfo: Option<&'static ExtraTypeInfo>,
 }
 
 impl PartialEq for TypeInfo {
@@ -268,5 +270,34 @@ impl PartialEq for TypeInfo {
 impl std::fmt::Debug for TypeInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ExtraTypeId(usize);
+
+impl Eq for ExtraTypeId {}
+
+impl PartialEq for ExtraTypeId {
+    fn eq(&self, other: &Self) -> bool {
+        //ExtraTypeIdの同一性は同一アドレスかどうかで検査する
+        std::ptr::eq(self, other)
+    }
+}
+
+pub const fn make_extratype_id() -> ExtraTypeId {
+    ExtraTypeId(0)
+}
+
+pub struct ExtraTypeInfo {
+    id: &'static ExtraTypeId,
+    #[allow(unused)]
+    next: Option<&'static ExtraTypeInfo>,
+}
+
+pub const fn make_extra_typeinfo(id: &'static ExtraTypeId, next: Option<&'static ExtraTypeInfo>) -> ExtraTypeInfo {
+    ExtraTypeInfo {
+        id,
+        next,
     }
 }

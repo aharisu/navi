@@ -20,6 +20,7 @@ static MATCHFAIL_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     None,
     None,
+    None,
 );
 
 impl NaviType for MatchFail {

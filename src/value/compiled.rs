@@ -1,6 +1,8 @@
 use crate::value::*;
 use crate::ptr::*;
 use std::fmt::{Debug, Display};
+use crate::new_app_typeinfo;
+use crate::value::app::{AppTypeInfo, APP_EXTRATYPE_ID};
 
 pub struct Code {
     program: Vec<u8>,
@@ -19,6 +21,7 @@ static CODE_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     None,
     Some(Code::child_traversal),
+    None,
     None,
 );
 
@@ -115,9 +118,15 @@ unsafe impl Send for Code {}
 #[repr(C)]
 pub struct Closure {
     code: Code,
-    num_args: usize,
+    parameter: app::Parameter,
     num_free_vars: usize,
 }
+
+static CLOSURE_APP_EXTRATYPEINFO: app::AppTypeInfo = new_app_typeinfo!(
+    Closure,
+    Closure::parameter,
+    Closure::name,
+);
 
 static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure,
@@ -132,6 +141,7 @@ static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     None,
     Some(Closure::child_traversal),
     Some(Closure::check_reply),
+    Some(&CLOSURE_APP_EXTRATYPEINFO.base),
 );
 
 impl NaviType for Closure {
@@ -148,7 +158,7 @@ impl NaviType for Closure {
             ;
         let constants = constants?;
 
-        let mut closure = Self::alloc(program, &constants, self.num_args, self.num_free_vars, allocator)?;
+        let mut closure = Self::alloc(program, &constants, self.parameter.clone(), self.num_free_vars, allocator)?;
 
         for index in 0 .. self.num_free_vars {
             let child = self.get_inner(index);
@@ -205,7 +215,7 @@ impl Closure {
         Ok(true)
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Any>], num_args: usize, num_free_vars: usize, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Any>], parameter: app::Parameter, num_free_vars: usize, allocator: &mut A) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc_with_additional_size::<Closure>(num_free_vars * std::mem::size_of::<Ref<Any>>())?;
 
         let constants = constants.into_iter()
@@ -219,7 +229,7 @@ impl Closure {
                     program: program,
                     constants: constants,
                 },
-                num_args: num_args,
+                parameter,
                 num_free_vars,
             })
         }
@@ -227,8 +237,13 @@ impl Closure {
         Ok(ptr.into_ref())
     }
 
-    pub fn arg_descriptor(&self) -> usize {
-        self.num_args
+    pub fn name(&self) -> &str {
+        "Closure"
+    }
+
+    #[inline]
+    pub fn parameter(&self) -> &app::Parameter {
+        &self.parameter
     }
 
     pub fn code(&self) -> Ref<Code> {

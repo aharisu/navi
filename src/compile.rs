@@ -12,6 +12,7 @@ use crate::value::list::List;
 use crate::value::syntax::Syntax;
 use crate::value::iform::*;
 use crate::value::func::*;
+use crate::value::app::{Parameter, ParamKind, Param};
 
 struct LocalVar {
     pub name: Cap<Symbol>,
@@ -1306,19 +1307,21 @@ static SYNTAX_FAIL_CATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
 
 static FUNC_COMPILE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("compile", &[
+        Func::new("compile", func_compile,
+        Parameter::new(&[
             Param::new("v", ParamKind::Require, Any::typeinfo()),
-            ],
-            func_compile)
+            ])
+        )
     )
 });
 
 static FUNC_COMPILE_TRANSFORM: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("compile-transform", &[
+        Func::new("compile-transform", func_compile_transform,
+        Parameter::new(&[
             Param::new("v", ParamKind::Require, Any::typeinfo()),
-            ],
-            func_compile_transform)
+            ])
+        )
     )
 });
 

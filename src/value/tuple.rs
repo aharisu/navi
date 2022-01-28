@@ -1,4 +1,5 @@
 use crate::value::{*, self};
+use crate::value::app::{Parameter, ParamKind, Param};
 use crate::ptr::*;
 use crate::err::*;
 use crate::vm;
@@ -21,6 +22,7 @@ static TUPLE_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
     Some(Tuple::child_traversal),
     Some(Tuple::check_reply),
+    None,
 );
 
 impl NaviType for Tuple {
@@ -331,42 +333,42 @@ fn func_tuple_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception>
 
 static FUNC_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("tuple",
-            &[
+        Func::new("tuple", func_tuple,
+            Parameter::new(&[
             Param::new_no_force("values", ParamKind::Rest, Any::typeinfo()),
-            ],
-            func_tuple)
+            ])
+        )
     )
 });
 
 static FUNC_IS_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("tuple?",
-            &[
+        Func::new("tuple?", func_is_tuple,
+        Parameter::new(&[
             Param::new_no_force("x", ParamKind::Require, Any::typeinfo()),
-            ],
-            func_is_tuple)
+            ])
+        )
     )
 });
 
 static FUNC_TUPLE_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("tuple-len",
-            &[
+        Func::new("tuple-len", func_tuple_len,
+        Parameter::new(&[
             Param::new_no_force("tuple", ParamKind::Require, Tuple::typeinfo()),
-            ],
-            func_tuple_len)
+            ])
+        )
     )
 });
 
 static FUNC_TUPLE_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("tuple-ref",
-            &[
+        Func::new("tuple-ref", func_tuple_ref,
+        Parameter::new(&[
             Param::new_no_force("tuple", ParamKind::Require, Tuple::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
-            ],
-            func_tuple_ref)
+            ])
+        )
     )
 });
 

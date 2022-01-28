@@ -1,6 +1,7 @@
-use crate::value::{*};
+use crate::value::*;
 use crate::ptr::*;
 use crate::err::*;
+use crate::value::app::{Parameter, ParamKind, Param};
 
 pub struct Any { }
 
@@ -11,6 +12,7 @@ static ANY_TYPEINFO : TypeInfo = new_typeinfo!(
     Any::_eq,
     Any::clone_inner,
     Any::_fmt,
+    None,
     None,
     None,
     None,
@@ -141,22 +143,22 @@ fn func_print(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 
 static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("=",
-            &[
+        Func::new("=", func_equal,
+        Parameter::new(&[
             Param::new("left", ParamKind::Require, Any::typeinfo()),
             Param::new("right", ParamKind::Require, Any::typeinfo()),
-            ],
-            func_equal)
+            ])
+        )
     )
 });
 
 static FUNC_PRINT: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
     GCAllocationStruct::new(
-        Func::new("print",
-            &[
+        Func::new("print", func_print,
+            Parameter::new(&[
             Param::new("values", ParamKind::Rest, Any::typeinfo()),
-            ],
-            func_print)
+            ])
+        )
     )
 });
 
