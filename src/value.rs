@@ -88,6 +88,7 @@ pub mod string;
 pub mod symbol;
 pub mod syntax;
 pub mod tuple;
+pub mod with_meta;
 
 use crate::err::OutOfMemory;
 use crate::err::*;
