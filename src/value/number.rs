@@ -1,17 +1,17 @@
 use crate::err::*;
-use crate::ptr::*;
-use crate::value::*;
-use crate::value::func::Func;
-use crate::value::app::{Parameter, ParamKind, Param};
-use crate::object::Object;
 use crate::object::mm::GCAllocationStruct;
+use crate::object::Object;
+use crate::ptr::*;
+use crate::value::app::{Param, ParamKind, Parameter};
+use crate::value::func::Func;
+use crate::value::*;
 use crate::vm;
+use once_cell::sync::Lazy;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
-use once_cell::sync::Lazy;
 
-static FIXNUM_TYPEINFO : TypeInfo = new_typeinfo!(
+static FIXNUM_TYPEINFO: TypeInfo = new_typeinfo!(
     Fixnum,
     "Fixnum",
     std::mem::size_of::<Fixnum>(),
@@ -27,7 +27,7 @@ static FIXNUM_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
 );
 
-pub struct Fixnum { }
+pub struct Fixnum {}
 
 impl NaviType for Fixnum {
     fn typeinfo() -> &'static TypeInfo {
@@ -43,15 +43,15 @@ impl NaviType for Fixnum {
 impl Fixnum {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &FIXNUM_TYPEINFO == other_typeinfo
-        || &INTEGER_TYPEINFO == other_typeinfo
-        || &REAL_TYPEINFO == other_typeinfo
-        || &NUMBER_TYPEINFO == other_typeinfo
+            || &INTEGER_TYPEINFO == other_typeinfo
+            || &REAL_TYPEINFO == other_typeinfo
+            || &NUMBER_TYPEINFO == other_typeinfo
     }
 
     fn is_comparable(other_typeinfo: &TypeInfo) -> bool {
         &FIXNUM_TYPEINFO == other_typeinfo
-        || &INTEGER_TYPEINFO == other_typeinfo
-        || &REAL_TYPEINFO == other_typeinfo
+            || &INTEGER_TYPEINFO == other_typeinfo
+            || &REAL_TYPEINFO == other_typeinfo
     }
 
     #[inline]
@@ -60,21 +60,18 @@ impl Fixnum {
         let num = v as i64;
         num >> FIXNUM_MASK_BITS
     }
-
 }
 
-impl Eq for Fixnum { }
+impl Eq for Fixnum {}
 
 impl PartialEq for Fixnum {
     fn eq(&self, other: &Self) -> bool {
         let other_typeinfo = get_typeinfo(other);
         if Fixnum::typeinfo() == other_typeinfo {
             std::ptr::eq(self, other)
-
         } else if Integer::typeinfo() == other_typeinfo {
             let other = unsafe { std::mem::transmute::<&Fixnum, &Integer>(other) };
             self.get() == other.num
-
         } else {
             //otherはReal型か？
             let other = unsafe { std::mem::transmute::<&Fixnum, &Real>(other) };
@@ -98,10 +95,10 @@ impl Debug for Fixnum {
 //TODO OrdとPartialOrdもRealとの比較のために独自実装が必要
 #[derive(Ord, PartialOrd, Hash)]
 pub struct Integer {
-    num : i64,
+    num: i64,
 }
 
-static INTEGER_TYPEINFO : TypeInfo = new_typeinfo!(
+static INTEGER_TYPEINFO: TypeInfo = new_typeinfo!(
     Integer,
     "Integer",
     std::mem::size_of::<Integer>(),
@@ -128,21 +125,20 @@ impl NaviType for Integer {
 }
 
 impl Integer {
-
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &FIXNUM_TYPEINFO == other_typeinfo
-        || &INTEGER_TYPEINFO == other_typeinfo
-        || &REAL_TYPEINFO == other_typeinfo
-        || &NUMBER_TYPEINFO == other_typeinfo
+            || &INTEGER_TYPEINFO == other_typeinfo
+            || &REAL_TYPEINFO == other_typeinfo
+            || &NUMBER_TYPEINFO == other_typeinfo
     }
 
     fn is_comparable(other_typeinfo: &TypeInfo) -> bool {
         &FIXNUM_TYPEINFO == other_typeinfo
-        || &INTEGER_TYPEINFO == other_typeinfo
-        || &REAL_TYPEINFO == other_typeinfo
+            || &INTEGER_TYPEINFO == other_typeinfo
+            || &REAL_TYPEINFO == other_typeinfo
     }
 
-    fn alloc<A: Allocator>(num: i64, allocator : &mut A) -> NResult<Integer, OutOfMemory> {
+    fn alloc<A: Allocator>(num: i64, allocator: &mut A) -> NResult<Integer, OutOfMemory> {
         let ptr = allocator.alloc::<Integer>()?;
 
         unsafe {
@@ -163,7 +159,7 @@ impl Integer {
     }
 }
 
-impl Eq for Integer { }
+impl Eq for Integer {}
 
 impl PartialEq for Integer {
     //IntegerはReal型とも比較可能なため、other変数にはRealの参照が来る可能性がある
@@ -172,11 +168,9 @@ impl PartialEq for Integer {
         if Fixnum::typeinfo() == other_typeinfo {
             let other = unsafe { std::mem::transmute::<&Integer, &Fixnum>(other) };
             self.num == other.get()
-
         } else if Integer::typeinfo() == other_typeinfo {
             //Integer 同士なら通常通りnumの比較を行う
             self.num == other.num
-
         } else {
             //otherはReal型か？
             let other = unsafe { std::mem::transmute::<&Integer, &Real>(other) };
@@ -203,7 +197,8 @@ impl Debug for Integer {
 
 #[inline]
 fn is_fixnum_range(number: i64) -> bool {
-    ((isize::MIN >> FIXNUM_MASK_BITS) as i64) < number && number <  (isize::MAX >> FIXNUM_MASK_BITS) as i64
+    ((isize::MIN >> FIXNUM_MASK_BITS) as i64) < number
+        && number < (isize::MAX >> FIXNUM_MASK_BITS) as i64
 }
 
 pub fn make_integer<A: Allocator>(number: i64, allocator: &mut A) -> NResult<Any, OutOfMemory> {
@@ -212,7 +207,6 @@ pub fn make_integer<A: Allocator>(number: i64, allocator: &mut A) -> NResult<Any
         let v = v | IMMIDATE_FIXNUM;
 
         Ok(Ref::from(usize_to_ptr::<Any>(v)))
-
     } else {
         into_value(Integer::alloc(number, allocator))
     }
@@ -224,7 +218,6 @@ pub fn get_integer<V: ValueHolder<Any>>(v: &V) -> i64 {
     if Fixnum::typeinfo() == typeinfo {
         let fixnum: &Fixnum = v.as_ref().cast_unchecked();
         fixnum.get()
-
     } else if Integer::typeinfo() == typeinfo {
         let integer: &Integer = v.as_ref().cast_unchecked();
         integer.num
@@ -239,10 +232,10 @@ pub fn get_integer<V: ValueHolder<Any>>(v: &V) -> i64 {
 //TODO OrdとPartialOrdもRealとの比較のために独自実装が必要
 #[derive(PartialOrd)]
 pub struct Real {
-    pub num : f64,
+    pub num: f64,
 }
 
-static REAL_TYPEINFO : TypeInfo = new_typeinfo!(
+static REAL_TYPEINFO: TypeInfo = new_typeinfo!(
     Real,
     "Real",
     std::mem::size_of::<Real>(),
@@ -269,19 +262,17 @@ impl NaviType for Real {
 }
 
 impl Real {
-
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        &REAL_TYPEINFO == other_typeinfo
-        || &NUMBER_TYPEINFO == other_typeinfo
+        &REAL_TYPEINFO == other_typeinfo || &NUMBER_TYPEINFO == other_typeinfo
     }
 
     fn is_comparable(other_typeinfo: &TypeInfo) -> bool {
         &REAL_TYPEINFO == other_typeinfo
-        || &INTEGER_TYPEINFO == other_typeinfo
-        || &FIXNUM_TYPEINFO == other_typeinfo
+            || &INTEGER_TYPEINFO == other_typeinfo
+            || &FIXNUM_TYPEINFO == other_typeinfo
     }
 
-    pub fn alloc<A: Allocator>(num: f64, allocator : &mut A) -> NResult<Real, OutOfMemory> {
+    pub fn alloc<A: Allocator>(num: f64, allocator: &mut A) -> NResult<Real, OutOfMemory> {
         let ptr = allocator.alloc::<Real>()?;
 
         unsafe {
@@ -290,22 +281,18 @@ impl Real {
 
         Ok(ptr.into_ref())
     }
-
 }
 
 impl PartialEq for Real {
-
     //RealはInteger型とも比較可能なため、other変数にはIntegerの参照が来る可能性がある
     fn eq(&self, other: &Self) -> bool {
         //otherはReal型か？
         let other_typeinfo = get_typeinfo(other);
         if Real::typeinfo() == other_typeinfo {
             self.num == other.num
-
         } else if Fixnum::typeinfo() == other_typeinfo {
             let other = unsafe { std::mem::transmute::<&Real, &Fixnum>(other) };
             self.num == other.get() as f64
-
         } else {
             //OtherがIntegerなら、Integer型参照に無理やり戻してから比較
             let other = unsafe { std::mem::transmute::<&Real, &Integer>(other) };
@@ -332,15 +319,15 @@ impl Debug for Real {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Number {
-}
+pub struct Number {}
 
 //Number型は抽象型なので実際にアロケーションされることはない。
 //NUMBER_TYPEINFOは型チェックのためだけに使用される。
-static NUMBER_TYPEINFO : TypeInfo = new_typeinfo!(
+static NUMBER_TYPEINFO: TypeInfo = new_typeinfo!(
     Number,
     "Number",
-    0, None,
+    0,
+    None,
     Number::eq,
     Number::clone_inner,
     Display::fmt,
@@ -380,11 +367,9 @@ fn number_to(v: &Any) -> Num {
     if Fixnum::typeinfo() == typeinfo {
         let fixnum: &Fixnum = v.cast_unchecked();
         Num::Int(fixnum.get())
-
     } else if Integer::typeinfo() == typeinfo {
         let integer: &Integer = v.cast_unchecked();
         Num::Int(integer.num)
-
     } else {
         let real: &Real = v.cast_unchecked();
         Num::Real(real.num)
@@ -392,15 +377,15 @@ fn number_to(v: &Any) -> Num {
 }
 
 fn func_add(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg::<Any>(0, obj);
+    let v = vm::get_arg::<Any>(0, obj);
 
-    let (mut int,mut real) = match number_to(&v.as_ref()) {
+    let (mut int, mut real) = match number_to(&v.as_ref()) {
         Num::Int(num) => (Some(num), None),
         Num::Real(num) => (None, Some(num)),
     };
 
-    for index in 0 .. num_rest {
-        let v = vm::refer_rest_arg::<Any>(1, index, obj);
+    for index in 0..num_rest {
+        let v = vm::get_rest_arg::<Any>(1, index, obj);
         match (number_to(&v.as_ref()), int, real) {
             (Num::Int(num), Some(acc), None) => {
                 int = Some(acc + num);
@@ -429,9 +414,9 @@ fn func_add(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 fn func_sub(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg::<Any>(0, obj);
+    let v = vm::get_arg::<Any>(0, obj);
 
-    let (mut int,mut real) = match number_to(&v.as_ref()) {
+    let (mut int, mut real) = match number_to(&v.as_ref()) {
         Num::Int(num) => (Some(num), None),
         Num::Real(num) => (None, Some(num)),
     };
@@ -440,12 +425,11 @@ fn func_sub(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
         if let Some(num) = int {
             int = Some(-num);
         } else {
-            real = Some(- real.unwrap());
+            real = Some(-real.unwrap());
         }
-
     } else {
-        for index in 0 .. num_rest {
-            let v = vm::refer_rest_arg::<Any>(1, index, obj);
+        for index in 0..num_rest {
+            let v = vm::get_rest_arg::<Any>(1, index, obj);
             match (number_to(&v.as_ref()), int, real) {
                 (Num::Int(num), Some(acc), None) => {
                     int = Some(acc - num);
@@ -475,7 +459,7 @@ fn func_sub(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 fn func_abs(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg(0, obj);
+    let v = vm::get_arg(0, obj);
 
     match number_to(v.as_ref()) {
         Num::Int(num) => {
@@ -490,35 +474,37 @@ fn func_abs(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 static FUNC_ADD: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("+", func_add,
-            Parameter::new(&[
+    GCAllocationStruct::new(Func::new(
+        "+",
+        func_add,
+        Parameter::new(&[
             Param::new("num", ParamKind::Require, number::Number::typeinfo()),
             Param::new("rest", ParamKind::Rest, number::Number::typeinfo()),
-            ])
-        )
-    )
+        ]),
+    ))
 });
 
 static FUNC_SUB: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("-", func_sub,
-            Parameter::new(&[
+    GCAllocationStruct::new(Func::new(
+        "-",
+        func_sub,
+        Parameter::new(&[
             Param::new("num", ParamKind::Require, number::Number::typeinfo()),
             Param::new("rest", ParamKind::Rest, number::Number::typeinfo()),
-            ])
-        )
-    )
+        ]),
+    ))
 });
 
 static FUNC_ABS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("abs", func_abs,
-            Parameter::new(&[
-            Param::new("num", ParamKind::Require, number::Number::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "abs",
+        func_abs,
+        Parameter::new(&[Param::new(
+            "num",
+            ParamKind::Require,
+            number::Number::typeinfo(),
+        )]),
+    ))
 });
 
 pub fn register_global(obj: &mut Object) {

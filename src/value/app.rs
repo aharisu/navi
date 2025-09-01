@@ -9,7 +9,7 @@ pub static APP_EXTRATYPE_ID: ExtraTypeId = make_extratype_id();
 pub struct AppTypeInfo {
     pub base: ExtraTypeInfo,
     pub parameter_func: fn(&App) -> &Parameter,
-    pub name_func: fn(&App) ->&str,
+    pub name_func: fn(&App) -> &str,
 }
 
 #[macro_export]
@@ -17,8 +17,14 @@ macro_rules! new_app_typeinfo {
     ($t:ty, $parameter_func:expr, $name_func:expr, ) => {
         AppTypeInfo {
             base: make_extra_typeinfo(&APP_EXTRATYPE_ID, None),
-            parameter_func: unsafe { std::mem::transmute::<fn(&$t)->&app::Parameter, fn(&app::App)->&app::Parameter>($parameter_func) },
-            name_func: unsafe { std::mem::transmute::<fn(&$t)->&str, fn(&app::App)->&str>($name_func) },
+            parameter_func: unsafe {
+                std::mem::transmute::<fn(&$t) -> &app::Parameter, fn(&app::App) -> &app::Parameter>(
+                    $parameter_func,
+                )
+            },
+            name_func: unsafe {
+                std::mem::transmute::<fn(&$t) -> &str, fn(&app::App) -> &str>($name_func)
+            },
         }
     };
 }
@@ -36,12 +42,10 @@ impl Parameter {
         let mut num_require = 0;
         let mut num_optional = 0;
         let mut has_rest = false;
-        params.iter().for_each(|p| {
-            match p.kind {
-                ParamKind::Require => num_require += 1,
-                ParamKind::Optional => num_optional += 1,
-                ParamKind::Rest => has_rest = true,
-            }
+        params.iter().for_each(|p| match p.kind {
+            ParamKind::Require => num_require += 1,
+            ParamKind::Optional => num_optional += 1,
+            ParamKind::Rest => has_rest = true,
         });
 
         Self {
@@ -71,7 +75,6 @@ impl Parameter {
     pub fn has_rest(&self) -> bool {
         self.has_rest
     }
-
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -99,7 +102,11 @@ impl Param {
             kind: kind,
         }
     }
-    pub fn new_no_force<T: Into<String>>(name: T, kind: ParamKind, typeinfo: &'static TypeInfo) -> Param {
+    pub fn new_no_force<T: Into<String>>(
+        name: T,
+        kind: ParamKind,
+        typeinfo: &'static TypeInfo,
+    ) -> Param {
         Param {
             name: name.into(),
             typeinfo: typeinfo,
@@ -110,14 +117,15 @@ impl Param {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct App { }
+pub struct App {}
 
 //App型は抽象型なので実際にアロケーションされることはない。
 //APP_TYPEINFOは型チェックのためだけに使用される。
-static APP_TYPEINFO : TypeInfo = new_typeinfo!(
+static APP_TYPEINFO: TypeInfo = new_typeinfo!(
     App,
     "App",
-    0, None,
+    0,
+    None,
     App::eq,
     App::clone_inner,
     Display::fmt,
@@ -160,7 +168,6 @@ impl App {
         let app_typeinfo = self.get_app_typeinfo();
         (app_typeinfo.name_func)(self)
     }
-
 }
 
 impl Display for App {

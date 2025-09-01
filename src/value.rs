@@ -5,29 +5,67 @@ macro_rules! new_typeinfo {
             name: $name,
             fixed_size: $fixed_size,
             variable_size_func: match $variable_size_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&$t) -> usize, fn(&Any) -> usize>(func) }),
-                None => None
+                Some(func) => Some(unsafe {
+                    std::mem::transmute::<fn(&$t) -> usize, fn(&Any) -> usize>(func)
+                }),
+                None => None,
             },
-            eq_func: unsafe { std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Any, &Any) -> bool>($eq_func) },
-            clone_func: unsafe { std::mem::transmute::<fn(&$t, &mut crate::object::AnyAllocator) -> crate::err::NResult<$t, crate::err::OutOfMemory>, fn(&Any, &mut crate::object::AnyAllocator) -> crate::err::NResult<Any, crate::err::OutOfMemory>>($clone_func) },
-            print_func: unsafe { std::mem::transmute::<fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result, fn(&Any, &mut std::fmt::Formatter<'_>) -> std::fmt::Result>($print_func) },
+            eq_func: unsafe {
+                std::mem::transmute::<fn(&$t, &$t) -> bool, fn(&Any, &Any) -> bool>($eq_func)
+            },
+            clone_func: unsafe {
+                std::mem::transmute::<
+                    fn(
+                        &$t,
+                        &mut crate::object::AnyAllocator,
+                    ) -> crate::err::NResult<$t, crate::err::OutOfMemory>,
+                    fn(
+                        &Any,
+                        &mut crate::object::AnyAllocator,
+                    ) -> crate::err::NResult<Any, crate::err::OutOfMemory>,
+                >($clone_func)
+            },
+            print_func: unsafe {
+                std::mem::transmute::<
+                    fn(&$t, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
+                    fn(&Any, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
+                >($print_func)
+            },
             is_type_func: $is_type_func,
             finalize: match $finalize_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t), fn(&mut Any)>(func) }),
-                None => None
+                Some(func) => {
+                    Some(unsafe { std::mem::transmute::<fn(&mut $t), fn(&mut Any)>(func) })
+                }
+                None => None,
             },
             is_comparable_func: match $is_comparable_func {
                 Some(func) => Some(func),
-                None => None
-             },
+                None => None,
+            },
             child_traversal_func: match $child_traversal_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut $t, *mut u8, fn(&mut Ref<Any>, *mut u8)), fn(&mut Any, *mut u8, fn(&mut Ref<Any>, *mut u8))>(func) }),
-                None => None
-             },
+                Some(func) => Some(unsafe {
+                    std::mem::transmute::<
+                        fn(&mut $t, *mut u8, fn(&mut Ref<Any>, *mut u8)),
+                        fn(&mut Any, *mut u8, fn(&mut Ref<Any>, *mut u8)),
+                    >(func)
+                }),
+                None => None,
+            },
             check_reply_func: match $check_reply_func {
-                Some(func) => Some(unsafe { std::mem::transmute::<fn(&mut Cap<$t>, &mut crate::object::Object) -> Result<bool, crate::err::OutOfMemory>, fn(&mut Cap<Any>, &mut crate::object::Object) -> Result<bool, crate::err::OutOfMemory>>(func) }),
-                None => None
-             },
+                Some(func) => Some(unsafe {
+                    std::mem::transmute::<
+                        fn(
+                            &mut Cap<$t>,
+                            &mut crate::object::Object,
+                        ) -> Result<bool, crate::err::OutOfMemory>,
+                        fn(
+                            &mut Cap<Any>,
+                            &mut crate::object::Object,
+                        ) -> Result<bool, crate::err::OutOfMemory>,
+                    >(func)
+                }),
+                None => None,
+            },
             extra_typeinfo: $extra_typeinfo,
         }
     };
@@ -39,42 +77,38 @@ pub mod array;
 pub mod bool;
 pub mod compiled;
 pub mod exception;
+pub mod func;
+pub mod iform;
+pub mod keyword;
 pub mod list;
 pub mod number;
+pub mod object_ref;
+pub mod reply;
 pub mod string;
 pub mod symbol;
-pub mod keyword;
-pub mod func;
 pub mod syntax;
 pub mod tuple;
-pub mod object_ref;
-pub mod iform;
-pub mod reply;
-
 
 use crate::err::OutOfMemory;
-use crate::value::any::Any;
-use crate::object::{Object, Allocator, AnyAllocator};
-use crate::object::mm::{self, GCAllocationStruct, ptr_to_usize, usize_to_ptr};
-use crate::{ptr::*, vm};
 use crate::err::*;
+use crate::object::mm::{self, ptr_to_usize, usize_to_ptr, GCAllocationStruct};
+use crate::object::{Allocator, AnyAllocator, Object};
+use crate::value::any::Any;
+use crate::{ptr::*, vm};
 
 use crate::value::func::*;
 use once_cell::sync::Lazy;
-
 
 //xxxx xxxx xxxx xx0r pointer value(r = 1: has Reply type. r = 0: do not have Reply type.)
 //xxxx xxxx xxxx x110 fixnum
 //xxxx xxxx xxx1 0010 tagged value
 
-
 pub const IMMIDATE_FIXNUM: usize = 0b110;
-pub const FIXNUM_MASK_BITS:usize = 3;
+pub const FIXNUM_MASK_BITS: usize = 3;
 
 // [tagged value]
 // Nil, true, false, ...
 const IMMIDATE_TAGGED_VALUE: usize = 0b1_0010;
-
 
 const fn tagged_value(tag: usize) -> usize {
     (tag << 16) | IMMIDATE_TAGGED_VALUE
@@ -101,24 +135,22 @@ enum PtrKind {
 fn pointer_kind<T>(ptr: *const T) -> PtrKind {
     let value = mm::ptr_to_usize(ptr);
 
-    //下位2bitが00なら生ポインタ
-    if value & 0b11 == 0 {
+    //下位2bitが0xなら生ポインタ
+    if value & 0b10 == 0 {
         PtrKind::Ptr
-    } else if value & 0b111 ==  IMMIDATE_FIXNUM {
+    } else if value & 0b111 == IMMIDATE_FIXNUM {
         PtrKind::Fixnum
     } else {
         //残りは下位16bitで判断する
-        match value &0xFFFF {
-            IMMIDATE_TAGGED_VALUE => {
-                match value {
-                    IMMIDATE_NIL => PtrKind::Nil,
-                    IMMIDATE_TRUE => PtrKind::True,
-                    IMMIDATE_FALSE => PtrKind::False,
-                    IMMIDATE_UNIT => PtrKind::Unit,
-                    IMMIDATE_MATCHFAIL => PtrKind::MatchFail,
-                    _ => panic!("invalid tagged value"),
-                }
-            }
+        match value & 0xFFFF {
+            IMMIDATE_TAGGED_VALUE => match value {
+                IMMIDATE_NIL => PtrKind::Nil,
+                IMMIDATE_TRUE => PtrKind::True,
+                IMMIDATE_FALSE => PtrKind::False,
+                IMMIDATE_UNIT => PtrKind::Unit,
+                IMMIDATE_MATCHFAIL => PtrKind::MatchFail,
+                _ => panic!("invalid tagged value"),
+            },
             _ => panic!("invalid pointer: {}", value),
         }
     }
@@ -128,7 +160,10 @@ pub fn value_is_pointer(v: &Any) -> bool {
     pointer_kind(v as *const Any) == PtrKind::Ptr
 }
 
-pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) -> NResult<T, OutOfMemory> {
+pub fn value_clone<T: NaviType>(
+    v: &Reachable<T>,
+    allocator: &mut AnyAllocator,
+) -> NResult<T, OutOfMemory> {
     //クローンを行う値のトータルのサイズを計測
     //リストや配列など内部に値を保持している場合は再帰的にすべての値のサイズも計測されている
     let total_size = mm::Heap::calc_total_size(v.cast_value().as_ref());
@@ -138,27 +173,15 @@ pub fn value_clone<T: NaviType>(v: &Reachable<T>, allocator: &mut AnyAllocator) 
     NaviType::clone_inner(v.as_ref(), allocator)
 }
 
-pub fn get_typeinfo<T: NaviType>(this: &T) -> &'static TypeInfo{
+pub fn get_typeinfo<T: NaviType>(this: &T) -> &'static TypeInfo {
     let ptr = this as *const T;
     match pointer_kind(ptr) {
-        PtrKind::Nil => {
-            crate::value::list::List::typeinfo()
-        }
-        PtrKind::True | PtrKind::False => {
-            crate::value::bool::Bool::typeinfo()
-        }
-        PtrKind::Unit => {
-            crate::value::tuple::Tuple::typeinfo()
-        }
-        PtrKind::MatchFail => {
-            crate::value::syntax::r#match::MatchFail::typeinfo()
-        }
-        PtrKind::Fixnum => {
-            crate::value::number::Fixnum::typeinfo()
-        }
-        PtrKind::Ptr => {
-            mm::get_typeinfo(ptr)
-        }
+        PtrKind::Nil => crate::value::list::List::typeinfo(),
+        PtrKind::True | PtrKind::False => crate::value::bool::Bool::typeinfo(),
+        PtrKind::Unit => crate::value::tuple::Tuple::typeinfo(),
+        PtrKind::MatchFail => crate::value::syntax::r#match::MatchFail::typeinfo(),
+        PtrKind::Fixnum => crate::value::number::Fixnum::typeinfo(),
+        PtrKind::Ptr => mm::get_typeinfo(ptr),
     }
 }
 
@@ -230,13 +253,22 @@ pub fn ptr_value<T: NaviType>(ptr: &Ref<T>) -> *mut T {
 
 #[inline]
 pub fn refer_value<'a, 'b, T: NaviType>(ptr: &'a Ref<T>) -> &'b T {
-    unsafe { &*ptr_value(ptr) }
+    if pointer_kind(ptr.raw_ptr()) == PtrKind::Ptr {
+        unsafe { &*ptr_value(ptr) }
+    } else {
+        //ポインターではなく即値なので、そのまま参照に強制変換する
+        unsafe { std::mem::transmute(ptr.raw_ptr()) }
+    }
 }
 
 #[inline]
 pub fn mut_refer_value<'a, 'b, T: NaviType>(ptr: &'a mut Ref<T>) -> &'b mut T {
-    //最下位bitをマスクしてからポインタを参照する
-    unsafe { &mut *ptr_value(ptr) }
+    if pointer_kind(ptr.raw_ptr()) == PtrKind::Ptr {
+        unsafe { &mut *ptr_value(ptr) }
+    } else {
+        //ポインターではなく即値なので、そのまま参照に強制変換する
+        unsafe { std::mem::transmute(ptr.raw_ptr()) }
+    }
 }
 
 pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
@@ -246,7 +278,7 @@ pub trait NaviType: PartialEq + std::fmt::Debug + std::fmt::Display {
 
 #[allow(dead_code)]
 pub struct TypeInfo {
-    pub name : &'static str,
+    pub name: &'static str,
     pub fixed_size: usize,
     pub variable_size_func: Option<fn(&Any) -> usize>,
     pub eq_func: fn(&Any, &Any) -> bool,
@@ -274,6 +306,7 @@ impl std::fmt::Debug for TypeInfo {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub struct ExtraTypeId(usize);
 
 impl Eq for ExtraTypeId {}
@@ -295,9 +328,9 @@ pub struct ExtraTypeInfo {
     next: Option<&'static ExtraTypeInfo>,
 }
 
-pub const fn make_extra_typeinfo(id: &'static ExtraTypeId, next: Option<&'static ExtraTypeInfo>) -> ExtraTypeInfo {
-    ExtraTypeInfo {
-        id,
-        next,
-    }
+pub const fn make_extra_typeinfo(
+    id: &'static ExtraTypeId,
+    next: Option<&'static ExtraTypeInfo>,
+) -> ExtraTypeInfo {
+    ExtraTypeInfo { id, next }
 }

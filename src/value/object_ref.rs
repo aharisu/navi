@@ -1,19 +1,18 @@
 use crate::err::*;
-use crate::value::*;
-use crate::value::app::{Parameter, ParamKind, Param};
-use crate::vm;
+use crate::object::mailbox::{MailBox, MessageKind, ReplyToken};
 use crate::object::{self, Object};
-use crate::object::mailbox::{MailBox, ReplyToken, MessageKind};
+use crate::value::app::{Param, ParamKind, Parameter};
+use crate::value::*;
+use crate::vm;
 use std::fmt::{self, Debug, Display};
-use std::sync::{Mutex, Arc};
-
+use std::sync::{Arc, Mutex};
 
 pub struct ObjectRef {
     object_id: usize,
     mailbox: Arc<Mutex<MailBox>>,
 }
 
-static OBJECT_TYPEINFO : TypeInfo = new_typeinfo!(
+static OBJECT_TYPEINFO: TypeInfo = new_typeinfo!(
     ObjectRef,
     "Object",
     std::mem::size_of::<ObjectRef>(),
@@ -41,13 +40,13 @@ impl NaviType for ObjectRef {
 }
 
 impl ObjectRef {
-
-    pub fn alloc<A: Allocator>(object_id: usize, mailbox: Arc<Mutex<MailBox>>, allocator: &mut A) -> NResult<ObjectRef, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        object_id: usize,
+        mailbox: Arc<Mutex<MailBox>>,
+        allocator: &mut A,
+    ) -> NResult<ObjectRef, OutOfMemory> {
         let ptr = allocator.alloc::<ObjectRef>()?;
-        let obj = ObjectRef {
-            object_id,
-            mailbox,
-        };
+        let obj = ObjectRef { object_id, mailbox };
         unsafe {
             std::ptr::write(ptr.as_ptr(), obj);
         }
@@ -59,17 +58,18 @@ impl ObjectRef {
         Arc::clone(&self.mailbox)
     }
 
-    pub fn recv_message(&self, msg: MessageKind, reply_to_mailbox: Arc<Mutex<MailBox>>) -> Result<ReplyToken, OutOfMemory> {
+    pub fn recv_message(
+        &self,
+        msg: MessageKind,
+        reply_to_mailbox: Arc<Mutex<MailBox>>,
+    ) -> Result<ReplyToken, OutOfMemory> {
         let mut mailbox = self.mailbox.lock().unwrap();
         mailbox.recv_message(msg, reply_to_mailbox)
     }
 
     fn finalize(&mut self) {
-        unsafe {
-            std::ptr::drop_in_place(self)
-        }
+        unsafe { std::ptr::drop_in_place(self) }
     }
-
 }
 
 impl Eq for ObjectRef {}
@@ -93,12 +93,11 @@ impl Debug for ObjectRef {
 }
 
 fn func_spawn(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    if let Some(target_obj) = vm::refer_arg::<Any>(0, obj).try_cast::<ObjectRef>() {
+    if let Some(target_obj) = vm::get_arg::<Any>(0, obj).try_cast::<ObjectRef>() {
         let target_obj = target_obj.clone().reach(obj);
         let message = MessageKind::Duplicate;
 
         obj.send_message(&target_obj, message)
-
     } else {
         let standalone = object::new_object();
 
@@ -114,36 +113,37 @@ fn func_spawn(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 fn func_send(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let target_obj = vm::refer_arg::<ObjectRef>(0, obj).reach(obj);
+    let target_obj = vm::get_arg::<ObjectRef>(0, obj).reach(obj);
 
     //本来はReachableで扱うのが安全だが、messageはalloc前しか使用されないためRefのまま使用する
-    let message = vm::refer_arg::<Any>(1, obj);
+    let message = vm::get_arg::<Any>(1, obj);
     let message = MessageKind::Message(message);
 
     obj.send_message(&target_obj, message)
 }
 
 static FUNC_SPAWN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("spawn", func_spawn,
-            Parameter::new(&[
-            Param::new("object", ParamKind::Optional, ObjectRef::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "spawn",
+        func_spawn,
+        Parameter::new(&[Param::new(
+            "object",
+            ParamKind::Optional,
+            ObjectRef::typeinfo(),
+        )]),
+    ))
 });
 
 static FUNC_SEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("send", func_send,
-            Parameter::new(&[
+    GCAllocationStruct::new(Func::new(
+        "send",
+        func_send,
+        Parameter::new(&[
             Param::new("object", ParamKind::Require, ObjectRef::typeinfo()),
             Param::new("message", ParamKind::Require, Any::typeinfo()),
-            ])
-        )
-    )
+        ]),
+    ))
 });
-
 
 pub fn register_global(obj: &mut Object) {
     obj.define_global_value("spawn", &Ref::new(&FUNC_SPAWN.value));
@@ -178,7 +178,8 @@ mod tests {
 
         {
             let program = "(let obj (spawn))";
-            let new_obj_ref = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let new_obj_ref = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
             standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
@@ -201,7 +202,8 @@ mod tests {
 
         {
             let program = "(send obj 1)";
-            let mut ans = exec::<reply::Reply>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let mut ans = exec::<reply::Reply>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
             let ans = get_reply_value(&mut ans, standalone.mut_object()).unwrap();
             assert!(ans.is::<number::Integer>());
             assert_eq!(number::get_integer(&ans), 10);
@@ -209,7 +211,7 @@ mod tests {
             //sendの戻り値はReply型
             let program = "(let a (send obj 2))";
             let ans = exec::<Any>(program, standalone.mut_object());
-            assert!( ans.is::<reply::Reply>());
+            assert!(ans.is::<reply::Reply>());
 
             //forceに通すことでReplyの値を強制的に取得できる
             let program = "(force a)";
@@ -278,7 +280,6 @@ mod tests {
             let ans = exec::<number::Integer>(program, standalone.mut_object());
             assert_eq!(ans.as_ref().get(), 20);
         }
-
     }
 
     #[test]
@@ -287,13 +288,15 @@ mod tests {
 
         {
             let program = "(let obj (spawn))";
-            let new_obj_ref = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let new_obj_ref = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
             standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
 
             let program = "(let obj2 (spawn))";
-            let new_obj_ref = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let new_obj_ref = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             let program = "(def-recv 1 (send obj2 2))";
             exec::<Any>(program, standalone.mut_object());
@@ -314,14 +317,13 @@ mod tests {
 
             let program = "(let obj true)";
             exec::<Any>(program, standalone.mut_object());
-            assert!( ans.is::<reply::Reply>());
+            assert!(ans.is::<reply::Reply>());
 
             //forceに通すことでReplyの値を強制的に取得できる
             let program = "(force a)";
             let ans = exec::<number::Integer>(program, standalone.mut_object());
             assert_eq!(ans.as_ref().get(), 20);
         }
-
     }
 
     #[test]
@@ -330,7 +332,8 @@ mod tests {
 
         {
             let program = "(let obj (spawn))";
-            let new_obj_ref = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let new_obj_ref = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
             standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
@@ -355,7 +358,6 @@ mod tests {
                 mailbox.count_resultbox()
             };
             assert_eq!(count_resultbox, 0);
-
         }
     }
 
@@ -365,7 +367,8 @@ mod tests {
 
         {
             let program = "(let obj1 (spawn))";
-            let obj1 = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let obj1 = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
             standalone = object::object_switch(standalone, obj1.as_ref()).unwrap();
@@ -387,7 +390,8 @@ mod tests {
         {
             //obj1の複製を作成
             let program = "(let obj2 (force (spawn obj1)))";
-            let obj2 = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let obj2 = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             let program = "(force (send obj2 :global))";
             let ans = exec::<number::Integer>(program, standalone.mut_object());
@@ -413,12 +417,14 @@ mod tests {
 
         {
             let program = "obj1";
-            let obj1 = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let obj1 = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             standalone = object::object_switch(standalone, obj1.as_ref()).unwrap();
 
             let program = "(let obj3 (spawn))";
-            let obj3 = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let obj3 = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             standalone = object::object_switch(standalone, obj3.as_ref()).unwrap();
             let program = "(def-recv :hoge 100)";
@@ -430,7 +436,8 @@ mod tests {
             standalone = object::return_object_switch(standalone).unwrap();
 
             let program = "(let obj4 (force (spawn obj1)))";
-            let obj4 = exec::<ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let obj4 = exec::<ObjectRef>(program, standalone.mut_object())
+                .capture(standalone.mut_object());
 
             standalone = object::object_switch(standalone, obj4.as_ref()).unwrap();
 
@@ -439,5 +446,4 @@ mod tests {
             assert_eq!(ans.as_ref().get(), 100);
         }
     }
-
 }

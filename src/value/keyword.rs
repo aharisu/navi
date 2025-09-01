@@ -1,13 +1,12 @@
-use crate::value::*;
 use crate::ptr::*;
+use crate::value::*;
 use std::fmt::{Debug, Display};
 
 #[derive(Eq, PartialEq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Keyword {
-    inner: string::NString
+    inner: string::NString,
 }
-
 
 static KEYWORD_TYPEINFO: TypeInfo = new_typeinfo!(
     Keyword,
@@ -40,10 +39,12 @@ impl Keyword {
         string::NString::size_of(&self.inner)
     }
 
-    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> NResult<Keyword, OutOfMemory> {
+    pub fn alloc<T: Into<String>, A: Allocator>(
+        str: T,
+        allocator: &mut A,
+    ) -> NResult<Keyword, OutOfMemory> {
         string::NString::alloc_inner::<Keyword, A>(&str.into(), allocator)
     }
-
 }
 
 impl AsRef<str> for Keyword {
@@ -53,7 +54,7 @@ impl AsRef<str> for Keyword {
 }
 
 fn display(this: &Keyword, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    this.inner.as_string().fmt(f)
+    write!(f, ":{}", &**(this.inner.as_string()))
 }
 
 impl Display for Keyword {

@@ -1,14 +1,14 @@
-use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
-use crate::err::{OutOfMemory, Exception, NResult};
+use crate::err::{Exception, NResult, OutOfMemory};
 use crate::value::*;
 //use crate::err::*;
-use crate::value::any::Any;
 use crate::ptr::*;
+use crate::value::any::Any;
 
-use super::{Object, Allocator, AnyAllocator};
 use super::mm::{self, Heap};
+use super::{Allocator, AnyAllocator, Object};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ReplyToken(usize);
@@ -30,8 +30,10 @@ pub enum MessageKind {
 }
 
 impl MessageKind {
-
-    pub unsafe fn value_clone_gcunsafe(&self, allocator: &mut AnyAllocator) -> Result<Self, OutOfMemory> {
+    pub unsafe fn value_clone_gcunsafe(
+        &self,
+        allocator: &mut AnyAllocator,
+    ) -> Result<Self, OutOfMemory> {
         match self {
             MessageKind::Message(msg) => {
                 let msg = msg.clone().into_reachable();
@@ -40,9 +42,7 @@ impl MessageKind {
 
                 Ok(MessageKind::Message(msg))
             }
-            Self::Duplicate => {
-                Ok(Self::Duplicate)
-            }
+            Self::Duplicate => Ok(Self::Duplicate),
         }
     }
 }
@@ -60,28 +60,19 @@ struct MailBoxGCRootValues {
 
 impl mm::GCRootValueHolder for MailBoxGCRootValues {
     fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
-        self.inbox.iter_mut().for_each(|data| {
-            match &mut data.kind {
-                MessageKind::Message(msg) => {
-                    callback(msg, arg)
-                }
-                MessageKind::Duplicate => { }
-            }
+        self.inbox.iter_mut().for_each(|data| match &mut data.kind {
+            MessageKind::Message(msg) => callback(msg, arg),
+            MessageKind::Duplicate => {}
         });
 
-        self.result_box.iter_mut().for_each(|(_, result)| {
-            match result.as_mut() {
-                Ok(v) => {
-                    callback(v, arg)
-                }
-                Err(err) => {
-                    err.for_each_alived_value(arg, callback)
-                }
-            }
-        });
+        self.result_box
+            .iter_mut()
+            .for_each(|(_, result)| match result.as_mut() {
+                Ok(v) => callback(v, arg),
+                Err(err) => err.for_each_alived_value(arg, callback),
+            });
     }
 }
-
 
 // 実装メモ
 // ※ Objectがスケジューラに割り当てられている時の参照図
@@ -112,18 +103,22 @@ pub struct MailBox {
 impl MailBox {
     pub(super) fn new() -> Self {
         MailBox {
-            obj:None,
+            obj: None,
             heap: Heap::new(mm::StartHeapSize::Small),
 
             reply_token: ReplyToken::new(),
             values: MailBoxGCRootValues {
                 inbox: Vec::new(),
                 result_box: Vec::new(),
-            }
+            },
         }
     }
 
-    pub fn recv_message(&mut self, msg: MessageKind, reply_to_mailbox: Arc<Mutex<MailBox>>) -> Result<ReplyToken, OutOfMemory> {
+    pub fn recv_message(
+        &mut self,
+        msg: MessageKind,
+        reply_to_mailbox: Arc<Mutex<MailBox>>,
+    ) -> Result<ReplyToken, OutOfMemory> {
         //受け取ったメッセージをすべて自分自身のヒープ内にコピーする
         let mut allocator = AnyAllocator::MailBox(self);
         let msg = (unsafe { msg.value_clone_gcunsafe(&mut allocator) })?;
@@ -147,7 +142,11 @@ impl MailBox {
         self.values.inbox.pop()
     }
 
-    pub fn recv_reply(&mut self, result: Result<&Reachable<Any>, Exception>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
+    pub fn recv_reply(
+        &mut self,
+        result: Result<&Reachable<Any>, Exception>,
+        reply_token: ReplyToken,
+    ) -> Result<(), OutOfMemory> {
         //返信を受け取るVec内に既にReplyTokenに対応する値が入っている場合、返信不要のマークなので何もしない。
         if self.try_take_reply(reply_token).is_none() {
             match result {
@@ -173,7 +172,10 @@ impl MailBox {
     }
 
     pub fn try_take_reply(&mut self, reply_token: ReplyToken) -> Option<NResult<Any, Exception>> {
-        self.values.result_box.iter().position(|(token, _)| reply_token == *token)
+        self.values
+            .result_box
+            .iter()
+            .position(|(token, _)| reply_token == *token)
             .map(|index| {
                 let (_, result) = self.values.result_box.swap_remove(index);
                 result
@@ -184,7 +186,9 @@ impl MailBox {
         //まだ返信を受け取っていなければ
         if self.try_take_reply(reply_token).is_none() {
             //どんな値でもいいので、事前に返信を受け取るためのVecにreply_tokenを入れておく。
-            self.values.result_box.push((reply_token, Err(Exception::OutOfMemory)));
+            self.values
+                .result_box
+                .push((reply_token, Err(Exception::OutOfMemory)));
         }
     }
 
@@ -205,7 +209,6 @@ impl MailBox {
     pub(crate) fn count_resultbox(&self) -> usize {
         self.values.result_box.len()
     }
-
 }
 
 impl Eq for MailBox {}
@@ -222,8 +225,12 @@ impl Allocator for MailBox {
         self.heap.alloc(&mut self.values)
     }
 
-    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> Result<UIPtr<T>, OutOfMemory> {
-        self.heap.alloc_with_additional_size(additional_size, &mut self.values)
+    fn alloc_with_additional_size<T: NaviType>(
+        &mut self,
+        additional_size: usize,
+    ) -> Result<UIPtr<T>, OutOfMemory> {
+        self.heap
+            .alloc_with_additional_size(additional_size, &mut self.values)
     }
 
     fn force_allocation_space(&mut self, size: usize) -> Result<(), OutOfMemory> {

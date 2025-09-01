@@ -3,7 +3,7 @@ use std::io::{stdout, Write};
 use navi::err::Exception;
 use navi::object;
 use navi::ptr::ValueHolder;
-use navi::read::{StdinChars, Reader};
+use navi::read::{Reader, StdinChars};
 
 fn main() {
     let mut standalone = object::new_object();
@@ -25,16 +25,14 @@ fn main() {
                         navi::object::Object::register_scheduler(standalone);
                         standalone = new_standaloneobject;
                     }
-                    Err(navi::eval::EvalError::Exception(err)) => {
-                        match err {
-                            Exception::Exit => {
-                                break;
-                            }
-                            err => {
-                                println!("{}", err);
-                            }
+                    Err(navi::eval::EvalError::Exception(err)) => match err {
+                        Exception::Exit => {
+                            break;
                         }
-                    }
+                        err => {
+                            println!("{}", err);
+                        }
+                    },
                 }
             }
             Err(navi::read::ReadException::EOF) => {

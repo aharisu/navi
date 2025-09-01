@@ -1,26 +1,24 @@
 use once_cell::sync::Lazy;
 
+use crate::err::*;
+use crate::object::mm::GCAllocationStruct;
 use crate::object::Object;
 use crate::object::StandaloneObject;
-use crate::object::mm::GCAllocationStruct;
-use crate::value::*;
 use crate::ptr::*;
-use crate::err::*;
 use crate::value::any::Any;
+use crate::value::app::{Param, ParamKind, Parameter};
 use crate::value::func::Func;
-use crate::value::app::{Parameter, ParamKind, Param};
 use crate::value::list::ListBuilder;
+use crate::value::*;
 use crate::vm;
 use crate::vm::ExecException;
 
 #[macro_export]
 macro_rules! cap_eval {
-    ($local_ptr:expr, $obj:expr) => {
-        {
-            let tmp = ($local_ptr).reach($obj);
-            crate::eval::eval(&tmp, $obj)
-        }
-    };
+    ($local_ptr:expr, $obj:expr) => {{
+        let tmp = ($local_ptr).reach($obj);
+        crate::eval::eval(&tmp, $obj)
+    }};
 }
 
 #[derive(Debug)]
@@ -30,39 +28,34 @@ pub enum EvalError {
 }
 
 pub fn eval(sexp: &Reachable<Any>, obj: &mut Object) -> Result<Ref<Any>, EvalError> {
-
     fn inner(code: &Reachable<compiled::Code>, obj: &mut Object) -> Result<Ref<Any>, EvalError> {
         match vm::code_execute(code, vm::WorkTimeLimit::Inf, obj) {
             Err(vm::ExecException::Exception(e)) => Err(EvalError::Exception(e)),
             Err(vm::ExecException::ObjectSwitch(o)) => Err(EvalError::ObjectSwitch(o)),
             Ok(v) => Ok(v),
         }
-
     }
 
     if let Some(code) = sexp.try_cast::<compiled::Code>() {
         inner(code, obj)
-
     } else {
         match crate::compile::compile(&sexp, obj) {
             Ok(code) => {
                 let code = code.reach(obj);
                 inner(&code, obj)
             }
-            Err(e) => {
-                Err(EvalError::Exception(e.into()))
-            }
+            Err(e) => Err(EvalError::Exception(e.into())),
         }
     }
 }
 
 fn func_apply(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let app = vm::refer_arg::<app::App>(0, obj).reach(obj);
+    let app = vm::get_arg::<app::App>(0, obj).reach(obj);
 
-    let mut last_arg = vm::refer_arg::<Any>(1, obj).reach(obj);
+    let mut last_arg = vm::get_arg::<Any>(1, obj).reach(obj);
     let mut builder = ListBuilder::new(obj);
-    for index in 0 .. num_rest {
-        let arg = vm::refer_rest_arg::<Any>(2, index, obj).reach(obj);
+    for index in 0..num_rest {
+        let arg = vm::get_rest_arg::<Any>(2, index, obj).reach(obj);
 
         builder.push(&last_arg, obj)?;
         last_arg = arg;
@@ -72,13 +65,17 @@ fn func_apply(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
         Some(last_arg) => {
             let args = builder.append_get(&last_arg.make());
             let iter = args.reach(obj).iter(obj);
-            func_apply_result(vm::app_call(&app, iter, vm::WorkTimeLimit::TakeOver, obj), obj)
+            func_apply_result(
+                vm::app_call(&app, iter, vm::WorkTimeLimit::TakeOver, obj),
+                obj,
+            )
         }
-        None => {
-            Err(Exception::ArgTypeMismatch(ArgTypeMismatch::new(
-                String::from("apply"), 2 + num_rest, last_arg.into_ref(), list::List::typeinfo()
-            )))
-        }
+        None => Err(Exception::ArgTypeMismatch(ArgTypeMismatch::new(
+            String::from("apply"),
+            2 + num_rest,
+            last_arg.into_ref(),
+            list::List::typeinfo(),
+        ))),
     }
 }
 
@@ -87,22 +84,22 @@ fn func_apply_resume(obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 #[inline]
-fn func_apply_result(result: NResult<Any, ExecException>, obj: &mut Object) -> NResult<Any, Exception> {
+fn func_apply_result(
+    result: NResult<Any, ExecException>,
+    obj: &mut Object,
+) -> NResult<Any, Exception> {
     match result {
-        Ok(result) => {
-            Ok(result)
-        }
+        Ok(result) => Ok(result),
         Err(vm::ExecException::ObjectSwitch(_)) => {
             //ObjectSwitchは特殊な構文のみ発生させる例外なのでapplyでは発生しない。
             unreachable!()
         }
         Err(vm::ExecException::Exception(err)) => {
             match err {
-                Exception::WaitReply |
-                Exception::TimeLimit => {
+                Exception::WaitReply | Exception::TimeLimit => {
                     vm::save_func_suspend_info(func_apply_resume, obj);
                 }
-                _ => { }
+                _ => {}
             }
             Err(err)
         }
@@ -110,15 +107,15 @@ fn func_apply_result(result: NResult<Any, ExecException>, obj: &mut Object) -> N
 }
 
 static FUNC_APPLY: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("apply", func_apply,
-            Parameter::new(&[
+    GCAllocationStruct::new(Func::new(
+        "apply",
+        func_apply,
+        Parameter::new(&[
             Param::new("app", ParamKind::Require, app::App::typeinfo()),
             Param::new("arg1", ParamKind::Require, Any::typeinfo()),
             Param::new("args", ParamKind::Rest, Any::typeinfo()),
-            ])
-        )
-    )
+        ]),
+    ))
 });
 
 pub fn register_global(obj: &mut Object) {
@@ -144,10 +141,9 @@ pub fn exec<T: NaviType>(program: &str, obj: &mut Object) -> Ref<T> {
 mod tests {
     use crate::eval::exec;
     use crate::object::Object;
-    use crate::value::*;
-    use crate::value::any::Any;
     use crate::ptr::*;
-
+    use crate::value::any::Any;
+    use crate::value::*;
 
     #[test]
     fn func_test() {
@@ -211,7 +207,8 @@ mod tests {
             let ans = number::make_integer(1 - 2 - 3 - -4, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let program = "(let fib (fun (n) (if (or (= n 0) (= n 1)) n (+ (fib (- n 2)) (fib (- n 1))))))";
+            let program =
+                "(let fib (fun (n) (if (or (= n 0) (= n 1)) n (+ (fib (- n 2)) (fib (- n 1))))))";
             exec::<Any>(program, obj);
             let program = "(fib 10)";
             let result = exec::<Any>(program, obj).capture(obj);
@@ -220,7 +217,6 @@ mod tests {
         }
 
         //TODO Optional引数のテスト
-
     }
 
     #[test]
@@ -246,7 +242,6 @@ mod tests {
             assert!(result.as_ref().is_false());
         }
     }
-
 
     #[test]
     fn syntax_cond_test() {
@@ -363,13 +358,13 @@ mod tests {
             let ans = number::make_integer(11, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let program = "(local (let a 100) (let b 200) (+ a b) (+ (local (let a b) (+ a 10)) a))";
+            let program =
+                "(local (let a 100) (let b 200) (+ a b) (+ (local (let a b) (+ a 10)) a))";
             let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(310, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
-
 
     #[test]
     fn syntax_and_or() {
@@ -419,7 +414,8 @@ mod tests {
         }
 
         {
-            let program = "(match '((1 2) 3) (((4 5) 6) 1) (((7 8) 9) 2) ((10 (11 12)) 3) (((1 2) 3) 4))";
+            let program =
+                "(match '((1 2) 3) (((4 5) 6) 1) (((7 8) 9) 2) ((10 (11 12)) 3) (((1 2) 3) 4))";
             let result = exec::<Any>(program, obj).capture(obj);
             let ans = number::make_integer(4, ans_obj).unwrap().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
@@ -497,5 +493,4 @@ mod tests {
         let ans = number::make_integer(2, obj).unwrap().into_value();
         assert_eq!(result.as_ref(), ans.as_ref());
     }
-
 }

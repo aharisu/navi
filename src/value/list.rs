@@ -1,11 +1,11 @@
 #![allow(unused_unsafe)]
 
-use crate::object::Object;
-use crate::value::{*, self};
 use crate::err::*;
+use crate::object::Object;
 use crate::ptr::*;
+use crate::value::app::{Param, ParamKind, Parameter};
+use crate::value::{self, *};
 use crate::vm;
-use crate::value::app::{Parameter, ParamKind, Param};
 use std::fmt::{self, Debug, Display};
 
 pub struct List {
@@ -13,7 +13,7 @@ pub struct List {
     next: Ref<List>,
 }
 
-static LIST_TYPEINFO : TypeInfo = new_typeinfo!(
+static LIST_TYPEINFO: TypeInfo = new_typeinfo!(
     List,
     "List",
     std::mem::size_of::<List>(),
@@ -41,7 +41,8 @@ impl NaviType for List {
         } else {
             //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
             unsafe {
-                let v = crate::value::Any::clone_inner(self.v.as_ref(), allocator)?.into_reachable();
+                let v =
+                    crate::value::Any::clone_inner(self.v.as_ref(), allocator)?.into_reachable();
                 let next = Self::clone_inner(self.next.as_ref(), allocator)?.into_reachable();
 
                 Self::alloc(&v, &next, allocator)
@@ -50,9 +51,7 @@ impl NaviType for List {
     }
 }
 
-
 impl List {
-
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(&mut self.v, arg);
         callback(self.next.cast_mut_value(), arg);
@@ -74,9 +73,8 @@ impl List {
         if cap.as_ref().next.has_replytype() {
             //Replyを含んでいる場合は再帰的に確認していく
             let mut tail = cap.as_ref().tail().capture(obj);
-            if  Self::check_reply(&mut tail, obj)? {
+            if Self::check_reply(&mut tail, obj)? {
                 cap.as_mut().next.update_pointer(tail.raw_ptr());
-
             } else {
                 //Replyがまだ返信を受け取っていなかったのでfalseを返す
                 return Ok(false);
@@ -97,14 +95,21 @@ impl List {
         std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Any>, next: &Reachable<List>, allocator: &mut A) -> NResult<List, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        v: &Reachable<Any>,
+        next: &Reachable<List>,
+        allocator: &mut A,
+    ) -> NResult<List, OutOfMemory> {
         let ptr = allocator.alloc::<List>()?;
         unsafe {
             //確保したメモリ内に値を書き込む
-            std::ptr::write(ptr.as_ptr(), List {
-                v: v.raw_ptr().into(),
-                next: next.raw_ptr().into(),
-                })
+            std::ptr::write(
+                ptr.as_ptr(),
+                List {
+                    v: v.raw_ptr().into(),
+                    next: next.raw_ptr().into(),
+                },
+            )
         }
 
         let mut result = ptr.into_ref();
@@ -115,15 +120,21 @@ impl List {
         Ok(result)
     }
 
-    pub fn alloc_tail<A: Allocator>(v: &Reachable<Any>, allocator: &mut A) -> NResult<List, OutOfMemory> {
+    pub fn alloc_tail<A: Allocator>(
+        v: &Reachable<Any>,
+        allocator: &mut A,
+    ) -> NResult<List, OutOfMemory> {
         let ptr = allocator.alloc::<List>()?;
 
         unsafe {
             //確保したメモリ内に値を書き込む
-            std::ptr::write(ptr.as_ptr(), List {
-                v: v.raw_ptr().into(),
-                next: Self::nil().into_ref(),
-                })
+            std::ptr::write(
+                ptr.as_ptr(),
+                List {
+                    v: v.raw_ptr().into(),
+                    next: Self::nil().into_ref(),
+                },
+            )
         }
 
         let mut result = ptr.into_ref();
@@ -148,7 +159,7 @@ impl List {
         let mut l = self;
         loop {
             if l.is_nil() {
-                break
+                break;
             } else {
                 count += 1;
                 l = l.next.as_ref();
@@ -163,11 +174,11 @@ impl List {
         let mut l = self;
         loop {
             if l.is_nil() {
-                break
+                break;
             } else {
                 count -= 1;
                 if count == 0 {
-                    break
+                    break;
                 }
                 l = l.next.as_ref();
             }
@@ -181,12 +192,12 @@ impl List {
         let mut l = self;
         loop {
             if l.is_nil() {
-                break
+                break;
             } else {
                 count -= 1;
                 l = l.next.as_ref();
                 if count == 0 {
-                    break
+                    break;
                 }
             }
         }
@@ -211,7 +222,6 @@ impl List {
             cur: Ref::new(self),
         }
     }
-
 }
 
 impl Ref<List> {
@@ -221,10 +231,9 @@ impl Ref<List> {
             self.as_mut().next.set_has_reply_flag(to_index - 1);
         }
     }
-
 }
 
-impl Eq for List { }
+impl Eq for List {}
 
 impl PartialEq for List {
     fn eq(&self, other: &Self) -> bool {
@@ -326,7 +335,7 @@ impl std::iter::Iterator for ListIterator {
 }
 
 pub struct ListIteratorInfo {
-    pub is_tail: bool
+    pub is_tail: bool,
 }
 
 pub struct ListIteratorWithInfo {
@@ -353,7 +362,7 @@ impl std::iter::Iterator for ListIteratorWithInfo {
             let is_tail = next.as_ref().is_nil();
 
             self.cur.update_pointer(next);
-            Some((v,ListIteratorInfo { is_tail: is_tail }))
+            Some((v, ListIteratorInfo { is_tail: is_tail }))
         }
     }
 }
@@ -379,7 +388,6 @@ impl ListBuilder {
         if self.start.is_none() {
             self.start = Some(obj.capture(cell.clone()));
             self.end = Some(obj.capture(cell));
-
         } else {
             let end = self.end.as_mut().unwrap();
             end.as_mut().next.update_pointer(cell.raw_ptr());
@@ -412,18 +420,14 @@ impl ListBuilder {
                 end.as_mut().next.update_pointer(tail.raw_ptr());
                 self.start.unwrap().take()
             }
-            None => {
-                tail.clone()
-            }
+            None => tail.clone(),
         }
     }
-
-
 }
 
 fn func_cons(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg::<Any>(0, obj);
-    let tail = vm::refer_arg::<List>(1, obj);
+    let v = vm::get_arg::<Any>(0, obj);
+    let tail = vm::get_arg::<List>(1, obj);
 
     let list = list::List::alloc(&v.reach(obj), &tail.reach(obj), obj)?;
     Ok(list.into_value())
@@ -432,18 +436,17 @@ fn func_cons(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 fn func_list(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     if num_rest == 0 {
         Ok(list::List::nil().make().into_value())
-
     } else {
         let mut builder = ListBuilder::new(obj);
         let mut last_hasreply_index = 0;
 
-        for index in 0 .. num_rest {
-            let v = vm::refer_rest_arg::<Any>(0, index, obj);
+        for index in 0..num_rest {
+            let v = vm::get_rest_arg::<Any>(0, index, obj);
             let has_reply = value::has_replytype(&v);
 
             builder.push(&v.reach(obj), obj)?;
 
-            if  has_reply {
+            if has_reply {
                 last_hasreply_index = builder.len();
             }
         }
@@ -461,7 +464,7 @@ fn func_list(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 fn func_is_list(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg(0, obj);
+    let v = vm::get_arg(0, obj);
     if v.is_type(list::List::typeinfo()) {
         Ok(v.clone())
     } else {
@@ -470,15 +473,15 @@ fn func_is_list(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 fn func_list_len(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg::<List>(0, obj);
+    let v = vm::get_arg::<List>(0, obj);
 
     let num = number::make_integer(v.as_ref().count() as i64, obj)?;
     Ok(num)
 }
 
 fn func_list_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg::<List>(0, obj);
-    let index = vm::refer_arg::<number::Integer>(1, obj);
+    let v = vm::get_arg::<List>(0, obj);
+    let index = vm::get_arg::<number::Integer>(1, obj);
 
     let index = index.as_ref().get() as usize;
 
@@ -488,23 +491,22 @@ fn func_list_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> 
 fn func_append(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     if num_rest == 0 {
         Ok(list::List::nil().make().into_value())
-
     } else {
         let mut builder = ListBuilder::new(obj);
         let mut last_hasreply_index = 0;
-        for index in 0 .. num_rest -1 {
-            let list = vm::refer_rest_arg::<List>(0, index, obj).reach(obj);
+        for index in 0..num_rest - 1 {
+            let list = vm::get_rest_arg::<List>(0, index, obj).reach(obj);
             for v in list.iter(obj) {
                 let has_reply = value::has_replytype(&v);
                 builder.push(&v.reach(obj), obj)?;
 
-                if  has_reply {
+                if has_reply {
                     last_hasreply_index = builder.len();
                 }
             }
         }
 
-        let last = vm::refer_rest_arg::<List>(0, num_rest - 1, obj);
+        let last = vm::get_rest_arg::<List>(0, num_rest - 1, obj);
         if value::has_replytype(&last) {
             last_hasreply_index = num_rest - 1;
         }
@@ -521,65 +523,69 @@ fn func_append(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 static FUNC_CONS: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("cons", func_cons,
+    GCAllocationStruct::new(Func::new(
+        "cons",
+        func_cons,
         Parameter::new(&[
             Param::new_no_force("head", ParamKind::Require, Any::typeinfo()),
             Param::new_no_force("tail", ParamKind::Require, list::List::typeinfo()),
-            ])
-        )
-    )
+        ]),
+    ))
 });
 
 static FUNC_LIST: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("list", func_list,
-        Parameter::new(&[
-            Param::new_no_force("values", ParamKind::Rest, Any::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "list",
+        func_list,
+        Parameter::new(&[Param::new_no_force(
+            "values",
+            ParamKind::Rest,
+            Any::typeinfo(),
+        )]),
+    ))
 });
 
 static FUNC_IS_LIST: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("list?", func_is_list,
-        Parameter::new(&[
-            Param::new_no_force("x", ParamKind::Require, Any::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "list?",
+        func_is_list,
+        Parameter::new(&[Param::new_no_force(
+            "x",
+            ParamKind::Require,
+            Any::typeinfo(),
+        )]),
+    ))
 });
 
 static FUNC_LIST_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("list-len", func_list_len,
-        Parameter::new(&[
-            Param::new_no_force("list", ParamKind::Require, List::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "list-len",
+        func_list_len,
+        Parameter::new(&[Param::new_no_force(
+            "list",
+            ParamKind::Require,
+            List::typeinfo(),
+        )]),
+    ))
 });
 
 static FUNC_LIST_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("list-ref", func_list_ref,
+    GCAllocationStruct::new(Func::new(
+        "list-ref",
+        func_list_ref,
         Parameter::new(&[
             Param::new_no_force("list", ParamKind::Require, List::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
-            ])
-        )
-    )
+        ]),
+    ))
 });
 
 static FUNC_APPEND: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("append", func_append,
-        Parameter::new(&[
-            Param::new("list", ParamKind::Rest, list::List::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "append",
+        func_append,
+        Parameter::new(&[Param::new("list", ParamKind::Rest, list::List::typeinfo())]),
+    ))
 });
 
 pub fn register_global(obj: &mut Object) {
@@ -605,15 +611,15 @@ pub mod literal {
     pub fn list_ref() -> Reachable<Func> {
         Reachable::new_static(&FUNC_LIST_REF.value)
     }
-
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::eval::exec;
-    use crate::value::*;
-    use crate::object;
+
     use super::*;
+    use crate::eval::exec;
+    use crate::object;
+    use crate::value::*;
 
     #[test]
     fn test_builder() {
@@ -635,9 +641,15 @@ mod tests {
         {
             let mut builder = ListBuilder::new(obj);
 
-            builder.push(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
-            builder.push(&number::make_integer(2, obj).unwrap().reach(obj), obj).unwrap();
-            builder.push(&number::make_integer(3, obj).unwrap().reach(obj), obj).unwrap();
+            builder
+                .push(&number::make_integer(1, obj).unwrap().reach(obj), obj)
+                .unwrap();
+            builder
+                .push(&number::make_integer(2, obj).unwrap().reach(obj), obj)
+                .unwrap();
+            builder
+                .push(&number::make_integer(3, obj).unwrap().reach(obj), obj)
+                .unwrap();
             let result = builder.get().capture(obj);
 
             let _1 = number::make_integer(1, ans_obj).unwrap().reach(ans_obj);
@@ -645,13 +657,18 @@ mod tests {
             let _3 = number::make_integer(3, ans_obj).unwrap().reach(ans_obj);
 
             let ans = list::List::nil();
-            let ans = list::List::alloc(&_3, &ans, ans_obj).unwrap().reach(obj);
-            let ans = list::List::alloc(&_2, &ans, ans_obj).unwrap().reach(obj);
-            let ans = list::List::alloc(&_1, &ans, ans_obj).unwrap().reach(obj);
+            let ans = list::List::alloc(&_3, &ans, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
+            let ans = list::List::alloc(&_2, &ans, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
+            let ans = list::List::alloc(&_1, &ans, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.as_ref());
         }
-
     }
 
     #[test]
@@ -662,19 +679,35 @@ mod tests {
             let obj = standalone.mut_object();
             let mut builder = ListBuilder::new(obj);
 
-            builder.push(&number::make_integer(1, obj).unwrap().reach(obj), obj).unwrap();
-            builder.push(&number::make_integer(2, obj).unwrap().reach(obj), obj).unwrap();
-            builder.push(&number::make_integer(3, obj).unwrap().reach(obj), obj).unwrap();
-            builder.push(&number::make_integer(4, obj).unwrap().reach(obj), obj).unwrap();
-            builder.push(&number::make_integer(5, obj).unwrap().reach(obj), obj).unwrap();
-            builder.push(&number::make_integer(6, obj).unwrap().reach(obj), obj).unwrap();
-            builder.push(&number::make_integer(7, obj).unwrap().reach(obj), obj).unwrap();
+            builder
+                .push(&number::make_integer(1, obj).unwrap().reach(obj), obj)
+                .unwrap();
+            builder
+                .push(&number::make_integer(2, obj).unwrap().reach(obj), obj)
+                .unwrap();
+            builder
+                .push(&number::make_integer(3, obj).unwrap().reach(obj), obj)
+                .unwrap();
+            builder
+                .push(&number::make_integer(4, obj).unwrap().reach(obj), obj)
+                .unwrap();
+            builder
+                .push(&number::make_integer(5, obj).unwrap().reach(obj), obj)
+                .unwrap();
+            builder
+                .push(&number::make_integer(6, obj).unwrap().reach(obj), obj)
+                .unwrap();
+            builder
+                .push(&number::make_integer(7, obj).unwrap().reach(obj), obj)
+                .unwrap();
             builder.get().capture(obj)
         };
 
         {
             let program = "(let obj (spawn))";
-            let new_obj_ref = exec::<value::object_ref::ObjectRef>(program, standalone.mut_object()).capture(standalone.mut_object());
+            let new_obj_ref =
+                exec::<value::object_ref::ObjectRef>(program, standalone.mut_object())
+                    .capture(standalone.mut_object());
 
             //操作対象のオブジェクトを新しく作成したオブジェクトに切り替える
             standalone = object::object_switch(standalone, new_obj_ref.as_ref()).unwrap();
@@ -745,7 +778,5 @@ mod tests {
             let result = exec::<List>(program, standalone.mut_object());
             assert_eq!(result.as_ref(), ans.as_ref());
         }
-
     }
-
 }

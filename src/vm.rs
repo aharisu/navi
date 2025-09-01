@@ -10,16 +10,18 @@ use once_cell::sync::Lazy;
 
 use crate::err::NResult;
 use crate::err::OutOfMemory;
-use crate::object::StandaloneObject;
-use crate::object::mm::GCAllocationStruct;
+use crate::object::mm;
+use crate::object::mm::ptr_to_usize;
 use crate::object::mm::usize_to_ptr;
+use crate::object::mm::GCAllocationStruct;
+use crate::object::StandaloneObject;
 
+use crate::err;
 use crate::object::Object;
-use crate::value::*;
+use crate::ptr::*;
 use crate::value::any::Any;
 use crate::value::app;
-use crate::ptr::*;
-use crate::err;
+use crate::value::*;
 
 pub mod tag {
     pub const JUMP_OFFSET: u8 = 0;
@@ -35,23 +37,23 @@ pub mod tag {
     pub const PUSH_APP: u8 = 25;
     pub const LET_LOCAL: u8 = 8;
     pub const LET_GLOBAL: u8 = 9;
-    pub const DEF_RECV:u8 = 10;
-    pub const OBJECT_SWITCH:u8 = 16;
-    pub const RETURN_OBJECT_SWITCH:u8 = 26;
-    pub const POP_ENV:u8 = 11;
-    pub const PUSH_EMPTY_ENV:u8 = 12;
-    pub const CLOSURE:u8 = 13;
+    pub const DEF_RECV: u8 = 10;
+    pub const OBJECT_SWITCH: u8 = 16;
+    pub const RETURN_OBJECT_SWITCH: u8 = 26;
+    pub const POP_ENV: u8 = 11;
+    pub const PUSH_EMPTY_ENV: u8 = 12;
+    pub const CLOSURE: u8 = 13;
     pub const CAPTURE_FREE_REF_LOCAL: u8 = 27;
     pub const CAPTURE_FREE_REF_FREE: u8 = 28;
-    pub const RETURN:u8 = 14;
-    pub const CALL_PREPARE:u8 = 15;
-    pub const CALL_TAIL_PREPARE:u8 = 22;
-    pub const CALL:u8 = 18;
-    pub const CALL_TAIL:u8 = 17;
-    pub const CALL_RESUME_FUNC:u8 = 29;
-    pub const AND:u8 = 19;
-    pub const OR:u8 = 20;
-    pub const MATCH_SUCCESS:u8 = 21;
+    pub const RETURN: u8 = 14;
+    pub const CALL_PREPARE: u8 = 15;
+    pub const CALL_TAIL_PREPARE: u8 = 22;
+    pub const CALL: u8 = 18;
+    pub const CALL_TAIL: u8 = 17;
+    pub const CALL_RESUME_FUNC: u8 = 29;
+    pub const AND: u8 = 19;
+    pub const OR: u8 = 20;
+    pub const MATCH_SUCCESS: u8 = 21;
 
     //next number 30
 }
@@ -102,7 +104,10 @@ struct FuncSuspendInfo {
     resume_func: fn(&mut Object) -> NResult<Any, err::Exception>,
 }
 
-pub fn save_func_suspend_info(resume_func: fn(&mut Object) -> NResult<Any, err::Exception>, obj: &mut Object) {
+pub fn save_func_suspend_info(
+    resume_func: fn(&mut Object) -> NResult<Any, err::Exception>,
+    obj: &mut Object,
+) {
     let info = FuncSuspendInfo {
         code: obj.vm_state().code.clone(),
         pc: obj.vm_state().pc,
@@ -161,14 +166,11 @@ impl VMStack {
             self.pos = self.pos.sub(decriment);
         }
     }
-
 }
 
 impl Drop for VMStack {
     fn drop(&mut self) {
-        unsafe {
-            std::alloc::dealloc(self.stack, self.stack_layout)
-        }
+        unsafe { std::alloc::dealloc(self.stack, self.stack_layout) }
     }
 }
 
@@ -182,18 +184,18 @@ pub fn is_true(v: &Any) -> bool {
 }
 
 #[inline]
-pub fn refer_arg<T: NaviType>(index: usize, obj: &mut Object) -> Ref<T> {
-    let v = refer_local_var(obj.vm_state().env, 0, index + 1);
+pub fn get_arg<T: NaviType>(index: usize, obj: &mut Object) -> Ref<T> {
+    let v = get_local_arg(obj.vm_state().env, 0, index + 1);
     //Funcの引数はすべて型チェックされている前提なのでuncheckedでキャストする
     unsafe { v.cast_unchecked::<T>().clone() }
 }
 
 #[inline]
-pub fn refer_rest_arg<T: NaviType>(index: usize, rest_index: usize, obj: &mut Object) -> Ref<T> {
-    refer_arg::<T>(index + rest_index, obj)
+pub fn get_rest_arg<T: NaviType>(index: usize, rest_index: usize, obj: &mut Object) -> Ref<T> {
+    get_arg::<T>(index + rest_index, obj)
 }
 
-fn refer_local_var(mut env: *const Environment, mut frame_offset: usize, index: usize) -> Ref<Any> {
+fn get_local_arg(mut env: *const Environment, mut frame_offset: usize, index: usize) -> Ref<Any> {
     //目的の位置まで環境を上に上に順に辿っていく
     while frame_offset > 0 {
         env = unsafe { (*env).up };
@@ -206,6 +208,26 @@ fn refer_local_var(mut env: *const Environment, mut frame_offset: usize, index: 
         let frame_ptr = env.add(1) as *mut Ref<Any>;
         let cell = frame_ptr.add(index as usize);
         (*cell).clone()
+    }
+}
+
+fn refer_local_arg<'a>(
+    mut env: *const Environment,
+    mut frame_offset: usize,
+    index: usize,
+) -> &'a mut Ref<Any> {
+    //目的の位置まで環境を上に上に順に辿っていく
+    while frame_offset > 0 {
+        env = unsafe { (*env).up };
+        frame_offset -= 1;
+    }
+
+    //目的の環境内にあるローカルフレームから値を取得
+    unsafe {
+        //ローカルフレームは環境ヘッダの後ろ側にある
+        let frame_ptr = env.add(1) as *mut Ref<Any>;
+        let cell = frame_ptr.add(index as usize);
+        cell.as_mut().unwrap()
     }
 }
 
@@ -245,7 +267,11 @@ impl VMState {
         &mut self.stack
     }
 
-    pub fn for_each_all_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+    pub fn for_each_all_alived_value(
+        &mut self,
+        arg: *mut u8,
+        callback: fn(&mut Ref<Any>, *mut u8),
+    ) {
         if self.code.raw_ptr().is_null() == false {
             callback(self.code.cast_mut_value(), arg);
         }
@@ -259,8 +285,25 @@ impl VMState {
                     if let Some(code) = (*cont).code.as_mut() {
                         callback(code.cast_mut_value(), arg);
                     }
+                    if (*cont).argp.is_null() == false {
+                        let len = (*(*cont).argp).size;
+                        for index in 0..len {
+                            let v = refer_local_arg((*cont).argp, 0, index);
+                            callback(v, arg);
+                        }
+                    }
 
                     cont = (*cont).prev;
+                }
+            }
+        }
+
+        if self.argp.is_null() == false {
+            unsafe {
+                let len = (*self.argp).size;
+                for index in 0..len {
+                    let v = refer_local_arg(self.argp, 0, index);
+                    callback(v, arg);
                 }
             }
         }
@@ -274,7 +317,7 @@ impl VMState {
 
                     //ローカルフレームは環境ヘッダの後ろ側にある
                     let frame_ptr = env.add(1) as *mut Ref<Any>;
-                    for index in 0 .. len {
+                    for index in 0..len {
                         let cell = frame_ptr.add(index as usize);
                         let v = &mut *cell;
                         callback(v, arg);
@@ -294,8 +337,12 @@ pub enum WorkTimeLimit {
     TakeOver,
 }
 
-pub fn app_call(app: &Reachable<app::App>, args_iter: impl Iterator<Item=Ref<Any>>
-    , limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
+pub fn app_call(
+    app: &Reachable<app::App>,
+    args_iter: impl Iterator<Item = Ref<Any>>,
+    limit: WorkTimeLimit,
+    obj: &mut Object,
+) -> Result<Ref<Any>, ExecException> {
     //ContinuationとEnvironmentのフレームをプッシュ
     {
         let mut buf: Vec<u8> = Vec::with_capacity(1);
@@ -307,7 +354,7 @@ pub fn app_call(app: &Reachable<app::App>, args_iter: impl Iterator<Item=Ref<Any
         let code = Reachable::new_static(&code);
 
         //関数呼び出しの準備段階の実行は、実行時間に制限を設けない
-        code_execute(&code,  WorkTimeLimit::Inf, obj).unwrap();
+        code_execute(&code, WorkTimeLimit::Inf, obj).unwrap();
     }
 
     //APPをプッシュ
@@ -345,7 +392,11 @@ pub fn app_call(app: &Reachable<app::App>, args_iter: impl Iterator<Item=Ref<Any
     code_execute(&literal::code_call(), limit, obj)
 }
 
-pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecException> {
+pub fn code_execute(
+    code: &Reachable<compiled::Code>,
+    limit: WorkTimeLimit,
+    obj: &mut Object,
+) -> Result<Ref<Any>, ExecException> {
     //実行対象のコードを設定
     obj.vm_state().code = code.make();
     obj.vm_state().pc = 0;
@@ -357,7 +408,7 @@ pub fn code_execute(code: &Reachable<compiled::Code>, limit: WorkTimeLimit, obj:
             WorkTimeLimit::Reductions(reductions) => reductions,
             //少なくとも一つの命令は実行完了できるように最低数(11)を指定する
             WorkTimeLimit::TakeOver => obj.vm_state().reductions.max(11),
-         };
+        };
 
         //CALLを実行。結果を返り値にする
         match execute(obj) {
@@ -404,14 +455,16 @@ pub fn resume(limit: WorkTimeLimit, obj: &mut Object) -> Result<Ref<Any>, ExecEx
         WorkTimeLimit::Inf => usize::MAX,
         WorkTimeLimit::Reductions(reductions) => reductions,
         WorkTimeLimit::TakeOver => obj.vm_state().reductions,
-        };
+    };
 
     execute(obj)
 }
 
 fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     let mut program = Cursor::new(obj.vm_state().code.as_ref().program());
-    program.seek(SeekFrom::Start(obj.vm_state().pc as u64)).unwrap();
+    program
+        .seek(SeekFrom::Start(obj.vm_state().pc as u64))
+        .unwrap();
 
     macro_rules! tag_return {
         () => {
@@ -437,7 +490,8 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
     macro_rules! complete_arg {
         () => {
             //引数準備のためのEnv(argp)をEnvリストにつなげる
-            let argp= obj.vm_state().argp;
+            let argp = obj.vm_state().argp;
+            obj.vm_state().argp = std::ptr::null_mut();
             unsafe {
                 (*argp).up = obj.vm_state().env;
             }
@@ -494,7 +548,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
     loop {
         let tag = {
-            let mut tmp: [u8;1] = [0];
+            let mut tmp: [u8; 1] = [0];
             //これ以上タグがなければ実行終了
             if program.read_exact(&mut tmp).is_err() {
                 break;
@@ -511,7 +565,6 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 if is_true(obj.vm_state().acc.as_ref()) {
                     //falseだったときのジャンプオフセットを読み飛ばす
                     program.seek(SeekFrom::Current(2 as i64)).unwrap();
-
                 } else {
                     //true節を読み飛ばす
                     let offset = read_u16(&mut program);
@@ -525,18 +578,21 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let cell_index = read_u16(&mut program);
 
                 //目的の環境内にあるローカルフレームから値を取得
-                obj.vm_state().acc = refer_local_var(obj.vm_state().env, frame_offset as usize, cell_index as usize);
+                obj.vm_state().acc = get_local_arg(
+                    obj.vm_state().env,
+                    frame_offset as usize,
+                    cell_index as usize,
+                );
             }
             tag::REF_FREE => {
                 let frame_offset = read_u16(&mut program);
                 let cell_index = read_u16(&mut program);
 
                 //目的の環境内にあるローカルフレームから値を取得
-                let closure = refer_local_var(obj.vm_state().env, frame_offset as usize, 0);
+                let closure = get_local_arg(obj.vm_state().env, frame_offset as usize, 0);
                 if let Some(closure) = closure.try_cast::<compiled::Closure>() {
                     //クロージャ内で保持している自由変数を取得
                     obj.vm_state().acc = closure.as_ref().get(cell_index as usize);
-
                 } else {
                     //0番目の値がclosure以外の場合、不具合なのでパニックさせる
                     panic!("need closure. but got {}", closure.as_ref())
@@ -544,25 +600,31 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
             }
             tag::REF_GLOBAL => {
                 let const_index = read_u16(&mut program);
-                let symbol = obj.vm_state().code.as_ref().get_constant(const_index as usize);
+                let symbol = obj
+                    .vm_state()
+                    .code
+                    .as_ref()
+                    .get_constant(const_index as usize);
                 let symbol = unsafe { symbol.cast_unchecked::<symbol::Symbol>() };
                 if let Some(v) = obj.find_global_value(symbol.as_ref()) {
                     obj.vm_state().acc = v;
-
                 } else {
                     return Err(ExecException::Exception(err::Exception::UnboundVariable(
-                        err::UnboundVariable::new(symbol.clone())
-                        )));
+                        err::UnboundVariable::new(symbol.clone()),
+                    )));
                 }
 
                 reduce!(2);
             }
             tag::CONST_CAPTURE => {
                 let const_index = read_u16(&mut program);
-                obj.vm_state().acc = obj.vm_state().code.as_ref().get_constant(const_index as usize);
+                obj.vm_state().acc = obj
+                    .vm_state()
+                    .code
+                    .as_ref()
+                    .get_constant(const_index as usize);
             }
-            tag::CONST_STATIC
-            | tag::CONST_IMMIDIATE => {
+            tag::CONST_STATIC | tag::CONST_IMMIDIATE => {
                 let data = read_usize(&mut program);
                 let ptr = usize_to_ptr::<Any>(data);
                 obj.vm_state().acc = ptr.into();
@@ -572,7 +634,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                 let argp_env = obj.vm_state().argp;
                 //引数準備中フレームからappを取得
-                let app = refer_local_var(argp_env, 0, 0);
+                let app = get_local_arg(argp_env, 0, 0);
                 //PUSH_APPの時点で型チェックされているので無条件でAPPに変換する
                 let app = unsafe { app.cast_unchecked::<app::App>() };
 
@@ -580,14 +642,14 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let parameter = app.as_ref().parameter();
                 let params = parameter.params();
                 let param = if params.is_empty() {
-                        None
-                    } else if index < params.len() {
-                        Some(&params[index])
-                    } else if params[params.len() - 1].kind == app::ParamKind::Rest {
-                        Some(&params[params.len() - 1])
-                    } else {
-                        None
-                    };
+                    None
+                } else if index < params.len() {
+                    Some(&params[index])
+                } else if params[params.len() - 1].kind == app::ParamKind::Rest {
+                    Some(&params[params.len() - 1])
+                } else {
+                    None
+                };
                 if let Some(param) = param {
                     // reply check
                     if param.force && arg.has_replytype() {
@@ -607,8 +669,12 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     if arg.is_type(param.typeinfo) == false {
                         return Err(ExecException::Exception(err::Exception::ArgTypeMismatch(
                             err::ArgTypeMismatch::new(
-                                String::from(app.as_ref().name()), index + 1,
-                                arg, param.typeinfo))));
+                                String::from(app.as_ref().name()),
+                                index + 1,
+                                arg,
+                                param.typeinfo,
+                            ),
+                        )));
                     }
                 }
 
@@ -625,7 +691,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     // OK!!  do nothing
                 } else {
                     return Err(ExecException::Exception(err::Exception::TypeMismatch(
-                        err::TypeMismatch::new(app, app::App::typeinfo())
+                        err::TypeMismatch::new(app, app::App::typeinfo()),
                     )));
                 }
 
@@ -636,7 +702,11 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
             }
             tag::LET_GLOBAL => {
                 let const_index = read_u16(&mut program);
-                let symbol = obj.vm_state().code.as_ref().get_constant(const_index as usize);
+                let symbol = obj
+                    .vm_state()
+                    .code
+                    .as_ref()
+                    .get_constant(const_index as usize);
                 let symbol = unsafe { symbol.cast_unchecked::<symbol::Symbol>() };
 
                 let acc = obj.vm_state().acc.clone();
@@ -650,7 +720,12 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                 let code = obj.vm_state().code.as_ref();
                 let pattern = code.get_constant(pattern_index as usize).reach(obj);
-                let body = unsafe { code.get_constant(body_index as usize).cast_unchecked::<list::List>() }.clone().reach(obj);
+                let body = unsafe {
+                    code.get_constant(body_index as usize)
+                        .cast_unchecked::<list::List>()
+                }
+                .clone()
+                .reach(obj);
 
                 //現在のオブジェクトにレシーバーを追加する
                 obj.add_receiver(&pattern, &body);
@@ -692,8 +767,8 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     return Err(ExecException::ObjectSwitch(standalone));
                 } else {
                     return Err(ExecException::Exception(err::Exception::TypeMismatch(
-                        err::TypeMismatch::new(target_obj, object_ref::ObjectRef::typeinfo())
-                        )));
+                        err::TypeMismatch::new(target_obj, object_ref::ObjectRef::typeinfo()),
+                    )));
                 }
             }
             tag::RETURN_OBJECT_SWITCH => {
@@ -705,7 +780,9 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     //object-siwtchはグローバル環境でしか現れない
                     return Err(ExecException::ObjectSwitch(standalone));
                 } else {
-                    return Err(ExecException::Exception(err::Exception::Other(format!("No return Object"))));
+                    return Err(ExecException::Exception(err::Exception::Other(format!(
+                        "No return Object"
+                    ))));
                 }
             }
             tag::POP_ENV => {
@@ -713,7 +790,8 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 unsafe {
                     let local_frame_size = (*obj.vm_state().env).size;
                     //Envヘッダーとローカル変数のサイズ分、スタックポインタを下げる
-                    let size = size_of::<Environment>() + (size_of::<Ref<Any>>() * local_frame_size);
+                    let size =
+                        size_of::<Environment>() + (size_of::<Ref<Any>>() * local_frame_size);
                     obj.vm_state().stack.pop_from_size(size);
 
                     //現在のenvポインタを一つ上の環境に差し替える
@@ -736,7 +814,11 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let constant_len = read_u16(&mut program) as usize;
 
                 //Closure内で使用している定数一覧を取得
-                let constants = obj.vm_state().code.as_ref().get_constant_slice(constant_start, constant_start + constant_len);
+                let constants = obj
+                    .vm_state()
+                    .code
+                    .as_ref()
+                    .get_constant_slice(constant_start, constant_start + constant_len);
 
                 //Closure本体式の長さ
                 let body_size = read_u16(&mut program) as usize;
@@ -745,21 +827,27 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let num_free_vars = read_u16(&mut program) as usize;
 
                 //プログラムの中からClosureの本体を切り出す
-                let mut closure_body:Vec<u8> = Vec::new();
+                let mut closure_body: Vec<u8> = Vec::new();
                 let cur = program.position() as usize;
-                let buf = &program.get_ref()[cur .. cur + body_size];
+                let buf = &program.get_ref()[cur..cur + body_size];
                 closure_body.write(buf).unwrap();
 
                 //読み込んだClosure本体のデータ分、プログラムカウンタを進める
                 program.seek(SeekFrom::Current(body_size as i64)).unwrap();
 
-                let params:Vec<app::Param> = (0 .. num_args)
+                let params: Vec<app::Param> = (0..num_args)
                     .map(|_| app::Param::new("v", app::ParamKind::Require, any::Any::typeinfo()))
-                    .collect()
-                    ;
+                    .collect();
                 let parameter = app::Parameter::new(&params);
 
-                obj.vm_state().acc = compiled::Closure::alloc(closure_body, constants, parameter, num_free_vars, obj)?.into_value();
+                obj.vm_state().acc = compiled::Closure::alloc(
+                    closure_body,
+                    constants,
+                    parameter,
+                    num_free_vars,
+                    obj,
+                )?
+                .into_value();
 
                 reduce!(5);
             }
@@ -768,7 +856,11 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let cell_index = read_u16(&mut program);
 
                 //目的の環境内にあるローカルフレームから値を取得
-                let v = refer_local_var(obj.vm_state().env, frame_offset as usize, cell_index as usize);
+                let v = get_local_arg(
+                    obj.vm_state().env,
+                    frame_offset as usize,
+                    cell_index as usize,
+                );
 
                 let closure = &mut obj.vm_state().acc;
                 let cell_index = read_u16(&mut program);
@@ -783,7 +875,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let cell_index = read_u16(&mut program);
 
                 //目的の環境内にあるローカルフレームから値を取得
-                let closure = refer_local_var(obj.vm_state().env, frame_offset as usize, 0);
+                let closure = get_local_arg(obj.vm_state().env, frame_offset as usize, 0);
                 if let Some(closure) = closure.try_cast::<compiled::Closure>() {
                     //クロージャ内で保持している自由変数を取得
                     let v = closure.as_ref().get(cell_index as usize);
@@ -795,12 +887,10 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     } else {
                         panic!("need closure. but got {}", closure.as_ref())
                     }
-
                 } else {
                     //0番目の値がclosure以外の場合、不具合なのでパニックさせる
                     panic!("need closure. but got {}", closure.as_ref())
                 }
-
             }
 
             tag::RETURN => {
@@ -811,7 +901,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let new_cont = Continuation {
                     prev: obj.vm_state().cont,
                     code: None, //実行コードはCursorが所有権を持っているので実際にCallされる直前に設定する
-                    pc: 0, //復帰するPCはCall直前に設定する
+                    pc: 0,      //復帰するPCはCall直前に設定する
                     env: obj.vm_state().env,
                     argp: obj.vm_state().argp,
                 };
@@ -834,8 +924,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 //argpポインタを新しく追加したポインタに差し替える
                 obj.vm_state().argp = obj.vm_state().stack.push(new_env);
             }
-            tag::CALL |
-            tag::CALL_TAIL => {
+            tag::CALL | tag::CALL_TAIL => {
                 //TODO よく使う命令にif文を増やしたくない。どうにかして共通部分をくくりだしたい
                 if tag == tag::CALL_TAIL {
                     //現在のローカルフレームを破棄する
@@ -843,17 +932,23 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                         let vmstate = obj.vm_state();
 
                         //Stack内の破棄するローカルフレームのバイト数を計算
-                        let discard_bytes = size_of::<Environment>() + (*vmstate.env).size * size_of::<Ref<Any>>();
+                        let discard_bytes =
+                            size_of::<Environment>() + (*vmstate.env).size * size_of::<Ref<Any>>();
                         //Callする関数用の新しいローカルフレームのバイト数を計算
-                        let new_frame_bytes = size_of::<Environment>() + (*vmstate.argp).size * size_of::<Ref<Any>>();
+                        let new_frame_bytes =
+                            size_of::<Environment>() + (*vmstate.argp).size * size_of::<Ref<Any>>();
 
                         //破棄するローカルフレームを上書きするように、新しいローカルフレームの位置をずらす。
-                        std::ptr::copy(vmstate.argp as *mut u8, vmstate.env as * mut u8, new_frame_bytes);
+                        std::ptr::copy(
+                            vmstate.argp as *mut u8,
+                            vmstate.env as *mut u8,
+                            new_frame_bytes,
+                        );
                         //argpポインタをずらした先のアドレスに修正
                         vmstate.argp = vmstate.env;
 
                         //フレームをずらしたことにより使用しなくなった領域分、スタックポインタを戻す
-                        vmstate.stack.  pop_from_size(discard_bytes);
+                        vmstate.stack.pop_from_size(discard_bytes);
 
                         //envポインタをロールバック
                         obj.vm_state().env = (*obj.vm_state().env).up;
@@ -865,7 +960,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                 let env = obj.vm_state().env;
                 //ローカルフレームの0番目にappが入っているので取得
-                let any = refer_local_var(env, 0, 0);
+                let any = get_local_arg(env, 0, 0);
                 //PUSH_APPの時点で型チェックされているので無条件でAPPに変換する
                 let app = unsafe { any.cast_unchecked::<app::App>() };
                 let parameter = app.as_ref().parameter();
@@ -901,7 +996,6 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 }
 
                 if let Some(func) = any.try_cast::<func::Func>() {
-
                     //関数内部でPCを参照する場合があるので更新
                     obj.vm_state().pc = program.position();
 
@@ -987,7 +1081,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     program.seek(SeekFrom::Current(offset as i64)).unwrap();
                 }
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -1028,14 +1122,14 @@ pub fn write_usize<T: Write>(v: usize, buf: &mut T) {
 }
 
 fn read_u8<T: Read>(buf: &mut T) -> u8 {
-    let mut tmp: [u8;1] = [0];
+    let mut tmp: [u8; 1] = [0];
     buf.read_exact(&mut tmp).unwrap();
 
     tmp[0]
 }
 
 fn read_u16<T: Read>(buf: &mut T) -> u16 {
-    let mut tmp: [u8;2] = [0, 0];
+    let mut tmp: [u8; 2] = [0, 0];
     buf.read_exact(&mut tmp).unwrap();
 
     u16::from_le_bytes(tmp)
@@ -1043,17 +1137,17 @@ fn read_u16<T: Read>(buf: &mut T) -> u16 {
 
 #[allow(dead_code)]
 fn read_u32<T: Read>(buf: &mut T) -> u32 {
-    let mut tmp: [u8;4] = [0, 0, 0, 0];
+    let mut tmp: [u8; 4] = [0, 0, 0, 0];
     buf.read_exact(&mut tmp).unwrap();
 
     u32::from_le_bytes(tmp)
 }
 
 fn read_usize<T: Read>(buf: &mut T) -> usize {
-    #[cfg(target_pointer_width="32")]
-    let mut tmp: [u8;4] = [0, 0, 0, 0];
-    #[cfg(target_pointer_width="64")]
-    let mut tmp: [u8;8] = [0, 0, 0, 0, 0, 0, 0, 0];
+    #[cfg(target_pointer_width = "32")]
+    let mut tmp: [u8; 4] = [0, 0, 0, 0];
+    #[cfg(target_pointer_width = "64")]
+    let mut tmp: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
 
     buf.read_exact(&mut tmp).unwrap();
 
@@ -1088,16 +1182,15 @@ mod literal {
     pub fn code_call() -> Reachable<compiled::Code> {
         Reachable::new_static(&CODE_CALL.value)
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use crate::eval::exec;
     use crate::object::Object;
-    use crate::value::*;
-    use crate::value::any::Any;
     use crate::ptr::*;
+    use crate::value::any::Any;
+    use crate::value::*;
 
     #[test]
     fn test_tail_rec() {
@@ -1115,7 +1208,6 @@ mod tests {
             let ans = number::make_integer(0, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
-
     }
 
     #[test]
@@ -1158,7 +1250,5 @@ mod tests {
             let ans = number::make_integer(101, ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
-
     }
-
 }

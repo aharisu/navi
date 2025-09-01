@@ -1,11 +1,10 @@
-use crate::value::*;
-use crate::ptr::*;
 use crate::err;
+use crate::ptr::*;
+use crate::value::*;
 use std::fmt::{self, Debug, Display};
 
-
 pub struct Exception {
-    err: err::Exception
+    err: err::Exception,
 }
 
 static EXCEPTION_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -36,23 +35,22 @@ impl NaviType for Exception {
 }
 
 impl Exception {
-
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         self.err.for_each_alived_value(arg, callback);
     }
 
-    pub fn alloc<A: Allocator>(err: err::Exception, allocator: &mut A) -> NResult<Exception, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        err: err::Exception,
+        allocator: &mut A,
+    ) -> NResult<Exception, OutOfMemory> {
         let ptr = allocator.alloc::<Exception>()?;
 
         unsafe {
-            std::ptr::write(ptr.as_ptr(), Exception {
-                err: err,
-            });
+            std::ptr::write(ptr.as_ptr(), Exception { err: err });
         }
 
         Ok(ptr.into_ref())
     }
-
 }
 
 impl Eq for Exception {}

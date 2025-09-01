@@ -1,7 +1,7 @@
 use crate::object::AnyAllocator;
 use crate::ptr::*;
-use crate::value::{*, self};
 use crate::value::any::Any;
+use crate::value::{self, *};
 
 #[derive(Debug, Clone)]
 pub struct OutOfBounds {
@@ -11,13 +11,13 @@ pub struct OutOfBounds {
 
 impl OutOfBounds {
     pub fn new(related_exp: Ref<Any>, index: usize) -> Self {
-        OutOfBounds {
-            related_exp,
-            index,
-        }
+        OutOfBounds { related_exp, index }
     }
 
-    unsafe fn value_clone_gcunsafe(&self, allocator: &mut AnyAllocator) -> Result<Self, OutOfMemory> {
+    unsafe fn value_clone_gcunsafe(
+        &self,
+        allocator: &mut AnyAllocator,
+    ) -> Result<Self, OutOfMemory> {
         let related = self.related_exp.clone().into_reachable();
         let related_cloned = value::value_clone(&related, allocator)?;
 
@@ -29,15 +29,19 @@ impl OutOfBounds {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "out of bounds {}: {}", self.index, self.related_exp.as_ref())
+        write!(
+            f,
+            "out of bounds {}: {}",
+            self.index,
+            self.related_exp.as_ref()
+        )
     }
-
 }
 
 #[derive(Debug, Clone)]
 pub struct TypeMismatch {
     pub found_exp: Ref<Any>,
-    pub require_type: &'static TypeInfo ,
+    pub require_type: &'static TypeInfo,
 }
 
 impl TypeMismatch {
@@ -48,7 +52,10 @@ impl TypeMismatch {
         }
     }
 
-    unsafe fn value_clone_gcunsafe(&self, allocator: &mut AnyAllocator) -> Result<Self, OutOfMemory> {
+    unsafe fn value_clone_gcunsafe(
+        &self,
+        allocator: &mut AnyAllocator,
+    ) -> Result<Self, OutOfMemory> {
         let related = self.found_exp.clone().into_reachable();
         let related_cloned = value::value_clone(&related, allocator)?;
 
@@ -60,9 +67,13 @@ impl TypeMismatch {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "mismatched type.\n  expected:{}\n  found:{}", self.require_type.name, self.found_exp.as_ref())
+        write!(
+            f,
+            "mismatched type.\n  expected:{}\n  found:{}",
+            self.require_type.name,
+            self.found_exp.as_ref()
+        )
     }
-
 }
 
 #[derive(Clone, Debug)]
@@ -79,22 +90,23 @@ impl MalformedFormat {
         }
     }
 
-    unsafe fn value_clone_gcunsafe(&self, allocator: &mut AnyAllocator) -> Result<Self, OutOfMemory> {
+    unsafe fn value_clone_gcunsafe(
+        &self,
+        allocator: &mut AnyAllocator,
+    ) -> Result<Self, OutOfMemory> {
         match self.related_exp.as_ref() {
             Some(related_exp) => {
                 let value = related_exp.clone().into_reachable();
                 let cloned_related_exp = value::value_clone(&value, allocator)?;
                 Ok(MalformedFormat {
-                        related_exp: Some(cloned_related_exp),
-                        message: self.message.clone()
-                    })
+                    related_exp: Some(cloned_related_exp),
+                    message: self.message.clone(),
+                })
             }
-            None => {
-                Ok(MalformedFormat {
-                        related_exp: None,
-                        message: self.message.clone()
-                    })
-            }
+            None => Ok(MalformedFormat {
+                related_exp: None,
+                message: self.message.clone(),
+            }),
         }
     }
 
@@ -112,7 +124,6 @@ impl MalformedFormat {
 
         Ok(())
     }
-
 }
 
 #[derive(Debug, Clone)]
@@ -120,11 +131,16 @@ pub struct ArgTypeMismatch {
     pub name: String,
     pub arg_index: usize,
     pub found_exp: Ref<Any>,
-    pub require_type: &'static TypeInfo ,
+    pub require_type: &'static TypeInfo,
 }
 
 impl ArgTypeMismatch {
-    pub fn new(name: String, arg_index: usize, found_exp: Ref<Any>, require_type: &'static TypeInfo) -> Self {
+    pub fn new(
+        name: String,
+        arg_index: usize,
+        found_exp: Ref<Any>,
+        require_type: &'static TypeInfo,
+    ) -> Self {
         ArgTypeMismatch {
             name,
             arg_index,
@@ -133,11 +149,19 @@ impl ArgTypeMismatch {
         }
     }
 
-    unsafe fn value_clone_gcunsafe(&self, allocator: &mut AnyAllocator) -> Result<Self, OutOfMemory> {
+    unsafe fn value_clone_gcunsafe(
+        &self,
+        allocator: &mut AnyAllocator,
+    ) -> Result<Self, OutOfMemory> {
         let related = self.found_exp.clone().into_reachable();
         let related_cloned = value::value_clone(&related, allocator)?;
 
-        Ok(ArgTypeMismatch::new(self.name.clone(), self.arg_index, related_cloned, self.require_type))
+        Ok(ArgTypeMismatch::new(
+            self.name.clone(),
+            self.arg_index,
+            related_cloned,
+            self.require_type,
+        ))
     }
 
     fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
@@ -145,16 +169,19 @@ impl ArgTypeMismatch {
     }
 
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "mismatched type.\nThe {} argument of function {}.\n  expected:{}\n  found:{}",
-            self.arg_index, self.name,
-            self.require_type.name, self.found_exp.as_ref())
+        write!(
+            f,
+            "mismatched type.\nThe {} argument of function {}.\n  expected:{}\n  found:{}",
+            self.arg_index,
+            self.name,
+            self.require_type.name,
+            self.found_exp.as_ref()
+        )
     }
-
 }
 
 #[derive(Clone, Debug)]
 pub struct DisallowContext {}
-
 
 #[derive(Clone, Debug)]
 pub struct OutOfMemory {}
@@ -169,12 +196,13 @@ pub struct UnboundVariable {
 
 impl UnboundVariable {
     pub fn new(symbol: Ref<value::symbol::Symbol>) -> Self {
-        UnboundVariable {
-            symbol
-        }
+        UnboundVariable { symbol }
     }
 
-    unsafe fn value_clone_gcunsafe(&self, allocator: &mut AnyAllocator) -> Result<Self, OutOfMemory> {
+    unsafe fn value_clone_gcunsafe(
+        &self,
+        allocator: &mut AnyAllocator,
+    ) -> Result<Self, OutOfMemory> {
         let sym = self.symbol.clone().into_reachable();
         let sym_cloned = value::value_clone(&sym, allocator)?;
         Ok(Self::new(sym_cloned))
@@ -187,7 +215,6 @@ impl UnboundVariable {
     fn display(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "unbound variable:{}", self.symbol.as_ref())
     }
-
 }
 
 #[derive(Debug, Clone)]
@@ -207,7 +234,10 @@ pub enum Exception {
 }
 
 impl Exception {
-    pub unsafe fn value_clone_gcunsafe(&self, allocator: &mut AnyAllocator) -> Result<Exception, OutOfMemory> {
+    pub unsafe fn value_clone_gcunsafe(
+        &self,
+        allocator: &mut AnyAllocator,
+    ) -> Result<Exception, OutOfMemory> {
         match self {
             Self::OutOfBounds(inner) => {
                 let inner = inner.value_clone_gcunsafe(allocator)?;
@@ -220,23 +250,23 @@ impl Exception {
             Self::MalformedFormat(inner) => {
                 let inner = inner.value_clone_gcunsafe(allocator)?;
                 Ok(Exception::MalformedFormat(inner))
-           }
+            }
             Self::UnboundVariable(inner) => {
                 let inner = inner.value_clone_gcunsafe(allocator)?;
                 Ok(Exception::UnboundVariable(inner))
-           }
-           Self::ArgTypeMismatch(inner) => {
-               let inner = inner.value_clone_gcunsafe(allocator)?;
-               Ok(Exception::ArgTypeMismatch(inner))
-           }
+            }
+            Self::ArgTypeMismatch(inner) => {
+                let inner = inner.value_clone_gcunsafe(allocator)?;
+                Ok(Exception::ArgTypeMismatch(inner))
+            }
             //enum項目追加の時にmatch節の追加忘れを防ぐためにワイルドカードで書かない
-            Exception::DisallowContext => { Ok(Self::DisallowContext) }
-            Exception::OutOfMemory => { Ok(Self::OutOfMemory) }
-            Exception::MySelfObjectDeleted => { Ok(Self::MySelfObjectDeleted) }
-            Exception::TimeLimit => { Ok(Self::TimeLimit) }
-            Exception::WaitReply => { Ok(Self::WaitReply) }
-            Exception::Exit => { Ok(Self::Exit) }
-            Exception::Other(inner) => { Ok(Self::Other(inner.clone())) }
+            Exception::DisallowContext => Ok(Self::DisallowContext),
+            Exception::OutOfMemory => Ok(Self::OutOfMemory),
+            Exception::MySelfObjectDeleted => Ok(Self::MySelfObjectDeleted),
+            Exception::TimeLimit => Ok(Self::TimeLimit),
+            Exception::WaitReply => Ok(Self::WaitReply),
+            Exception::Exit => Ok(Self::Exit),
+            Exception::Other(inner) => Ok(Self::Other(inner.clone())),
         }
     }
 
@@ -258,16 +288,15 @@ impl Exception {
                 inner.for_each_alived_value(arg, callback);
             }
             //enum項目追加の時にmatch節の追加忘れを防ぐためにワイルドカードで書かない
-            Exception::DisallowContext => { }
-            Exception::OutOfMemory => { }
-            Exception::MySelfObjectDeleted => { }
-            Exception::TimeLimit => { }
-            Exception::WaitReply => { }
-            Exception::Exit => { }
-            Exception::Other(_) => { }
+            Exception::DisallowContext => {}
+            Exception::OutOfMemory => {}
+            Exception::MySelfObjectDeleted => {}
+            Exception::TimeLimit => {}
+            Exception::WaitReply => {}
+            Exception::Exit => {}
+            Exception::Other(_) => {}
         }
     }
-
 }
 
 impl std::fmt::Display for Exception {
@@ -275,21 +304,11 @@ impl std::fmt::Display for Exception {
         write!(f, "*** Error:")?;
 
         match self {
-            Exception::OutOfBounds(inner) => {
-                inner.display(f)
-            }
-            Exception::TypeMismatch(inner) => {
-                inner.display(f)
-            }
-            Exception::MalformedFormat(inner) => {
-                inner.display(f)
-            }
-            Exception::UnboundVariable(inner) => {
-                inner.display(f)
-            }
-            Exception::ArgTypeMismatch(inner) => {
-                inner.display(f)
-            }
+            Exception::OutOfBounds(inner) => inner.display(f),
+            Exception::TypeMismatch(inner) => inner.display(f),
+            Exception::MalformedFormat(inner) => inner.display(f),
+            Exception::UnboundVariable(inner) => inner.display(f),
+            Exception::ArgTypeMismatch(inner) => inner.display(f),
             //enum項目追加の時にmatch節の追加忘れを防ぐためにワイルドカードで書かない
             Exception::DisallowContext => {
                 write!(f, "Disallow context")
@@ -313,9 +332,7 @@ impl std::fmt::Display for Exception {
                 //ExitがDisplayの対象になること自体が不具合
                 unreachable!()
             }
-            Exception::Other(message) => {
-                f.write_str(message)
-            }
+            Exception::Other(message) => f.write_str(message),
         }
     }
 }
@@ -332,7 +349,6 @@ impl From<OutOfMemory> for Exception {
     }
 }
 
-
 pub type NResult<T, Err> = Result<Ref<T>, Err>;
 
 pub fn into_value<T: NaviType, Err>(result: NResult<T, Err>) -> NResult<Any, Err> {
@@ -342,5 +358,5 @@ pub fn into_value<T: NaviType, Err>(result: NResult<T, Err>) -> NResult<Any, Err
 pub enum ResultNone<Result, Err> {
     None,
     Ok(Result),
-    Err(Err)
+    Err(Err),
 }

@@ -1,8 +1,8 @@
-use crate::value::*;
-use crate::ptr::*;
-use std::fmt::{Debug, Display};
 use crate::new_app_typeinfo;
+use crate::ptr::*;
 use crate::value::app::{AppTypeInfo, APP_EXTRATYPE_ID};
+use crate::value::*;
+use std::fmt::{Debug, Display};
 
 pub struct Code {
     program: Vec<u8>,
@@ -34,17 +34,21 @@ impl NaviType for Code {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         unsafe {
             let program = self.program.clone();
-            let constants: Result<Vec<_>, _> = self.constants.iter()
+            let constants: Result<Vec<_>, _> = self
+                .constants
+                .iter()
                 .map(|c| Any::clone_inner(c.as_ref(), allocator))
-                .collect()
-                ;
+                .collect();
             let constants = constants?;
 
             let ptr = allocator.alloc::<Code>()?;
-            std::ptr::write(ptr.as_ptr(), Code {
-                program: program,
-                constants: constants,
-            });
+            std::ptr::write(
+                ptr.as_ptr(),
+                Code {
+                    program: program,
+                    constants: constants,
+                },
+            );
 
             Ok(ptr.into_ref())
         }
@@ -52,26 +56,24 @@ impl NaviType for Code {
 }
 
 impl Code {
-
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         self.constants.iter_mut().for_each(|v| callback(v, arg));
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: Vec<Cap<Any>>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        program: Vec<u8>,
+        constants: Vec<Cap<Any>>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<Code>()?;
 
-        unsafe {
-            std::ptr::write(ptr.as_ptr(), Self::new(program, constants))
-        }
+        unsafe { std::ptr::write(ptr.as_ptr(), Self::new(program, constants)) }
 
         Ok(ptr.into_ref())
     }
 
     pub fn new(program: Vec<u8>, constants: Vec<Cap<Any>>) -> Self {
-        let constants = constants.into_iter()
-            .map(|c| c.take())
-            .collect()
-            ;
+        let constants = constants.into_iter().map(|c| c.take()).collect();
         Code {
             program: program,
             constants: constants,
@@ -89,10 +91,9 @@ impl Code {
     pub fn get_constant_slice(&self, start: usize, end: usize) -> &[Ref<Any>] {
         &self.constants[start..end]
     }
-
 }
 
-impl Eq for Code { }
+impl Eq for Code {}
 
 impl PartialEq for Code {
     fn eq(&self, other: &Self) -> bool {
@@ -122,11 +123,8 @@ pub struct Closure {
     num_free_vars: usize,
 }
 
-static CLOSURE_APP_EXTRATYPEINFO: app::AppTypeInfo = new_app_typeinfo!(
-    Closure,
-    Closure::parameter,
-    Closure::name,
-);
+static CLOSURE_APP_EXTRATYPEINFO: app::AppTypeInfo =
+    new_app_typeinfo!(Closure, Closure::parameter, Closure::name,);
 
 static CLOSURE_TYPEINFO: TypeInfo = new_typeinfo!(
     Closure,
@@ -152,15 +150,23 @@ impl NaviType for Closure {
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、FPtrをキャプチャせずに扱うことが許されている
         let program = self.code.program.clone();
-        let constants: Result<Vec<_>, _> = self.code.constants.iter()
+        let constants: Result<Vec<_>, _> = self
+            .code
+            .constants
+            .iter()
             .map(|c| Any::clone_inner(c.as_ref(), allocator))
-            .collect()
-            ;
+            .collect();
         let constants = constants?;
 
-        let mut closure = Self::alloc(program, &constants, self.parameter.clone(), self.num_free_vars, allocator)?;
+        let mut closure = Self::alloc(
+            program,
+            &constants,
+            self.parameter.clone(),
+            self.num_free_vars,
+            allocator,
+        )?;
 
-        for index in 0 .. self.num_free_vars {
+        for index in 0..self.num_free_vars {
             let child = self.get_inner(index);
             let child = child.cast_value();
             let cloned = Any::clone_inner(child.as_ref(), allocator)?;
@@ -174,34 +180,33 @@ impl NaviType for Closure {
 
 impl Closure {
     fn size_of(&self) -> usize {
-        std::mem::size_of::<Closure>()
-            + self.num_free_vars * std::mem::size_of::<Ref<Any>>()
+        std::mem::size_of::<Closure>() + self.num_free_vars * std::mem::size_of::<Ref<Any>>()
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         self.code.child_traversal(arg, callback);
 
-        for index in 0 .. self.num_free_vars {
+        for index in 0..self.num_free_vars {
             callback(self.get_inner(index), arg);
         }
     }
 
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        &CLOSURE_TYPEINFO == other_typeinfo
-        || app::App::typeinfo() == other_typeinfo
+        &CLOSURE_TYPEINFO == other_typeinfo || app::App::typeinfo() == other_typeinfo
     }
 
     fn check_reply(cap: &mut Cap<Closure>, obj: &mut Object) -> Result<bool, OutOfMemory> {
-        for index in 0.. cap.as_ref().num_free_vars {
+        for index in 0..cap.as_ref().num_free_vars {
             let child_v = cap.as_ref().get_inner(index);
             //子要素がReply型を持っている場合は
             if child_v.has_replytype() {
-
                 //返信がないか確認する
                 let mut child_v = child_v.clone().capture(obj);
                 if crate::value::check_reply(&mut child_v, obj)? {
                     //返信があった場合は、内部ポインタを返信結果の値に上書きする
-                    cap.as_ref().get_inner(index).update_pointer(child_v.raw_ptr());
+                    cap.as_ref()
+                        .get_inner(index)
+                        .update_pointer(child_v.raw_ptr());
                 } else {
                     //子要素にReplyを含む値が残っている場合は、全体をfalseにする
                     return Ok(false);
@@ -215,23 +220,31 @@ impl Closure {
         Ok(true)
     }
 
-    pub fn alloc<A: Allocator>(program: Vec<u8>, constants: &[Ref<Any>], parameter: app::Parameter, num_free_vars: usize, allocator: &mut A) -> NResult<Self, OutOfMemory> {
-        let ptr = allocator.alloc_with_additional_size::<Closure>(num_free_vars * std::mem::size_of::<Ref<Any>>())?;
+    pub fn alloc<A: Allocator>(
+        program: Vec<u8>,
+        constants: &[Ref<Any>],
+        parameter: app::Parameter,
+        num_free_vars: usize,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
+        let ptr = allocator.alloc_with_additional_size::<Closure>(
+            num_free_vars * std::mem::size_of::<Ref<Any>>(),
+        )?;
 
-        let constants = constants.into_iter()
-            .map(|c| c.clone())
-            .collect()
-            ;
+        let constants = constants.into_iter().map(|c| c.clone()).collect();
 
         unsafe {
-            std::ptr::write(ptr.as_ptr(), Closure {
-                code: Code {
-                    program: program,
-                    constants: constants,
+            std::ptr::write(
+                ptr.as_ptr(),
+                Closure {
+                    code: Code {
+                        program: program,
+                        constants: constants,
+                    },
+                    parameter,
+                    num_free_vars,
                 },
-                parameter,
-                num_free_vars,
-            })
+            )
         }
 
         Ok(ptr.into_ref())
@@ -269,7 +282,6 @@ impl Closure {
             &mut *(storage_ptr)
         }
     }
-
 }
 
 impl Ref<Closure> {
@@ -284,7 +296,7 @@ impl Reachable<Closure> {
     }
 }
 
-impl Eq for Closure { }
+impl Eq for Closure {}
 
 impl PartialEq for Closure {
     fn eq(&self, other: &Self) -> bool {
@@ -317,7 +329,6 @@ impl Ref<Closure> {
             //指定indexにポインタを書き込む
             std::ptr::write(storage_ptr, v.into());
         };
-
     }
 
     pub fn set<V: ValueHolder<Any>>(&mut self, v: &V, index: usize) {

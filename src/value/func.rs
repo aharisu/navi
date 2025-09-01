@@ -1,22 +1,19 @@
-use crate::value::*;
-use crate::ptr::*;
 use crate::err::*;
 use crate::new_app_typeinfo;
+use crate::ptr::*;
 use crate::value::app::{AppTypeInfo, APP_EXTRATYPE_ID};
+use crate::value::*;
 
 use std::fmt::{Debug, Display};
 
 pub struct Func {
     name: String,
-    body:  fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>,
+    body: fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>,
     parameter: app::Parameter,
 }
 
-static FUNC_APP_EXTRATYPEINFO: app::AppTypeInfo = new_app_typeinfo!(
-    Func,
-    Func::parameter,
-    Func::name,
-);
+static FUNC_APP_EXTRATYPEINFO: app::AppTypeInfo =
+    new_app_typeinfo!(Func, Func::parameter, Func::name,);
 
 static FUNC_TYPEINFO: TypeInfo = new_typeinfo!(
     Func,
@@ -46,14 +43,15 @@ impl NaviType for Func {
 }
 
 impl Func {
-
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
-        &FUNC_TYPEINFO == other_typeinfo
-        || app::App::typeinfo() == other_typeinfo
+        &FUNC_TYPEINFO == other_typeinfo || app::App::typeinfo() == other_typeinfo
     }
 
-    pub fn new<T: Into<String>>(name: T, body: fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>, parameter: app::Parameter) -> Func {
-
+    pub fn new<T: Into<String>>(
+        name: T,
+        body: fn(num_rest: usize, &mut Object) -> NResult<Any, Exception>,
+        parameter: app::Parameter,
+    ) -> Func {
         Func {
             name: name.into(),
             body: body,
@@ -87,9 +85,9 @@ impl Reachable<Func> {
     }
 }
 
-impl Eq for Func { }
+impl Eq for Func {}
 
-impl PartialEq for Func{
+impl PartialEq for Func {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self as *const Self, other as *const Self)
     }

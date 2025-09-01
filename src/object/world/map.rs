@@ -10,13 +10,13 @@ pub struct Node<T: Debug + Clone> {
     children: Vec<Node<T>>,
 }
 
-impl <T: Debug + Clone> Node<T> {
+impl<T: Debug + Clone> Node<T> {
     pub fn value_as_mut(&mut self) -> Option<&mut T> {
         self.value.as_mut()
     }
 }
 
-impl <T: Debug + Clone> PatriciaTree<T> {
+impl<T: Debug + Clone> PatriciaTree<T> {
     pub fn new() -> Self {
         PatriciaTree {
             children: Vec::new(),
@@ -25,26 +25,27 @@ impl <T: Debug + Clone> PatriciaTree<T> {
 
     pub fn add<K: AsRef<str>>(&mut self, key: K, v: T) {
         let key = key.as_ref();
-        match self.children.binary_search_by(|n| Self::cmp_first_char(n, key)) {
+        match self
+            .children
+            .binary_search_by(|n| Self::cmp_first_char(n, key))
+        {
             Ok(index) => {
-                let (target_node, node_used, key_used) = Self::longest_match_mut(&mut self.children[index], key);
+                let (target_node, node_used, key_used) =
+                    Self::longest_match_mut(&mut self.children[index], key);
 
                 //ルートノードから一切対応するノードが見つからなかった場合
                 if key_used == 0 {
                     // continue
-
                 } else if node_used == target_node.prefix.len() && key_used == key.len() {
                     //ノードにもキーにも余りの文字がない場合は完全一致の既存ノードが見つかった
                     target_node.value = Some(v);
 
                     return;
-
                 } else if key_used == key.len() {
                     //キーに一致するノードを見つけたが対応するノードの文字が余っている
                     Self::split_node(target_node, node_used);
                     target_node.value = Some(v);
                     return;
-
                 } else {
                     //キーの文字に対応するノードがまだなかった
                     if node_used != 0 && target_node.prefix.len() != node_used {
@@ -60,29 +61,32 @@ impl <T: Debug + Clone> PatriciaTree<T> {
                 }
             }
             Err(index) => {
-                self.children.insert(index, Node {
-                    prefix: String::from(key),
-                    value: Some(v),
-                    children: Vec::new(),
-                });
+                self.children.insert(
+                    index,
+                    Node {
+                        prefix: String::from(key),
+                        value: Some(v),
+                        children: Vec::new(),
+                    },
+                );
             }
         }
-
     }
 
     pub fn get<K: AsRef<str>>(&self, key: K) -> Option<&T> {
         let key = key.as_ref();
-        match self.children.binary_search_by(|n| Self::cmp_first_char(n, key)) {
-            Ok(index) => {
-                match Self::complete_match(&self.children[index], key) {
-                    Some(node) => match &node.value {
-                        Some(v) => Some(v),
-                        None => None,
-                    }
+        match self
+            .children
+            .binary_search_by(|n| Self::cmp_first_char(n, key))
+        {
+            Ok(index) => match Self::complete_match(&self.children[index], key) {
+                Some(node) => match &node.value {
+                    Some(v) => Some(v),
                     None => None,
-                }
-            }
-            _ => None
+                },
+                None => None,
+            },
+            _ => None,
         }
     }
 
@@ -108,10 +112,15 @@ impl <T: Debug + Clone> PatriciaTree<T> {
 
                         //次のノードを探す
                         let key_remainder = String::from(&key[index..]);
-                        match node.children.binary_search_by(|child| PatriciaTree::cmp_first_char(child, &key_remainder)) {
+                        match node.children.binary_search_by(|child| {
+                            PatriciaTree::cmp_first_char(child, &key_remainder)
+                        }) {
                             Ok(next_node_index) => {
                                 //プレフィックスに対応する次のノードが見つかったので再帰的に検索
-                                if delete_node_rec(&mut node.children[next_node_index], &key_remainder) {
+                                if delete_node_rec(
+                                    &mut node.children[next_node_index],
+                                    &key_remainder,
+                                ) {
                                     break Kind::ChildDelete(next_node_index);
                                 } else {
                                     break Kind::None;
@@ -129,7 +138,6 @@ impl <T: Debug + Clone> PatriciaTree<T> {
                         if node.children.len() == 0 {
                             //葉ノードならノード自体を削除しても良いのでマークをつけておく
                             node.prefix.clear();
-
                         } else if node.children.len() == 1 {
                             //子要素を一つしかもっていないノードなら、削除対象ノードとその子ノードをマージする
                             let child = &mut std::mem::take(&mut node.children)[0];
@@ -157,11 +165,11 @@ impl <T: Debug + Clone> PatriciaTree<T> {
                     if node.children[index].prefix.is_empty() {
                         //葉ノードが削除された場合はChildrenの中から削除
                         node.children.remove(index);
-
                     }
 
                     if node.children.len() == 1
-                        && (node.value.is_none() || node.children[0].value.is_none()) {
+                        && (node.value.is_none() || node.children[0].value.is_none())
+                    {
                         //削除されたノードしか子ノードを持っていない
                         //かつ、親子どちらかのノードが対応する値を持っていなければ
                         //マージする
@@ -170,7 +178,8 @@ impl <T: Debug + Clone> PatriciaTree<T> {
 
                         //子が持っていた内容をすべて自ノードに統合する
                         node.prefix += &*child.prefix;
-                        node.value = std::mem::take(&mut node.value).or(std::mem::take(&mut child.value));
+                        node.value =
+                            std::mem::take(&mut node.value).or(std::mem::take(&mut child.value));
                         node.children = std::mem::take(&mut child.children);
                     }
 
@@ -182,14 +191,17 @@ impl <T: Debug + Clone> PatriciaTree<T> {
         }
 
         let key = key.as_ref();
-        match self.children.binary_search_by(|n| Self::cmp_first_char(n, key)) {
+        match self
+            .children
+            .binary_search_by(|n| Self::cmp_first_char(n, key))
+        {
             Ok(index) => {
                 let is_root_deleted = delete_node_rec(&mut self.children[index], key);
                 if is_root_deleted {
                     self.children.remove(index);
                 }
             }
-            _ => { }
+            _ => {}
         }
     }
 
@@ -208,10 +220,17 @@ impl <T: Debug + Clone> PatriciaTree<T> {
 
                     //次のノードを探す
                     let key_remainder = String::from(&key[index..]);
-                    match node.children.binary_search_by(|child| Self::cmp_first_char(child, &key_remainder)) {
+                    match node
+                        .children
+                        .binary_search_by(|child| Self::cmp_first_char(child, &key_remainder))
+                    {
                         Ok(next_node_index) => {
                             //プレフィックスに対応する次のノードが見つかったので再帰的に検索
-                            let (target_node, node_remainder, key_remainder) = Self::longest_match_mut(&mut node.children[next_node_index], &key_remainder);
+                            let (target_node, node_remainder, key_remainder) =
+                                Self::longest_match_mut(
+                                    &mut node.children[next_node_index],
+                                    &key_remainder,
+                                );
                             break (target_node, node_remainder, key_remainder + index);
                         }
                         Err(_) => {
@@ -245,10 +264,16 @@ impl <T: Debug + Clone> PatriciaTree<T> {
 
                     //次のノードを探す
                     let key_remainder = String::from(&key[index..]);
-                    match node.children.binary_search_by(|child| Self::cmp_first_char(child, &key_remainder)) {
+                    match node
+                        .children
+                        .binary_search_by(|child| Self::cmp_first_char(child, &key_remainder))
+                    {
                         Ok(next_node_index) => {
                             //プレフィックスに対応する次のノードが見つかったので再帰的に検索
-                            break Self::complete_match(&node.children[next_node_index], &key_remainder);
+                            break Self::complete_match(
+                                &node.children[next_node_index],
+                                &key_remainder,
+                            );
                         }
                         Err(_) => {
                             //対応する次のノードが見つからなかったので検索失敗
@@ -282,10 +307,10 @@ impl <T: Debug + Clone> PatriciaTree<T> {
         let old_children = std::mem::replace(&mut node.children, Vec::new());
 
         let new_node = Node {
-                prefix: String::from(&node.prefix[split_index..]),
-                value: std::mem::take(&mut node.value),
-                children: old_children
-            };
+            prefix: String::from(&node.prefix[split_index..]),
+            value: std::mem::take(&mut node.value),
+            children: old_children,
+        };
 
         node.prefix = String::from(&node.prefix[..split_index]);
         node.value = None;
@@ -293,12 +318,15 @@ impl <T: Debug + Clone> PatriciaTree<T> {
     }
 
     fn add_node(target_node: &mut Node<T>, new_node: Node<T>) {
-        match target_node.children.binary_search_by(|child| Self::cmp_first_char(child, &new_node.prefix)) {
+        match target_node
+            .children
+            .binary_search_by(|child| Self::cmp_first_char(child, &new_node.prefix))
+        {
             Err(index) => target_node.children.insert(index, new_node),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
-    
+
     pub fn for_each_all_value<F: FnMut(&mut T)>(&mut self, mut callback: F) {
         fn rec<T: Debug + Clone, F: FnMut(&mut T)>(node: &mut Node<T>, callback: &mut F) {
             if let Some(v) = node.value_as_mut() {
@@ -316,8 +344,8 @@ impl <T: Debug + Clone> PatriciaTree<T> {
     }
 
     #[allow(dead_code)]
-    pub fn to_vec_preorder<'a>(&'a self) -> Vec::<&'a Node<T>> {
-        fn rec<'a, T: Debug + Clone>(node: &'a Node<T>, acc: &mut Vec::<&'a Node<T>>) {
+    pub fn to_vec_preorder<'a>(&'a self) -> Vec<&'a Node<T>> {
+        fn rec<'a, T: Debug + Clone>(node: &'a Node<T>, acc: &mut Vec<&'a Node<T>>) {
             acc.push(node);
 
             for c in &node.children {
@@ -332,10 +360,9 @@ impl <T: Debug + Clone> PatriciaTree<T> {
 
         v
     }
-
 }
 
-impl <T: Debug + Clone> std::fmt::Display for PatriciaTree<T> {
+impl<T: Debug + Clone> std::fmt::Display for PatriciaTree<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         const INDENT_WIDTH: usize = 2;
 
@@ -357,7 +384,7 @@ impl <T: Debug + Clone> std::fmt::Display for PatriciaTree<T> {
     }
 }
 
-impl <T: Debug + Clone> Clone for PatriciaTree<T> {
+impl<T: Debug + Clone> Clone for PatriciaTree<T> {
     fn clone(&self) -> Self {
         PatriciaTree {
             children: self.children.iter().map(Node::clone).collect(),
@@ -365,8 +392,7 @@ impl <T: Debug + Clone> Clone for PatriciaTree<T> {
     }
 }
 
-impl <T: Debug + Clone> Clone for Node<T> {
-
+impl<T: Debug + Clone> Clone for Node<T> {
     fn clone(&self) -> Self {
         Node {
             prefix: self.prefix.clone(),
@@ -389,49 +415,153 @@ mod tests {
         assert_eq!(tree.get("aiue"), None);
         assert_eq!(tree.get("aiueoka"), None);
 
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
         assert_eq!(nodes, vec![("aiueo".to_string(), Some(1))]);
-
 
         tree.add("aiuka".to_owned(), 2);
         assert_eq!(tree.get("aiueo".to_owned()), Some(&1));
         assert_eq!(tree.get("aiuka".to_owned()), Some(&2));
 
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
-        assert_eq!(nodes, vec![("aiu".to_string(), None), ("eo".to_string(), Some(1)), ("ka".to_string(), Some(2))]);
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
+        assert_eq!(
+            nodes,
+            vec![
+                ("aiu".to_string(), None),
+                ("eo".to_string(), Some(1)),
+                ("ka".to_string(), Some(2))
+            ]
+        );
 
         tree.add("aiuk", 3);
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
-        assert_eq!(nodes, vec![("aiu".to_string(), None), ("eo".to_string(), Some(1)), ("k".to_string(), Some(3)), ("a".to_string(), Some(2)) ]);
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
+        assert_eq!(
+            nodes,
+            vec![
+                ("aiu".to_string(), None),
+                ("eo".to_string(), Some(1)),
+                ("k".to_string(), Some(3)),
+                ("a".to_string(), Some(2))
+            ]
+        );
 
         tree.add("aiueo", 4);
         assert_eq!(tree.get("aiueo"), Some(&4));
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
-        assert_eq!(nodes, vec![("aiu".to_string(), None), ("eo".to_string(), Some(4)), ("k".to_string(), Some(3)), ("a".to_string(), Some(2)) ]);
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
+        assert_eq!(
+            nodes,
+            vec![
+                ("aiu".to_string(), None),
+                ("eo".to_string(), Some(4)),
+                ("k".to_string(), Some(3)),
+                ("a".to_string(), Some(2))
+            ]
+        );
 
         tree.add("mentaiko", 8);
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
-        assert_eq!(nodes, vec![("aiu".to_string(), None), ("eo".to_string(), Some(4)), ("k".to_string(), Some(3)), ("a".to_string(), Some(2)), ("mentaiko".to_string(), Some(8)), ]);
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
+        assert_eq!(
+            nodes,
+            vec![
+                ("aiu".to_string(), None),
+                ("eo".to_string(), Some(4)),
+                ("k".to_string(), Some(3)),
+                ("a".to_string(), Some(2)),
+                ("mentaiko".to_string(), Some(8)),
+            ]
+        );
 
         tree.add("hoge", 5);
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
-        assert_eq!(nodes, vec![("aiu".to_string(), None), ("eo".to_string(), Some(4)), ("k".to_string(), Some(3)), ("a".to_string(), Some(2)), ("hoge".to_string(), Some(5)), ("mentaiko".to_string(), Some(8)), ]);
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
+        assert_eq!(
+            nodes,
+            vec![
+                ("aiu".to_string(), None),
+                ("eo".to_string(), Some(4)),
+                ("k".to_string(), Some(3)),
+                ("a".to_string(), Some(2)),
+                ("hoge".to_string(), Some(5)),
+                ("mentaiko".to_string(), Some(8)),
+            ]
+        );
 
         tree.delete("mentaiko");
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
-        assert_eq!(nodes, vec![("aiu".to_string(), None), ("eo".to_string(), Some(4)), ("k".to_string(), Some(3)), ("a".to_string(), Some(2)), ("hoge".to_string(), Some(5)), ]);
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
+        assert_eq!(
+            nodes,
+            vec![
+                ("aiu".to_string(), None),
+                ("eo".to_string(), Some(4)),
+                ("k".to_string(), Some(3)),
+                ("a".to_string(), Some(2)),
+                ("hoge".to_string(), Some(5)),
+            ]
+        );
 
         tree.delete("aiuk");
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
-        assert_eq!(nodes, vec![("aiu".to_string(), None), ("eo".to_string(), Some(4)), ("ka".to_string(), Some(2)), ("hoge".to_string(), Some(5)), ]);
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
+        assert_eq!(
+            nodes,
+            vec![
+                ("aiu".to_string(), None),
+                ("eo".to_string(), Some(4)),
+                ("ka".to_string(), Some(2)),
+                ("hoge".to_string(), Some(5)),
+            ]
+        );
 
         tree.delete("aiueo");
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
-        assert_eq!(nodes, vec![("aiuka".to_string(), Some(2)), ("hoge".to_string(), Some(5)), ]);
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
+        assert_eq!(
+            nodes,
+            vec![
+                ("aiuka".to_string(), Some(2)),
+                ("hoge".to_string(), Some(5)),
+            ]
+        );
 
         tree.delete("hoge");
         tree.delete("aiuka");
-        let nodes :Vec<(String, Option<i32>)> = tree.to_vec_preorder().iter().map(|n| (n.prefix.clone(), n.value)).collect();
+        let nodes: Vec<(String, Option<i32>)> = tree
+            .to_vec_preorder()
+            .iter()
+            .map(|n| (n.prefix.clone(), n.value))
+            .collect();
         assert_eq!(nodes, vec![]);
 
         tree.add("def", 10);

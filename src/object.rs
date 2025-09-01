@@ -1,38 +1,40 @@
-mod fixed_size_alloc;
-mod world;
-pub mod mm;
 mod balance;
-mod schedule;
+mod fixed_size_alloc;
 pub mod mailbox;
+pub mod mm;
+mod schedule;
+mod world;
 
-
+use std::cell::{RefCell, UnsafeCell};
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Weak, Mutex};
-use std::cell::{RefCell, UnsafeCell};
+use std::sync::{Arc, Mutex, Weak};
 
 use once_cell::sync::Lazy;
 
-use crate::value::*;
-use crate::ptr::*;
-use crate::err::*;
 use crate::compile;
+use crate::err::*;
+use crate::ptr::*;
+use crate::value::*;
 
 use crate::value::any::Any;
+use crate::value::app::{Param, ParamKind, Parameter};
 use crate::value::func::Func;
-use crate::value::app::{Parameter, ParamKind, Param};
 use crate::value::list::ListBuilder;
 use crate::value::object_ref::ObjectRef;
-use crate::vm::{self, VMState, ExecException};
+use crate::vm::{self, ExecException, VMState};
 
 use self::fixed_size_alloc::FixedSizeAllocator;
-use self::mm::{GCAllocationStruct, Heap};
 use self::mailbox::*;
+use self::mm::{GCAllocationStruct, Heap};
 
 pub trait Allocator {
     fn alloc<T: NaviType>(&mut self) -> Result<UIPtr<T>, OutOfMemory>;
-    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> Result<UIPtr<T>, OutOfMemory>;
+    fn alloc_with_additional_size<T: NaviType>(
+        &mut self,
+        additional_size: usize,
+    ) -> Result<UIPtr<T>, OutOfMemory>;
     fn force_allocation_space(&mut self, size: usize) -> Result<(), OutOfMemory>;
     fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool;
     fn do_gc(&mut self);
@@ -56,7 +58,7 @@ struct ObjectGCRootValues {
     suspend_state: SuspendState,
 
     //object-switchで切り替えた時の、切り替え前オブジェクト。
-    prev_object:Option<Ref<ObjectRef>>,
+    prev_object: Option<Ref<ObjectRef>>,
 
     world: world::World,
 
@@ -77,7 +79,7 @@ impl mm::GCRootValueHolder for ObjectGCRootValues {
         }
 
         //グローバルスペース内で保持している値
-        self.world.for_each_all_value(|v :&mut Ref<Any>| {
+        self.world.for_each_all_value(|v: &mut Ref<Any>| {
             callback(v, arg);
         });
 
@@ -136,7 +138,7 @@ impl Object {
 
                 receiver_vec: Vec::new(),
                 receiver_closure: None,
-            })
+            }),
         };
         obj.register_core_global();
 
@@ -152,25 +154,25 @@ impl Object {
             //複製元のヒープ内オブジェクトがすべて収まる範囲の新しいヒープを作成
             heap: Heap::new_capacity(object.heap.used()),
             //valuesは新しいヒープにコピーしないといけないので、現時点ではダミーの値を入れておく
-            values: unsafe { MaybeUninit::uninit().assume_init() }
+            values: unsafe { MaybeUninit::uninit().assume_init() },
         };
 
         let values = {
             //各値はまだ複製元のObjectのヒープ内にある
             let mut values = ObjectGCRootValues {
-                    suspend_state: SuspendState::Sleep,
-                    prev_object: None,
-                    world: unsafe { &*object.values.get() }.world.clone(),
-                    vm_state: VMState::new(),
-                    captures: FixedSizeAllocator::new(),
+                suspend_state: SuspendState::Sleep,
+                prev_object: None,
+                world: unsafe { &*object.values.get() }.world.clone(),
+                vm_state: VMState::new(),
+                captures: FixedSizeAllocator::new(),
 
-                    receiver_vec: unsafe { &*object.values.get() }.receiver_vec.clone(),
-                    receiver_closure: unsafe { &*object.values.get() }.receiver_closure.clone(),
-                };
+                receiver_vec: unsafe { &*object.values.get() }.receiver_vec.clone(),
+                receiver_closure: unsafe { &*object.values.get() }.receiver_closure.clone(),
+            };
 
             let mut allocator = AnyAllocator::Object(&mut obj_cloned);
             //グローバルスペース内で保持している値をすべて新しいオブジェクト内のヒープに移す
-            values.world.for_each_all_value(|v :&mut Ref<Any>| {
+            values.world.for_each_all_value(|v: &mut Ref<Any>| {
                 let cloned = NaviType::clone_inner(v.as_ref(), &mut allocator).unwrap();
                 v.update_pointer(cloned.raw_ptr());
             });
@@ -186,7 +188,8 @@ impl Object {
 
             //レシーバークロージャ
             if let Some(closure) = values.receiver_closure.as_mut() {
-                let closure_cloned = NaviType::clone_inner(closure.as_ref(), &mut allocator).unwrap();
+                let closure_cloned =
+                    NaviType::clone_inner(closure.as_ref(), &mut allocator).unwrap();
                 closure.update_pointer(closure_cloned.raw_ptr());
             }
 
@@ -211,11 +214,13 @@ impl Object {
         self.id
     }
 
-    pub fn make_object_ref<A: Allocator>(&self, allocator: &mut A) -> Option<NResult<ObjectRef, OutOfMemory>> {
-        self.mailbox.upgrade()
-            .map(|mailbox| {
-                object_ref::ObjectRef::alloc(self.id,  mailbox, allocator)
-            })
+    pub fn make_object_ref<A: Allocator>(
+        &self,
+        allocator: &mut A,
+    ) -> Option<NResult<ObjectRef, OutOfMemory>> {
+        self.mailbox
+            .upgrade()
+            .map(|mailbox| object_ref::ObjectRef::alloc(self.id, mailbox, allocator))
     }
 
     pub fn set_prev_object(&mut self, prev_object: &Ref<ObjectRef>) {
@@ -275,11 +280,9 @@ impl Object {
             FixedSizeAllocator::<Ref<Any>>::free(ptr);
         }
     }
-
 }
 
 impl Object {
-
     pub fn register_scheduler(standalone: StandaloneObject) -> Arc<Mutex<MailBox>> {
         //MailBoxとスケジューラ間でObjectを共有するためのArcを作成
         //MutexではなくRefCellで内部状態を持つ理由は、MailBox構造体定義上のコメントを参照してください。
@@ -331,18 +334,24 @@ impl Object {
     /// * `Exception` is one of the following
     /// OutOfMemory
     /// MySelFObjectDeleted
-    pub fn send_message(&mut self, target_obj: &Reachable<ObjectRef>, message: MessageKind) -> NResult<Any, Exception> {
+    pub fn send_message(
+        &mut self,
+        target_obj: &Reachable<ObjectRef>,
+        message: MessageKind,
+    ) -> NResult<Any, Exception> {
         if let Some(mailbox) = self.mailbox.upgrade() {
             //戻り値を受け取るために自分自身のメールボックスをメッセージ送信相手に渡す
-            let reply_token = target_obj.as_ref().recv_message(message, Arc::clone(&mailbox))?;
+            let reply_token = target_obj
+                .as_ref()
+                .recv_message(message, Arc::clone(&mailbox))?;
             //MailBoxを保持しているObjectRef値がなくなってしまうと、メッセージを送信した先のオブジェクトが削除される可能性がある。
             //そうなると一生Replyを受け取ることができなくなるため、ArcをReply内にも保持させる。
             let dest_mailbox = target_obj.as_ref().mailbox();
 
             //返信を受け取るための特別な値を生成して返す
-            let reply = crate::value::reply::Reply::alloc(reply_token, mailbox, dest_mailbox, self)?;
+            let reply =
+                crate::value::reply::Reply::alloc(reply_token, mailbox, dest_mailbox, self)?;
             Ok(reply.into_value())
-
         } else {
             //mailboxが取得できない場合は、自分自身のオブジェクトが削除されようとしているとき。
             //処理を継続できないため無効な値を返して処理を終了させる
@@ -352,7 +361,10 @@ impl Object {
 
     pub fn add_receiver(&mut self, pattern: &Reachable<Any>, body: &Reachable<list::List>) {
         //コンテキストが持つレシーバーリストに追加する
-        self.values.get_mut().receiver_vec.push((pattern.make(), body.make()));
+        self.values
+            .get_mut()
+            .receiver_vec
+            .push((pattern.make(), body.make()));
         //レシーブを実際に行う処理は遅延して構築する。
         //レシーバーのパターンはmatch構文のpatternに置き換えられる。
         //構築にはレシーバーパターンすべて必要になり、一つのレシーバーを追加するたびに再構築するのではコストが大きい。
@@ -360,7 +372,6 @@ impl Object {
     }
 
     pub fn do_work(&mut self, reduction_count: usize) -> Result<(), OutOfMemory> {
-
         match self.values.get_mut().suspend_state.take() {
             SuspendState::VMSuspend(reply_to_mailbox, reply_token) => {
                 let result = vm::resume(vm::WorkTimeLimit::Reductions(reduction_count), self);
@@ -374,7 +385,7 @@ impl Object {
             }
             SuspendState::Sleep => {
                 if let Some(mailbox) = self.mailbox.upgrade() {
-                    let data =  {
+                    let data = {
                         //MailBoxは複数スレッド(複数オブジェクト)間で共有されているのでロックを取得してから操作を行う
                         let mut mailbox = mailbox.lock().unwrap();
 
@@ -387,9 +398,7 @@ impl Object {
                                     data.kind = kind;
                                     Ok(data)
                                 }
-                                Err(oom) => {
-                                    Err((data.reply_to_mailbox, data.reply_token, oom))
-                                }
+                                Err(oom) => Err((data.reply_to_mailbox, data.reply_token, oom)),
                             }
                         })
                     };
@@ -401,18 +410,26 @@ impl Object {
                                 match data.kind {
                                     MessageKind::Message(msg) => {
                                         //受信処理を実行
-                                        self.apply_message(msg, data.reply_to_mailbox, data.reply_token, reduction_count)
+                                        self.apply_message(
+                                            msg,
+                                            data.reply_to_mailbox,
+                                            data.reply_token,
+                                            reduction_count,
+                                        )
                                     }
                                     MessageKind::Duplicate => {
                                         //複製処理を実行
                                         self.do_duplicate(data.reply_to_mailbox, data.reply_token)
                                     }
                                 }
-
                             }
                             Err((reply_to_mailbox, reply_token, e)) => {
                                 //自分自身のオブジェクト内でOOMが発生したため、エラーとして返信する
-                                self.apply_message_finish(Err(ExecException::from(e)), reply_to_mailbox, reply_token)
+                                self.apply_message_finish(
+                                    Err(ExecException::from(e)),
+                                    reply_to_mailbox,
+                                    reply_token,
+                                )
                             }
                         }
                     } else {
@@ -428,9 +445,13 @@ impl Object {
         }
     }
 
-    fn apply_message(&mut self
-        , msg: Ref<Any>, reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken
-        , mut reduction_count: usize) -> Result<(), OutOfMemory> {
+    fn apply_message(
+        &mut self,
+        msg: Ref<Any>,
+        reply_to_mailbox: Arc<Mutex<MailBox>>,
+        reply_token: ReplyToken,
+        mut reduction_count: usize,
+    ) -> Result<(), OutOfMemory> {
         let obj = self;
         let message = msg.reach(obj);
 
@@ -440,7 +461,8 @@ impl Object {
             //(fun)
             builder_fun.push(compile::literal::fun().cast_value(), obj)?;
             //(msg_var)
-            let paramter = list::List::alloc_tail(literal::msg_symbol().cast_value(), obj)?.into_value();
+            let paramter =
+                list::List::alloc_tail(literal::msg_symbol().cast_value(), obj)?.into_value();
             //(fun (msg_var))
             builder_fun.push(&paramter.reach(obj), obj)?;
 
@@ -458,7 +480,9 @@ impl Object {
                     let pattern = pattern.reach(obj);
                     let body = body.reach(obj);
 
-                    let clause = list::List::alloc(&pattern, &body, obj)?.into_value().reach(obj);
+                    let clause = list::List::alloc(&pattern, &body, obj)?
+                        .into_value()
+                        .reach(obj);
                     builder_match.push(&clause, obj)?;
                 }
                 builder_match.get()
@@ -472,7 +496,8 @@ impl Object {
             //クロージャを生成するコードを実行
             let message_receiver = crate::eval::eval(&receiver, obj).unwrap();
             //実行結果は必ずコンパイル済みクロージャなのでuncheckedでキャスト
-            let message_receiver = unsafe { message_receiver.cast_unchecked::<compiled::Closure>() }.clone();
+            let message_receiver =
+                unsafe { message_receiver.cast_unchecked::<compiled::Closure>() }.clone();
 
             obj.values.get_mut().receiver_closure = Some(message_receiver);
 
@@ -481,7 +506,14 @@ impl Object {
         }
 
         //メッセージに対してパターンマッチングと対応する処理を実行するクロージャ
-        let closure = obj.values.get_mut().receiver_closure.as_ref().unwrap().clone().reach(obj);
+        let closure = obj
+            .values
+            .get_mut()
+            .receiver_closure
+            .as_ref()
+            .unwrap()
+            .clone()
+            .reach(obj);
         //受信したメッセージを引数の形に変換
         let args_iter = std::iter::once(message.make());
         //VMの時間制限
@@ -492,14 +524,16 @@ impl Object {
         obj.apply_message_finish(result, reply_to_mailbox, reply_token)
     }
 
-    fn apply_message_finish(&mut self, result: Result<Ref<Any>, vm::ExecException>
-        , reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
-
+    fn apply_message_finish(
+        &mut self,
+        result: Result<Ref<Any>, vm::ExecException>,
+        reply_to_mailbox: Arc<Mutex<MailBox>>,
+        reply_token: ReplyToken,
+    ) -> Result<(), OutOfMemory> {
         match result {
             Ok(result) => {
                 if let Some(reply) = result.try_cast::<reply::Reply>() {
                     self.wait_reply(reply.clone(), reply_to_mailbox, reply_token)
-
                 } else {
                     self.send_reply(Ok(result), reply_to_mailbox, reply_token)?;
 
@@ -516,12 +550,14 @@ impl Object {
                 match e {
                     Exception::TimeLimit => {
                         //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                        self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
+                        self.values.get_mut().suspend_state =
+                            SuspendState::VMSuspend(reply_to_mailbox, reply_token);
                         Ok(())
                     }
                     Exception::WaitReply => {
                         //VMの状態をsuspendにして、次回のdo_work時に処理を継続する
-                        self.values.get_mut().suspend_state = SuspendState::VMSuspend(reply_to_mailbox, reply_token);
+                        self.values.get_mut().suspend_state =
+                            SuspendState::VMSuspend(reply_to_mailbox, reply_token);
                         Ok(())
                     }
                     Exception::MySelfObjectDeleted => {
@@ -545,7 +581,12 @@ impl Object {
         }
     }
 
-    fn wait_reply(&mut self, reply: Ref<reply::Reply>, reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
+    fn wait_reply(
+        &mut self,
+        reply: Ref<reply::Reply>,
+        reply_to_mailbox: Arc<Mutex<MailBox>>,
+        reply_token: ReplyToken,
+    ) -> Result<(), OutOfMemory> {
         let mut cap = reply.capture(self);
         match reply::Reply::try_get_reply_value(&mut cap, self) {
             ResultNone::Ok(result) => {
@@ -555,51 +596,56 @@ impl Object {
                 let remain = self.vm_state().remain_reductions();
                 self.do_work(remain)
             }
-            ResultNone::Err(oom) => {
-                Err(oom)
-            }
+            ResultNone::Err(oom) => Err(oom),
             ResultNone::None => {
-                self.values.get_mut().suspend_state = SuspendState::WaitReply(cap.take(), reply_to_mailbox, reply_token);
+                self.values.get_mut().suspend_state =
+                    SuspendState::WaitReply(cap.take(), reply_to_mailbox, reply_token);
                 Ok(())
             }
         }
     }
 
-    fn do_duplicate(&mut self, reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
+    fn do_duplicate(
+        &mut self,
+        reply_to_mailbox: Arc<Mutex<MailBox>>,
+        reply_token: ReplyToken,
+    ) -> Result<(), OutOfMemory> {
         let mut has_reply = false;
         let mut oom: Option<OutOfMemory> = None;
 
         //World内にReplyを含んでいないことを確認する
         //※selfの&mutを2重に使用する必要があるため、ポインタ経由で無理やりコンパイルを通す
         //ココに関しては、check_reply内でGCが走ってもworld内の値が壊れることはないため問題ない。
-        unsafe{ &mut *self.values.get() }.world.for_each_all_value(|v| {
-            if v.has_replytype() {
-                //スタック領域内のFPtrをCapとして扱わせる
-                let mut cap = Cap::new(v as *mut Ref<Any>);
-                //返信がないかを確認
-                let result = crate::value::check_reply(&mut cap, self);
-                //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
-                std::mem::forget(cap);
+        unsafe { &mut *self.values.get() }
+            .world
+            .for_each_all_value(|v| {
+                if v.has_replytype() {
+                    //スタック領域内のFPtrをCapとして扱わせる
+                    let mut cap = Cap::new(v as *mut Ref<Any>);
+                    //返信がないかを確認
+                    let result = crate::value::check_reply(&mut cap, self);
+                    //そのままDropさせると確保していない内部領域のfreeが走ってしまうのでforgetさせる。
+                    std::mem::forget(cap);
 
-                match result {
-                    Ok(wait_reply) => {
-                        has_reply =  has_reply || !wait_reply;
-                    }
-                    Err(_oom) => {
-                        oom = Some(_oom);
+                    match result {
+                        Ok(wait_reply) => {
+                            has_reply = has_reply || !wait_reply;
+                        }
+                        Err(_oom) => {
+                            oom = Some(_oom);
+                        }
                     }
                 }
-            }
-        });
+            });
 
         if let Some(oom) = oom {
             return Err(oom);
         }
 
         if has_reply {
-            self.values.get_mut().suspend_state = SuspendState::DuplicateWaitReply(reply_to_mailbox, reply_token);
+            self.values.get_mut().suspend_state =
+                SuspendState::DuplicateWaitReply(reply_to_mailbox, reply_token);
             Ok(())
-
         } else {
             //自分自身のObjectの複製を作成する
             let standalone = duplicate_object(self);
@@ -609,14 +655,19 @@ impl Object {
             //Objectとやり取りするためのMailBoxを取得
             let mailbox = Self::register_scheduler(standalone);
 
-            let objectref = ObjectRef::alloc(id, mailbox,self)?;
+            let objectref = ObjectRef::alloc(id, mailbox, self)?;
 
             //作成したObjectRefを返信する
             self.apply_message_finish(Ok(objectref.into_value()), reply_to_mailbox, reply_token)
         }
     }
 
-    fn send_reply(&mut self, result: NResult<Any, Exception>, reply_to_mailbox: Arc<Mutex<MailBox>>, reply_token: ReplyToken) -> Result<(), OutOfMemory> {
+    fn send_reply(
+        &mut self,
+        result: NResult<Any, Exception>,
+        reply_to_mailbox: Arc<Mutex<MailBox>>,
+        reply_token: ReplyToken,
+    ) -> Result<(), OutOfMemory> {
         match result {
             Ok(v) => {
                 //結果を送信元のオブジェクト(MailBox)に返す
@@ -647,7 +698,6 @@ impl Object {
 
         Ok(())
     }
-
 }
 
 impl Eq for Object {}
@@ -670,12 +720,17 @@ impl Allocator for Object {
         self.heap.alloc(self.values.get_mut())
     }
 
-    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> Result<UIPtr<T>, OutOfMemory> {
-        self.heap.alloc_with_additional_size(additional_size, self.values.get_mut())
+    fn alloc_with_additional_size<T: NaviType>(
+        &mut self,
+        additional_size: usize,
+    ) -> Result<UIPtr<T>, OutOfMemory> {
+        self.heap
+            .alloc_with_additional_size(additional_size, self.values.get_mut())
     }
 
     fn force_allocation_space(&mut self, size: usize) -> Result<(), OutOfMemory> {
-        self.heap.force_allocation_space(size, self.values.get_mut())
+        self.heap
+            .force_allocation_space(size, self.values.get_mut())
     }
 
     fn is_in_heap_object<T: NaviType>(&self, v: &T) -> bool {
@@ -691,9 +746,8 @@ impl Allocator for Object {
     }
 }
 
-static SYMBOL_MSG: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(|| {
-    symbol::gensym_static("msg")
-});
+static SYMBOL_MSG: Lazy<GCAllocationStruct<symbol::StaticSymbol>> =
+    Lazy::new(|| symbol::gensym_static("msg"));
 
 fn func_exit(_num_rest: usize, _obj: &mut Object) -> NResult<Any, Exception> {
     //終了させるための関数なので、エラーとしてExitを返すだけ
@@ -701,7 +755,7 @@ fn func_exit(_num_rest: usize, _obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 fn func_sleep(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let sleep_in_milliseconds = vm::refer_arg::<number::Integer>(0, obj).as_ref().get();
+    let sleep_in_milliseconds = vm::get_arg::<number::Integer>(0, obj).as_ref().get();
     let start = std::time::Instant::now();
 
     func_sleep_result(sleep_in_milliseconds, start, obj)
@@ -715,13 +769,16 @@ fn func_sleep_resume(obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 #[inline]
-fn func_sleep_result(sleep_in_milliseconds: i64, sleep_start: std::time::Instant, obj: &mut Object) -> NResult<Any, Exception> {
+fn func_sleep_result(
+    sleep_in_milliseconds: i64,
+    sleep_start: std::time::Instant,
+    obj: &mut Object,
+) -> NResult<Any, Exception> {
     let end = sleep_start.elapsed();
 
     //Sleep指定時間を超えていたらすぐに終了
     if (sleep_in_milliseconds as u128) <= end.as_millis() {
         Ok(tuple::Tuple::unit().make().into_value())
-
     } else {
         //指定時間未満なら関数の処理を一時停止
         obj.vm_state().stack().push(sleep_in_milliseconds);
@@ -733,23 +790,19 @@ fn func_sleep_result(sleep_in_milliseconds: i64, sleep_start: std::time::Instant
     }
 }
 
-static FUNC_EXIT: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("exit", func_exit,
-            Parameter::new(&[
-            ])
-        )
-    )
-});
+static FUNC_EXIT: Lazy<GCAllocationStruct<Func>> =
+    Lazy::new(|| GCAllocationStruct::new(Func::new("exit", func_exit, Parameter::new(&[]))));
 
 static FUNC_SLEEP: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("sleep", func_sleep,
-        Parameter::new(&[
-            Param::new("duration_in_milliseconds", ParamKind::Require, number::Integer::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "sleep",
+        func_sleep,
+        Parameter::new(&[Param::new(
+            "duration_in_milliseconds",
+            ParamKind::Require,
+            number::Integer::typeinfo(),
+        )]),
+    ))
 });
 
 pub fn register_global(obj: &mut Object) {
@@ -758,8 +811,8 @@ pub fn register_global(obj: &mut Object) {
 }
 
 mod literal {
-    use crate::ptr::*;
     use super::*;
+    use crate::ptr::*;
 
     pub fn msg_symbol() -> Reachable<symbol::Symbol> {
         Reachable::new_static(SYMBOL_MSG.value.as_ref())
@@ -773,7 +826,7 @@ pub enum AnyAllocator<'a> {
     MailBox(&'a mut MailBox),
 }
 
-impl <'a> Allocator for AnyAllocator<'a> {
+impl<'a> Allocator for AnyAllocator<'a> {
     fn alloc<T: NaviType>(&mut self) -> Result<UIPtr<T>, OutOfMemory> {
         match self {
             AnyAllocator::Object(obj) => obj.alloc(),
@@ -781,7 +834,10 @@ impl <'a> Allocator for AnyAllocator<'a> {
         }
     }
 
-    fn alloc_with_additional_size<T: NaviType>(&mut self, additional_size: usize) -> Result<UIPtr<T>, OutOfMemory> {
+    fn alloc_with_additional_size<T: NaviType>(
+        &mut self,
+        additional_size: usize,
+    ) -> Result<UIPtr<T>, OutOfMemory> {
         match self {
             AnyAllocator::Object(obj) => obj.alloc_with_additional_size(additional_size),
             AnyAllocator::MailBox(mailbox) => mailbox.alloc_with_additional_size(additional_size),
@@ -842,7 +898,6 @@ impl StandaloneObject {
     pub fn mut_mailbox(&mut self) -> &mut Arc<Mutex<MailBox>> {
         &mut self.mailbox
     }
-
 }
 
 impl Debug for StandaloneObject {
@@ -864,7 +919,7 @@ pub fn new_object() -> StandaloneObject {
 
     StandaloneObject {
         object: obj,
-        mailbox: mailbox
+        mailbox: mailbox,
     }
 }
 
@@ -879,25 +934,31 @@ fn duplicate_object(object: &Object) -> StandaloneObject {
 
     StandaloneObject {
         object: obj,
-        mailbox: mailbox
+        mailbox: mailbox,
     }
 }
 
 //maybe oom
-pub fn object_switch(cur_object: StandaloneObject, target_object: &ObjectRef) -> Result<StandaloneObject, Exception> {
+pub fn object_switch(
+    cur_object: StandaloneObject,
+    target_object: &ObjectRef,
+) -> Result<StandaloneObject, Exception> {
     object_switch_inner(cur_object, target_object, true)
 }
 
 pub fn return_object_switch(mut cur_object: StandaloneObject) -> Option<StandaloneObject> {
-    cur_object.object.take_prev_object()
-        .map(|target_object| {
-            //オブジェクトの確保を行わないため、例外は発生しない
-            object_switch_inner(cur_object, target_object.as_ref(), false).unwrap()
-        })
+    cur_object.object.take_prev_object().map(|target_object| {
+        //オブジェクトの確保を行わないため、例外は発生しない
+        object_switch_inner(cur_object, target_object.as_ref(), false).unwrap()
+    })
 }
 
 //maybe oom
-fn object_switch_inner(cur_object: StandaloneObject, target_object: &ObjectRef, is_register_prev_object: bool) -> Result<StandaloneObject, Exception> {
+fn object_switch_inner(
+    cur_object: StandaloneObject,
+    target_object: &ObjectRef,
+    is_register_prev_object: bool,
+) -> Result<StandaloneObject, Exception> {
     //TODO VM内のコードと重複が多いのでどうにかしたい。最後のObject::register_schedulerをVMの中では呼べないところだけ異なる。
     let mailbox = target_object.mailbox();
     //ObjectRefからObjectを取得(この時点でスケジューラからは切り離されている)
@@ -906,7 +967,10 @@ fn object_switch_inner(cur_object: StandaloneObject, target_object: &ObjectRef, 
     if is_register_prev_object {
         //現在のオブジェクトに対応するObjectRefを作成
         //※このObjectRefはSwitch先のオブジェクトのヒープに作成される
-        let prev_object = cur_object.object().make_object_ref(&mut standalone.object).unwrap()?;
+        let prev_object = cur_object
+            .object()
+            .make_object_ref(&mut standalone.object)
+            .unwrap()?;
         //return-object-switchでもどれるようにするために移行元のオブジェクトを保存
         standalone.object.set_prev_object(&prev_object);
     }

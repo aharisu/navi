@@ -1,5 +1,5 @@
-use crate::value::any::Any;
 use crate::ptr::*;
+use crate::value::any::Any;
 
 mod map;
 
@@ -25,7 +25,7 @@ impl World {
 
     pub fn get<K>(&self, key: K) -> Option<&Ref<Any>>
     where
-        K: AsRef<str>
+        K: AsRef<str>,
     {
         self.area.get(key)
     }
@@ -43,13 +43,12 @@ impl Clone for World {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::object::Object;
-    use crate::value::any::Any;
-    use crate::{value::*};
     use crate::ptr::*;
+    use crate::value::any::Any;
+    use crate::value::*;
 
     fn world_get(symbol: &symbol::Symbol, obj: &Object) -> Ref<Any> {
         let result = obj.find_global_value(symbol);
@@ -66,31 +65,43 @@ mod tests {
             let v = number::make_integer(1, obj).unwrap();
             obj.define_global_value("symbol", &v);
 
-            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), obj).unwrap();
+            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), obj)
+                .unwrap()
+                .reach(obj);
             let result = world_get(symbol.as_ref(), obj).reach(obj);
             let ans = number::make_integer(1, obj).unwrap().reach(obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-
             let v = number::Real::alloc(3.14, obj).unwrap().into_value();
             obj.define_global_value("symbol", &v);
 
-            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), obj).unwrap();
+            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), obj)
+                .unwrap()
+                .reach(obj);
             let result = world_get(symbol.as_ref(), obj).reach(obj);
-            let ans = number::Real::alloc(3.14, obj).unwrap().into_value().reach(obj);
+            let ans = number::Real::alloc(3.14, obj)
+                .unwrap()
+                .into_value()
+                .reach(obj);
             assert_eq!(result.as_ref(), ans.as_ref());
 
-            let v2 = string::NString::alloc(&"bar".to_string(), obj).unwrap().into_value();
+            let v2 = string::NString::alloc(&"bar".to_string(), obj)
+                .unwrap()
+                .into_value();
             obj.define_global_value("hoge", &v2);
 
-            let symbol2 = symbol::Symbol::alloc(&"hoge".to_string(), obj).unwrap();
+            let symbol2 = symbol::Symbol::alloc(&"hoge".to_string(), obj)
+                .unwrap()
+                .reach(obj);
             let result = world_get(symbol2.as_ref(), obj).reach(obj);
-            let ans2 = string::NString::alloc(&"bar".to_string(), obj).unwrap().into_value().reach(obj);
+            let ans2 = string::NString::alloc(&"bar".to_string(), obj)
+                .unwrap()
+                .into_value()
+                .reach(obj);
             assert_eq!(result.as_ref(), ans2.as_ref());
 
             let result = world_get(symbol.as_ref(), obj);
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
-
 }

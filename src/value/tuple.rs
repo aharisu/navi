@@ -1,7 +1,7 @@
-use crate::value::{*, self};
-use crate::value::app::{Parameter, ParamKind, Param};
-use crate::ptr::*;
 use crate::err::*;
+use crate::ptr::*;
+use crate::value::app::{Param, ParamKind, Parameter};
+use crate::value::{self, *};
 use crate::vm;
 use std::fmt::{self, Debug};
 
@@ -9,7 +9,7 @@ pub struct Tuple {
     len: usize,
 }
 
-static TUPLE_TYPEINFO : TypeInfo = new_typeinfo!(
+static TUPLE_TYPEINFO: TypeInfo = new_typeinfo!(
     Tuple,
     "Tuple",
     0,
@@ -49,13 +49,11 @@ impl NaviType for Tuple {
             Ok(tuple)
         }
     }
-
 }
 
 impl Tuple {
     fn size_of(&self) -> usize {
-        std::mem::size_of::<Tuple>()
-            + self.len * std::mem::size_of::<Ref<Any>>()
+        std::mem::size_of::<Tuple>() + self.len * std::mem::size_of::<Ref<Any>>()
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
@@ -65,7 +63,7 @@ impl Tuple {
     }
 
     fn check_reply(cap: &mut Cap<Tuple>, obj: &mut Object) -> Result<bool, OutOfMemory> {
-        for index in 0.. cap.as_ref().len {
+        for index in 0..cap.as_ref().len {
             let child_v = cap.as_ref().get(index);
             //子要素がReply型を持っている場合は
             if child_v.has_replytype() {
@@ -73,7 +71,9 @@ impl Tuple {
                 let mut child_v = child_v.clone().capture(obj);
                 if value::check_reply(&mut child_v, obj)? {
                     //返信があった場合は、内部ポインタを返信結果の値に上書きする
-                    cap.as_ref().get_inner(index).update_pointer(child_v.raw_ptr());
+                    cap.as_ref()
+                        .get_inner(index)
+                        .update_pointer(child_v.raw_ptr());
                 } else {
                     //子要素にReplyを含む値が残っている場合は、全体をfalseにする
                     return Ok(false);
@@ -87,7 +87,6 @@ impl Tuple {
         Ok(true)
     }
 
-
     #[inline(always)]
     pub fn unit() -> Reachable<Tuple> {
         Reachable::<Tuple>::new_immidiate(IMMIDATE_UNIT)
@@ -99,10 +98,11 @@ impl Tuple {
     }
 
     fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> NResult<Tuple, OutOfMemory> {
-        let ptr = allocator.alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<Ref<Any>>())?;
+        let ptr = allocator
+            .alloc_with_additional_size::<Tuple>(size * std::mem::size_of::<Ref<Any>>())?;
 
         unsafe {
-            std::ptr::write(ptr.as_ptr(), Tuple {len: size});
+            std::ptr::write(ptr.as_ptr(), Tuple { len: size });
         }
 
         Ok(ptr.into_ref())
@@ -134,12 +134,14 @@ impl Tuple {
         }
     }
 
-    pub fn from_array(ary: &Reachable<array::Array<Any>>, obj: &mut Object) -> NResult<Tuple, OutOfMemory> {
+    pub fn from_array(
+        ary: &Reachable<array::Array<Any>>,
+        obj: &mut Object,
+    ) -> NResult<Tuple, OutOfMemory> {
         let len = ary.as_ref().len();
 
         if len == 0 {
             Ok(Self::unit().into_ref())
-
         } else {
             let mut tuple = Self::alloc(len, obj)?;
             for index in 0..len {
@@ -155,7 +157,11 @@ impl Tuple {
         }
     }
 
-    pub fn from_list(list: &Reachable<list::List>, size: Option<usize>, obj: &mut Object) -> NResult<Tuple, OutOfMemory> {
+    pub fn from_list(
+        list: &Reachable<list::List>,
+        size: Option<usize>,
+        obj: &mut Object,
+    ) -> NResult<Tuple, OutOfMemory> {
         let size = match size {
             Some(s) => s,
             None => list.as_ref().count(),
@@ -163,7 +169,6 @@ impl Tuple {
 
         if size == 0 {
             Ok(Self::unit().into_ref())
-
         } else {
             let mut tuple = Self::alloc(size, obj)?;
             for (index, v) in list.iter(obj).enumerate() {
@@ -181,10 +186,9 @@ impl Tuple {
 }
 
 impl Ref<Tuple> {
-
-    fn set<V: ValueHolder<Any>>(&mut self, v: &V, index: usize)  -> Result<(), OutOfBounds> {
+    fn set<V: ValueHolder<Any>>(&mut self, v: &V, index: usize) -> Result<(), OutOfBounds> {
         if self.as_ref().len() <= index {
-            return Err(OutOfBounds::new(self.cast_value().clone(), index))
+            return Err(OutOfBounds::new(self.cast_value().clone(), index));
         }
 
         self.set_uncheck(v.raw_ptr(), index);
@@ -209,12 +213,9 @@ impl Ref<Tuple> {
             std::ptr::write(storage_ptr, v.into());
         };
     }
-
-
 }
 
-
-impl Eq for Tuple { }
+impl Eq for Tuple {}
 
 impl PartialEq for Tuple {
     fn eq(&self, other: &Self) -> bool {
@@ -279,7 +280,11 @@ impl TupleBuilder {
         })
     }
 
-    pub fn push<V: ValueHolder<Any>>(&mut self, v: &V, _obj: &mut Object) -> Result<(), OutOfBounds> {
+    pub fn push<V: ValueHolder<Any>>(
+        &mut self,
+        v: &V,
+        _obj: &mut Object,
+    ) -> Result<(), OutOfBounds> {
         self.tuple.mut_refer().set(v, self.index)?;
         self.index += 1;
 
@@ -294,8 +299,8 @@ impl TupleBuilder {
 fn func_tuple(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     let mut builder = TupleBuilder::new(num_rest, obj)?;
 
-    for index in 0 .. num_rest {
-        let v = vm::refer_rest_arg::<Any>(0, index, obj);
+    for index in 0..num_rest {
+        let v = vm::get_rest_arg::<Any>(0, index, obj);
         builder.push(&v, obj)?;
     }
 
@@ -303,7 +308,7 @@ fn func_tuple(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 fn func_is_tuple(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg::<Any>(0, obj);
+    let v = vm::get_arg::<Any>(0, obj);
     if v.is_type(tuple::Tuple::typeinfo()) {
         Ok(v.clone())
     } else {
@@ -312,64 +317,71 @@ fn func_is_tuple(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> 
 }
 
 fn func_tuple_len(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = vm::refer_arg::<tuple::Tuple>(0, obj);
+    let v = vm::get_arg::<tuple::Tuple>(0, obj);
 
     let num = number::make_integer(v.as_ref().len as i64, obj)?;
     Ok(num)
 }
 
 fn func_tuple_ref(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let tuple = vm::refer_arg::<tuple::Tuple>(0, obj);
-    let index = vm::refer_arg::<number::Integer>(1, obj).as_ref().get() as usize;
+    let tuple = vm::get_arg::<tuple::Tuple>(0, obj);
+    let index = vm::get_arg::<number::Integer>(1, obj).as_ref().get() as usize;
 
     if tuple.as_ref().len() <= index as usize {
-        Err(Exception::OutOfBounds(
-            OutOfBounds::new(tuple.into_value(), index)
-        ))
+        Err(Exception::OutOfBounds(OutOfBounds::new(
+            tuple.into_value(),
+            index,
+        )))
     } else {
         Ok(tuple.as_ref().get(index))
     }
 }
 
 static FUNC_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("tuple", func_tuple,
-            Parameter::new(&[
-            Param::new_no_force("values", ParamKind::Rest, Any::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "tuple",
+        func_tuple,
+        Parameter::new(&[Param::new_no_force(
+            "values",
+            ParamKind::Rest,
+            Any::typeinfo(),
+        )]),
+    ))
 });
 
 static FUNC_IS_TUPLE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("tuple?", func_is_tuple,
-        Parameter::new(&[
-            Param::new_no_force("x", ParamKind::Require, Any::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "tuple?",
+        func_is_tuple,
+        Parameter::new(&[Param::new_no_force(
+            "x",
+            ParamKind::Require,
+            Any::typeinfo(),
+        )]),
+    ))
 });
 
 static FUNC_TUPLE_LEN: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("tuple-len", func_tuple_len,
-        Parameter::new(&[
-            Param::new_no_force("tuple", ParamKind::Require, Tuple::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "tuple-len",
+        func_tuple_len,
+        Parameter::new(&[Param::new_no_force(
+            "tuple",
+            ParamKind::Require,
+            Tuple::typeinfo(),
+        )]),
+    ))
 });
 
 static FUNC_TUPLE_REF: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("tuple-ref", func_tuple_ref,
+    GCAllocationStruct::new(Func::new(
+        "tuple-ref",
+        func_tuple_ref,
         Parameter::new(&[
             Param::new_no_force("tuple", ParamKind::Require, Tuple::typeinfo()),
             Param::new("index", ParamKind::Require, number::Integer::typeinfo()),
-            ])
-        )
-    )
+        ]),
+    ))
 });
 
 pub fn register_global(obj: &mut Object) {
@@ -380,9 +392,9 @@ pub fn register_global(obj: &mut Object) {
 }
 
 pub mod literal {
+    use super::*;
     use crate::ptr::*;
     use crate::value::func::Func;
-    use super::*;
 
     pub fn tuple() -> Reachable<Func> {
         Reachable::new_static(&FUNC_TUPLE.value)
@@ -399,5 +411,4 @@ pub mod literal {
     pub fn tuple_ref() -> Reachable<Func> {
         Reachable::new_static(&FUNC_TUPLE_REF.value)
     }
-
 }

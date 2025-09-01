@@ -1,7 +1,6 @@
 use std::cell::RefCell;
-use std::thread::{self};
 use std::sync::{mpsc, Arc, Weak};
-
+use std::thread::{self};
 
 use super::Object;
 
@@ -15,10 +14,7 @@ impl Scheduler {
     pub fn new() -> Scheduler {
         let (tx, join_handle) = scheduler_main();
 
-        Scheduler {
-            tx,
-            join_handle,
-        }
+        Scheduler { tx, join_handle }
     }
 
     pub fn add_object(&self, obj: Arc<RefCell<Object>>) {
@@ -47,10 +43,10 @@ fn scheduler_main() -> (mpsc::Sender<Envelope>, thread::JoinHandle<()>) {
                 Ok(Envelope::NewObj(obj)) => {
                     //弱参照としてオブジェクトを保持する
                     objects.push(Arc::downgrade(&obj));
-                },
+                }
                 Err(mpsc::TryRecvError::Empty) => {
                     //do noting
-                },
+                }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     //End of scheduler thread
                     break;
@@ -67,14 +63,14 @@ fn scheduler_main() -> (mpsc::Sender<Envelope>, thread::JoinHandle<()>) {
                         //オブジェクトへの参照を取得できたら、実行する。
                         //TODO ここで発生したOOMは相手先メールボックスのOOMどう対応する？
                         match obj.borrow_mut().do_work(1000) {
-                            Ok(_) => { }
+                            Ok(_) => {}
                             Err(_oom) => {
                                 panic!("OOM");
                             }
                         }
 
                         index += 1;
-                    },
+                    }
                     None => {
                         //参照先のオブジェクトは消えてしまっているので、スケジューラー内からも削除する
                         //TODO swap_removeでもいいのか？

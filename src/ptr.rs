@@ -2,10 +2,10 @@
 
 use std::ptr::NonNull;
 
-use crate::object::Object;
 use crate::object::mm::usize_to_ptr;
-use crate::value::{NaviType, TypeInfo};
+use crate::object::Object;
 use crate::value::any::Any;
+use crate::value::{self, NaviType, TypeInfo};
 
 //
 //
@@ -18,11 +18,9 @@ pub struct UIPtr<T: NaviType> {
     pointer: *mut T,
 }
 
-impl <T: NaviType> UIPtr<T> {
+impl<T: NaviType> UIPtr<T> {
     pub fn new(ptr: *mut T) -> Self {
-        UIPtr::<T> {
-            pointer: ptr
-        }
+        UIPtr::<T> { pointer: ptr }
     }
 
     pub fn as_ptr(&self) -> *mut T {
@@ -34,7 +32,7 @@ impl <T: NaviType> UIPtr<T> {
     }
 }
 
-impl <T: NaviType> Clone for UIPtr<T> {
+impl<T: NaviType> Clone for UIPtr<T> {
     fn clone(&self) -> Self {
         Self::new(self.as_ptr())
     }
@@ -57,7 +55,7 @@ pub struct Ref<T: NaviType + ?Sized> {
     pointer: *mut T,
 }
 
-impl <T: NaviType> Ref<T> {
+impl<T: NaviType> Ref<T> {
     pub fn new(value: &T) -> Self {
         Ref::from(value as *const T as *mut T)
     }
@@ -83,8 +81,9 @@ impl <T: NaviType> Ref<T> {
     }
 
     pub unsafe fn into_reachable(self) -> Reachable<T> {
+        let v = crate::value::refer_value(&self);
         //このメソッドはGCが動作しないことが保証された期間のみ呼び出し可能。
-        Reachable::new_static(&*self.pointer)
+        Reachable::new_static(v)
     }
 
     pub fn update_pointer(&mut self, new_ptr: *mut T) {
@@ -110,14 +109,12 @@ impl <T: NaviType> Ref<T> {
             }
         }
     }
-
 }
 
 impl Ref<Any> {
     pub fn try_cast<U: NaviType>(&self) -> Option<&Ref<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_unchecked() } )
-
+            Some(unsafe { self.cast_unchecked() })
         } else {
             None
         }
@@ -125,8 +122,7 @@ impl Ref<Any> {
 
     pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut Ref<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_mut_unchecked() } )
-
+            Some(unsafe { self.cast_mut_unchecked() })
         } else {
             None
         }
@@ -150,13 +146,13 @@ impl Ref<Any> {
     }
 }
 
-impl <T: NaviType> From<*mut T> for Ref<T> {
+impl<T: NaviType> From<*mut T> for Ref<T> {
     fn from(item: *mut T) -> Self {
-       Ref { pointer: item }
+        Ref { pointer: item }
     }
 }
 
-impl <T: NaviType> ValueHolder<T> for Ref<T>{
+impl<T: NaviType> ValueHolder<T> for Ref<T> {
     fn has_replytype(&self) -> bool {
         crate::value::has_replytype(self)
     }
@@ -174,13 +170,13 @@ impl <T: NaviType> ValueHolder<T> for Ref<T>{
     }
 }
 
-impl <T: NaviType> Clone for Ref<T> {
+impl<T: NaviType> Clone for Ref<T> {
     fn clone(&self) -> Self {
         self.raw_ptr().into()
     }
 }
 
-impl <T: NaviType> std::fmt::Debug for Ref<T> {
+impl<T: NaviType> std::fmt::Debug for Ref<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self.as_ref(), f)
     }
@@ -196,10 +192,10 @@ pub struct Cap<T: NaviType> {
     pointer: NonNull<Ref<T>>,
 }
 
-impl <T:NaviType> Cap<T> {
+impl<T: NaviType> Cap<T> {
     pub fn new(ptr: *mut Ref<T>) -> Cap<T> {
         Cap {
-             pointer: NonNull::new(ptr).unwrap(),
+            pointer: NonNull::new(ptr).unwrap(),
         }
     }
 
@@ -208,9 +204,7 @@ impl <T:NaviType> Cap<T> {
     }
 
     pub fn cast_value(&self) -> &Cap<Any> {
-        unsafe {
-            std::mem::transmute(self)
-        }
+        unsafe { std::mem::transmute(self) }
     }
 
     pub fn make(&self) -> Ref<T> {
@@ -247,8 +241,7 @@ impl <T:NaviType> Cap<T> {
 impl Cap<Any> {
     pub fn try_cast<U: NaviType>(&self) -> Option<&Cap<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_unchecked() } )
-
+            Some(unsafe { self.cast_unchecked() })
         } else {
             None
         }
@@ -256,8 +249,7 @@ impl Cap<Any> {
 
     pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut Cap<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_unchecked_mut() } )
-
+            Some(unsafe { self.cast_unchecked_mut() })
         } else {
             None
         }
@@ -281,33 +273,25 @@ impl Cap<Any> {
     }
 }
 
-impl <T: NaviType> ValueHolder<T> for Cap<T>{
+impl<T: NaviType> ValueHolder<T> for Cap<T> {
     fn has_replytype(&self) -> bool {
-        unsafe {
-            self.pointer.as_ref().has_replytype()
-        }
+        unsafe { self.pointer.as_ref().has_replytype() }
     }
 
     fn raw_ptr(&self) -> *mut T {
-        unsafe {
-            self.pointer.as_ref().raw_ptr()
-        }
+        unsafe { self.pointer.as_ref().raw_ptr() }
     }
 
     fn as_ref<'a, 'b>(&'a self) -> &'b T {
-        unsafe {
-            self.pointer.as_ref().as_ref()
-        }
+        unsafe { self.pointer.as_ref().as_ref() }
     }
 
     fn as_mut<'a, 'b>(&'a mut self) -> &'b mut T {
-        unsafe {
-            self.pointer.as_mut().as_mut()
-        }
+        unsafe { self.pointer.as_mut().as_mut() }
     }
 }
 
-impl <T: NaviType> Drop for Cap<T> {
+impl<T: NaviType> Drop for Cap<T> {
     fn drop(&mut self) {
         crate::object::Object::release_capture(self)
     }
@@ -323,7 +307,7 @@ pub enum Reachable<T: NaviType> {
     Capture(Cap<T>),
 }
 
-impl <T: NaviType> Reachable<T> {
+impl<T: NaviType> Reachable<T> {
     pub fn new_static(value: &T) -> Self {
         let ptr = value as *const T as *mut T;
         Reachable::Static(ptr)
@@ -341,31 +325,21 @@ impl <T: NaviType> Reachable<T> {
 
     pub fn make(&self) -> Ref<T> {
         match self {
-            Self::Static(ptr) => {
-                Ref::from(*ptr)
-            },
-            Self::Capture(cap) => {
-                cap.make()
-            },
+            Self::Static(ptr) => Ref::from(*ptr),
+            Self::Capture(cap) => cap.make(),
         }
     }
 
     pub fn into_ref(self) -> Ref<T> {
         match self {
-            Self::Static(ptr) => {
-                ptr.into()
-            },
-            Self::Capture(cap) => {
-                cap.take()
-            },
+            Self::Static(ptr) => ptr.into(),
+            Self::Capture(cap) => cap.take(),
         }
     }
 
     pub fn into_value(self) -> Reachable<Any> {
         match self {
-            Self::Static(ptr) => {
-                Reachable::Static(ptr as *mut Any)
-            },
+            Self::Static(ptr) => Reachable::Static(ptr as *mut Any),
             Self::Capture(cap) => {
                 unsafe {
                     //Capが内部で持っているのはTやValueへのポインタのポインタで、
@@ -374,24 +348,18 @@ impl <T: NaviType> Reachable<T> {
                     let cap_value = std::mem::transmute::<Cap<T>, Cap<Any>>(cap);
                     Reachable::Capture(cap_value)
                 }
-            },
+            }
         }
     }
 
     pub fn cast_value(&self) -> &Reachable<Any> {
-        unsafe {
-            std::mem::transmute(self)
-        }
+        unsafe { std::mem::transmute(self) }
     }
 
     pub fn clone(&self, obj: &mut Object) -> Self {
         match self {
-            Self::Static(ptr) => {
-                Reachable::Static(*ptr)
-            },
-            Self::Capture(cap) => {
-                Reachable::Capture(cap.clone(obj))
-            },
+            Self::Static(ptr) => Reachable::Static(*ptr),
+            Self::Capture(cap) => Reachable::Capture(cap.clone(obj)),
         }
     }
 }
@@ -399,8 +367,7 @@ impl <T: NaviType> Reachable<T> {
 impl Reachable<Any> {
     pub fn try_cast<U: NaviType>(&self) -> Option<&Reachable<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_unchecked() } )
-
+            Some(unsafe { self.cast_unchecked() })
         } else {
             None
         }
@@ -408,8 +375,7 @@ impl Reachable<Any> {
 
     pub fn try_cast_mut<U: NaviType>(&mut self) -> Option<&mut Reachable<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_unchecked_mut() } )
-
+            Some(unsafe { self.cast_unchecked_mut() })
         } else {
             None
         }
@@ -433,7 +399,7 @@ impl Reachable<Any> {
     }
 }
 
-impl <T: NaviType> ValueHolder<T> for Reachable<T> {
+impl<T: NaviType> ValueHolder<T> for Reachable<T> {
     fn has_replytype(&self) -> bool {
         match self {
             Self::Static(_) => false,
@@ -443,45 +409,31 @@ impl <T: NaviType> ValueHolder<T> for Reachable<T> {
 
     fn raw_ptr(&self) -> *mut T {
         match self {
-            Self::Static(ptr) => {
-                unsafe {
-                    let refer: &Ref<T> = std::mem::transmute(ptr);
-                    refer.raw_ptr()
-                }
+            Self::Static(ptr) => unsafe {
+                let refer: &Ref<T> = std::mem::transmute(ptr);
+                refer.raw_ptr()
             },
-            Self::Capture(cap) => {
-                cap.raw_ptr()
-            },
+            Self::Capture(cap) => cap.raw_ptr(),
         }
     }
 
     fn as_ref<'a, 'b>(&'a self) -> &'b T {
         match self {
-            Self::Static(ptr) => {
-                unsafe {
-                    let refer: &Ref<T> = std::mem::transmute(ptr);
-                    refer.as_ref()
-                }
+            Self::Static(ptr) => unsafe {
+                let refer: &Ref<T> = std::mem::transmute(ptr);
+                refer.as_ref()
             },
-            Self::Capture(cap) => {
-                cap.as_ref()
-            },
+            Self::Capture(cap) => cap.as_ref(),
         }
-
     }
 
     fn as_mut<'a, 'b>(&'a mut self) -> &'b mut T {
-
         match self {
-            Self::Static(ptr) => {
-                unsafe {
-                    let refer: &mut Ref<T> = std::mem::transmute(ptr);
-                    refer.as_mut()
-                }
+            Self::Static(ptr) => unsafe {
+                let refer: &mut Ref<T> = std::mem::transmute(ptr);
+                refer.as_mut()
             },
-            Self::Capture(cap) => {
-                cap.as_mut()
-            },
+            Self::Capture(cap) => cap.as_mut(),
         }
     }
 }

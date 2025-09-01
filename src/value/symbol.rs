@@ -1,12 +1,12 @@
-use crate::value::*;
 use crate::ptr::*;
+use crate::value::*;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Eq, PartialEq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Symbol {
-    inner: string::NString
+    inner: string::NString,
 }
 
 static SYMBOL_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -42,16 +42,21 @@ impl Symbol {
         string::NString::size_of(&self.inner)
     }
 
-    pub fn alloc<T: Into<String>, A: Allocator>(str: T, allocator : &mut A) -> NResult<Symbol, OutOfMemory> {
+    pub fn alloc<T: Into<String>, A: Allocator>(
+        str: T,
+        allocator: &mut A,
+    ) -> NResult<Symbol, OutOfMemory> {
         string::NString::alloc_inner::<Symbol, A>(&str.into(), allocator)
     }
 
-    pub fn gensym<T :Into<String>, A: Allocator>(name: T, allocator: &mut A) -> NResult<Symbol, OutOfMemory> {
+    pub fn gensym<T: Into<String>, A: Allocator>(
+        name: T,
+        allocator: &mut A,
+    ) -> NResult<Symbol, OutOfMemory> {
         let count = GENSYM_COUNTER.fetch_add(1, Ordering::SeqCst);
         let name = name.into() + "_" + &count.to_string();
         Self::alloc(&name, allocator)
     }
-
 }
 
 impl AsRef<str> for Symbol {
@@ -76,8 +81,7 @@ impl std::fmt::Debug for Symbol {
     }
 }
 
-pub mod literal {
-}
+pub mod literal {}
 
 #[allow(dead_code)]
 #[repr(transparent)]
@@ -89,9 +93,7 @@ impl AsRef<Symbol> for StaticSymbol {
     fn as_ref(&self) -> &Symbol {
         //StaticSymbolとSymbolは同じメモリレイアウトなので
         //無理やりキャストしてSymbolとして扱えるようにする。
-        unsafe {
-            std::mem::transmute(self)
-        }
+        unsafe { std::mem::transmute(self) }
     }
 }
 
@@ -100,7 +102,7 @@ pub(crate) fn gensym_static<T: Into<String>>(name: T) -> GCAllocationStruct<Stat
     let name = name.into() + "_" + &count.to_string();
 
     let symbol = StaticSymbol {
-        inner: string::static_string(name)
+        inner: string::static_string(name),
     };
 
     GCAllocationStruct::new_with_typeinfo(symbol, Symbol::typeinfo())
@@ -108,7 +110,7 @@ pub(crate) fn gensym_static<T: Into<String>>(name: T) -> GCAllocationStruct<Stat
 
 pub(crate) fn symbol_static<T: Into<String>>(name: T) -> GCAllocationStruct<StaticSymbol> {
     let symbol = StaticSymbol {
-        inner: string::static_string(name)
+        inner: string::static_string(name),
     };
 
     GCAllocationStruct::new_with_typeinfo(symbol, Symbol::typeinfo())

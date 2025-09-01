@@ -1,8 +1,8 @@
+use crate::err::*;
 use crate::object::mailbox::ReplyToken;
 use crate::ptr::*;
-use crate::err::*;
+use crate::value::app::{Param, ParamKind, Parameter};
 use crate::value::*;
-use crate::value::app::{Parameter, ParamKind, Param};
 
 use std::fmt::{Debug, Display};
 use std::sync::{Arc, Mutex};
@@ -19,7 +19,7 @@ pub struct Reply {
     dest_mailbox: Option<Arc<Mutex<crate::object::mailbox::MailBox>>>,
 }
 
-static REPLY_TYPEINFO : TypeInfo = new_typeinfo!(
+static REPLY_TYPEINFO: TypeInfo = new_typeinfo!(
     Reply,
     "Reply",
     std::mem::size_of::<Reply>(),
@@ -48,35 +48,31 @@ impl NaviType for Reply {
 impl Reply {
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         match self.reply_value.as_mut() {
-            Some(value) => {
-                match value {
-                    Ok(v) => {
-                        callback(v, arg);
-                    }
-                    Err(err) => {
-                        err.for_each_alived_value(arg, callback);
-                    }
+            Some(value) => match value {
+                Ok(v) => {
+                    callback(v, arg);
                 }
-
+                Err(err) => {
+                    err.for_each_alived_value(arg, callback);
+                }
             },
-            None => { }
+            None => {}
         }
     }
 
-    pub fn try_get_reply_value(cap: &mut Cap<Reply>, obj: &mut Object) -> ResultNone<NResult<Any, Exception>, OutOfMemory> {
+    pub fn try_get_reply_value(
+        cap: &mut Cap<Reply>,
+        obj: &mut Object,
+    ) -> ResultNone<NResult<Any, Exception>, OutOfMemory> {
         match Self::check_reply(cap, obj) {
             Ok(has_reply) => {
                 if has_reply {
                     ResultNone::Ok(cap.as_ref().reply_value.as_ref().unwrap().clone())
-
                 } else {
                     ResultNone::None
                 }
-
             }
-            Err(oom) => {
-                ResultNone::Err(oom)
-            }
+            Err(oom) => ResultNone::Err(oom),
         }
     }
 
@@ -86,7 +82,13 @@ impl Reply {
         } else {
             //自分自身のメールボックスのロックを取得
             //※メールボックスから取得した値をObject内のヒープにcloneするまでロックを保持しておく必要があります。
-            let mut mailbox = cap.as_ref().myself_mailbox.as_ref().unwrap().lock().unwrap();
+            let mut mailbox = cap
+                .as_ref()
+                .myself_mailbox
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap();
             match mailbox.try_take_reply(cap.as_ref().reply_token) {
                 Some(reply) => {
                     match reply {
@@ -122,7 +124,6 @@ impl Reply {
                                     return Err(oom);
                                 }
                             }
-
                         }
                     }
                 }
@@ -139,19 +140,24 @@ impl Reply {
         unreachable!()
     }
 
-    pub fn alloc<A: Allocator>(token: ReplyToken
-        , myself_mailbox: Arc<Mutex<crate::object::mailbox::MailBox>>
-        , dest_mailbox: Arc<Mutex<crate::object::mailbox::MailBox>>
-        , allocator: &mut A) -> NResult<Reply, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        token: ReplyToken,
+        myself_mailbox: Arc<Mutex<crate::object::mailbox::MailBox>>,
+        dest_mailbox: Arc<Mutex<crate::object::mailbox::MailBox>>,
+        allocator: &mut A,
+    ) -> NResult<Reply, OutOfMemory> {
         let ptr = allocator.alloc::<Reply>()?;
 
         unsafe {
-            std::ptr::write(ptr.as_ptr(), Reply {
-                reply_token: token,
-                reply_value: None,
-                myself_mailbox: Some(myself_mailbox),
-                dest_mailbox: Some(dest_mailbox),
-            });
+            std::ptr::write(
+                ptr.as_ptr(),
+                Reply {
+                    reply_token: token,
+                    reply_value: None,
+                    myself_mailbox: Some(myself_mailbox),
+                    dest_mailbox: Some(dest_mailbox),
+                },
+            );
         }
 
         let mut result = ptr.into_ref();
@@ -176,13 +182,11 @@ impl Reply {
         }
 
         //内部で保持しているArcをデクリメントしないといけないのでDrop処理を実行する
-        unsafe {
-            std::ptr::drop_in_place(self)
-        }
+        unsafe { std::ptr::drop_in_place(self) }
     }
 }
 
-impl Eq for Reply { }
+impl Eq for Reply {}
 
 impl PartialEq for Reply {
     fn eq(&self, other: &Self) -> bool {
@@ -208,17 +212,15 @@ impl Debug for Reply {
 
 fn func_force(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
     //関数にわたってきている時点でReplyから実際の値になっているので引数の値をそのまま返す
-    Ok(vm::refer_arg::<Any>(0, obj))
+    Ok(vm::get_arg::<Any>(0, obj))
 }
 
 static FUNC_FORCE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("force", func_force,
-            Parameter::new(&[
-            Param::new("v", ParamKind::Require, Any::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "force",
+        func_force,
+        Parameter::new(&[Param::new("v", ParamKind::Require, Any::typeinfo())]),
+    ))
 });
 
 pub fn register_global(obj: &mut Object) {

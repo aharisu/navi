@@ -1,20 +1,20 @@
 use core::panic;
-use std::fmt::{Display, Debug};
+use std::fmt::{Debug, Display};
 
-use crate::ptr::*;
 use crate::err::*;
-use crate::object::{AnyAllocator, Allocator};
+use crate::object::{Allocator, AnyAllocator};
+use crate::ptr::*;
 use crate::value::symbol;
 
 use super::array::Array;
 use super::symbol::Symbol;
-use super::{TypeInfo, NaviType, Any};
+use super::{Any, NaviType, TypeInfo};
 
-
-static IFORM_TYPEINFO : TypeInfo = new_typeinfo!(
+static IFORM_TYPEINFO: TypeInfo = new_typeinfo!(
     IForm,
     "IForm",
-    0, None,
+    0,
+    None,
     IForm::_eq,
     IForm::clone_inner,
     IForm::_fmt,
@@ -26,9 +26,9 @@ static IFORM_TYPEINFO : TypeInfo = new_typeinfo!(
     None,
 );
 
-pub trait AsIForm : NaviType { }
+pub trait AsIForm: NaviType {}
 
-impl <T: AsIForm + NaviType> Ref<T> {
+impl<T: AsIForm + NaviType> Ref<T> {
     pub fn cast_iform(&self) -> &Ref<IForm> {
         unsafe { std::mem::transmute(self) }
     }
@@ -38,7 +38,7 @@ impl <T: AsIForm + NaviType> Ref<T> {
     }
 }
 
-pub struct IForm { }
+pub struct IForm {}
 
 impl NaviType for IForm {
     fn typeinfo() -> &'static TypeInfo {
@@ -63,7 +63,7 @@ impl IForm {
 
     pub fn try_cast<U: AsIForm>(&self) -> Option<&U> {
         if self.is::<U>() {
-            Some(unsafe {&* (self as *const IForm as *const U) })
+            Some(unsafe { &*(self as *const IForm as *const U) })
         } else {
             None
         }
@@ -75,7 +75,8 @@ impl IForm {
 
     pub fn kind(&self) -> IFormKind {
         let typeinfo = super::get_typeinfo(self);
-        let offset = unsafe { (typeinfo as *const TypeInfo).offset_from(IFORM_TYPEINFO_ARY.as_ptr()) };
+        let offset =
+            unsafe { (typeinfo as *const TypeInfo).offset_from(IFORM_TYPEINFO_ARY.as_ptr()) };
 
         if offset < 0 || IFORM_TYPEINFO_ARY.len() <= offset as usize {
             panic!("unknown iform")
@@ -121,12 +122,10 @@ impl Debug for IForm {
     }
 }
 
-
 impl Cap<IForm> {
     pub fn try_cast<U: AsIForm>(&self) -> Option<&Cap<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_unchecked() } )
-
+            Some(unsafe { self.cast_unchecked() })
         } else {
             None
         }
@@ -140,8 +139,7 @@ impl Cap<IForm> {
 impl Reachable<IForm> {
     pub fn try_cast<U: AsIForm>(&self) -> Option<&Reachable<U>> {
         if self.as_ref().is::<U>() {
-            Some( unsafe { self.cast_unchecked() } )
-
+            Some(unsafe { self.cast_unchecked() })
         } else {
             None
         }
@@ -366,7 +364,6 @@ static IFORM_TYPEINFO_ARY: [TypeInfo; 12] = [
     ),
 ];
 
-
 pub struct IFormLet {
     symbol: Ref<Symbol>,
     val: Ref<IForm>,
@@ -392,7 +389,7 @@ impl NaviType for IFormLet {
 impl IFormLet {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::Let as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -400,14 +397,22 @@ impl IFormLet {
         callback(self.val.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(symbol: &Reachable<Symbol>, val: &Reachable<IForm>, force_global : bool, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        symbol: &Reachable<Symbol>,
+        val: &Reachable<IForm>,
+        force_global: bool,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormLet>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormLet {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormLet {
                     symbol: symbol.raw_ptr().into(),
                     val: val.raw_ptr().into(),
                     force_global: force_global,
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -427,7 +432,12 @@ impl IFormLet {
 
     fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.force_global {
-            write!(f, "(IFLetGlobal {} {})", self.symbol.as_ref(), self.val.as_ref())
+            write!(
+                f,
+                "(IFLetGlobal {} {})",
+                self.symbol.as_ref(),
+                self.val.as_ref()
+            )
         } else {
             write!(f, "(IFLet {} {})", self.symbol.as_ref(), self.val.as_ref())
         }
@@ -454,7 +464,7 @@ impl Debug for IFormLet {
 
 impl AsIForm for IFormLet {}
 
-pub struct  IFormIf {
+pub struct IFormIf {
     test: Ref<IForm>,
     then: Ref<IForm>,
     else_: Ref<IForm>,
@@ -480,7 +490,7 @@ impl NaviType for IFormIf {
 impl IFormIf {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::If as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -489,14 +499,22 @@ impl IFormIf {
         callback(self.else_.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(test: &Reachable<IForm>, true_: &Reachable<IForm>, false_: &Reachable<IForm>, allocator: &mut A) -> NResult<IFormIf, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        test: &Reachable<IForm>,
+        true_: &Reachable<IForm>,
+        false_: &Reachable<IForm>,
+        allocator: &mut A,
+    ) -> NResult<IFormIf, OutOfMemory> {
         let ptr = allocator.alloc::<IFormIf>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormIf {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormIf {
                     test: test.raw_ptr().into(),
                     then: true_.raw_ptr().into(),
                     else_: false_.raw_ptr().into(),
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -514,9 +532,14 @@ impl IFormIf {
         self.else_.clone()
     }
 
-
     fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(IFIf {} {} {})", self.test.as_ref(), self.then.as_ref(), self.else_.as_ref())
+        write!(
+            f,
+            "(IFIf {} {} {})",
+            self.test.as_ref(),
+            self.then.as_ref(),
+            self.else_.as_ref()
+        )
     }
 }
 
@@ -544,7 +567,6 @@ pub struct IFormLocal {
     body: Ref<IForm>,
 }
 
-
 impl NaviType for IFormLocal {
     fn typeinfo() -> &'static TypeInfo {
         &IFORM_TYPEINFO_ARY[IFormKind::Local as usize]
@@ -563,19 +585,25 @@ impl NaviType for IFormLocal {
 impl IFormLocal {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::Local as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(body: &Reachable<IForm>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        body: &Reachable<IForm>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormLocal>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormLocal {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormLocal {
                     body: body.raw_ptr().into(),
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -622,7 +650,8 @@ impl NaviType for IFormLRef {
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator)?.into_reachable();
+            let symbol =
+                symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&symbol, allocator)
         }
@@ -632,19 +661,25 @@ impl NaviType for IFormLRef {
 impl IFormLRef {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::LRef as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.symbol.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Symbol>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        v: &Reachable<Symbol>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormLRef>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormLRef {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormLRef {
                     symbol: v.raw_ptr().into(),
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -691,7 +726,8 @@ impl NaviType for IFormGRef {
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
-            let symbol = symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator)?.into_reachable();
+            let symbol =
+                symbol::Symbol::clone_inner(self.symbol.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&symbol, allocator)
         }
@@ -701,19 +737,25 @@ impl NaviType for IFormGRef {
 impl IFormGRef {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::GRef as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.symbol.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Symbol>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        v: &Reachable<Symbol>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormGRef>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormGRef {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormGRef {
                     symbol: v.raw_ptr().into(),
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -750,7 +792,7 @@ impl AsIForm for IFormGRef {}
 
 pub struct IFormFun {
     params: Ref<Array<Symbol>>,
-    body: Ref<IForm>
+    body: Ref<IForm>,
 }
 
 impl NaviType for IFormFun {
@@ -772,7 +814,7 @@ impl NaviType for IFormFun {
 impl IFormFun {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::Fun as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -780,13 +822,20 @@ impl IFormFun {
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(params: &Reachable<Array<Symbol>>, body: &Reachable<IForm>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        params: &Reachable<Array<Symbol>>,
+        body: &Reachable<IForm>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormFun>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormFun {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormFun {
                     params: params.raw_ptr().into(),
                     body: body.raw_ptr().into(),
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -851,19 +900,25 @@ impl NaviType for IFormSeq {
 impl IFormSeq {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::Seq as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(body: &Reachable<Array<IForm>>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        body: &Reachable<Array<IForm>>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormSeq>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormSeq {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormSeq {
                     body: body.raw_ptr().into(),
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -923,7 +978,7 @@ impl NaviType for IFormCall {
 impl IFormCall {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::Call as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -931,14 +986,22 @@ impl IFormCall {
         callback(self.args.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(app: &Reachable<IForm>, args: &Reachable<Array<IForm>>, is_tail: bool, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        app: &Reachable<IForm>,
+        args: &Reachable<Array<IForm>>,
+        is_tail: bool,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormCall>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormCall {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormCall {
                     app: app.raw_ptr().into(),
                     args: args.raw_ptr().into(),
                     is_tail,
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -962,7 +1025,12 @@ impl IFormCall {
 
     fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_tail {
-            write!(f, "(IFTailCall {} {})", self.app.as_ref(), self.args.as_ref())
+            write!(
+                f,
+                "(IFTailCall {} {})",
+                self.app.as_ref(),
+                self.args.as_ref()
+            )
         } else {
             write!(f, "(IFCall {} {})", self.app.as_ref(), self.args.as_ref())
         }
@@ -1011,19 +1079,25 @@ impl NaviType for IFormConst {
 impl IFormConst {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::Const as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.value.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(v: &Reachable<Any>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        v: &Reachable<Any>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormConst>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormConst {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormConst {
                     value: v.raw_ptr().into(),
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -1088,20 +1162,27 @@ impl NaviType for IFormAndOr {
 impl IFormAndOr {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::AndOr as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(self.exprs.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(exprs: &Reachable<Array<IForm>>, kind: AndOrKind, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        exprs: &Reachable<Array<IForm>>,
+        kind: AndOrKind,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormAndOr>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormAndOr {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormAndOr {
                     exprs: exprs.raw_ptr().into(),
                     kind: kind,
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -1158,7 +1239,8 @@ impl NaviType for IFormDefRecv {
         //clone_innerの文脈の中だけ、Ptrをキャプチャせずに扱うことが許されている
         unsafe {
             let pattern = Any::clone_inner(self.pattern.as_ref(), allocator)?.into_reachable();
-            let body = super::list::List::clone_inner(self.body.as_ref(), allocator)?.into_reachable();
+            let body =
+                super::list::List::clone_inner(self.body.as_ref(), allocator)?.into_reachable();
 
             Self::alloc(&pattern, &body, allocator)
         }
@@ -1168,7 +1250,7 @@ impl NaviType for IFormDefRecv {
 impl IFormDefRecv {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::DefRecv as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -1176,13 +1258,20 @@ impl IFormDefRecv {
         callback(self.body.cast_mut_value(), arg);
     }
 
-    pub fn alloc<A: Allocator>(pattern: &Reachable<Any>, body: &Reachable<super::list::List>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        pattern: &Reachable<Any>,
+        body: &Reachable<super::list::List>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormDefRecv>()?;
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormDefRecv {
+            std::ptr::write(
+                ptr.as_ptr(),
+                IFormDefRecv {
                     pattern: pattern.raw_ptr().into(),
                     body: body.raw_ptr().into(),
-                });
+                },
+            );
         }
 
         Ok(ptr.into_ref())
@@ -1197,7 +1286,12 @@ impl IFormDefRecv {
     }
 
     fn fmt(&self, _is_debug: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(IFDefRecv {} {})", self.pattern.as_ref(), self.body.as_ref())
+        write!(
+            f,
+            "(IFDefRecv {} {})",
+            self.pattern.as_ref(),
+            self.body.as_ref()
+        )
     }
 }
 
@@ -1236,7 +1330,6 @@ impl NaviType for IFormObjectSwitch {
             if let Some(target_obj) = self.target_obj.as_ref() {
                 let target_obj = target_obj.clone().into_reachable();
                 Self::alloc(Some(&target_obj), allocator)
-
             } else {
                 Self::alloc(None, allocator)
             }
@@ -1247,7 +1340,7 @@ impl NaviType for IFormObjectSwitch {
 impl IFormObjectSwitch {
     fn is_type(other_typeinfo: &TypeInfo) -> bool {
         &IFORM_TYPEINFO_ARY[IFormKind::ObjectSwitch as usize] == other_typeinfo
-        || &IFORM_TYPEINFO == other_typeinfo
+            || &IFORM_TYPEINFO == other_typeinfo
     }
 
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
@@ -1256,14 +1349,15 @@ impl IFormObjectSwitch {
         }
     }
 
-    pub fn alloc<A: Allocator>(target_obj: Option<&Reachable<IForm>>, allocator: &mut A) -> NResult<Self, OutOfMemory> {
+    pub fn alloc<A: Allocator>(
+        target_obj: Option<&Reachable<IForm>>,
+        allocator: &mut A,
+    ) -> NResult<Self, OutOfMemory> {
         let ptr = allocator.alloc::<IFormObjectSwitch>()?;
 
         let target_obj = target_obj.map(|v| Ref::from(v.raw_ptr()));
         unsafe {
-            std::ptr::write(ptr.as_ptr(), IFormObjectSwitch {
-                    target_obj,
-                });
+            std::ptr::write(ptr.as_ptr(), IFormObjectSwitch { target_obj });
         }
 
         Ok(ptr.into_ref())

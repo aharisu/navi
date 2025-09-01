@@ -1,14 +1,15 @@
-use crate::value::*;
-use crate::ptr::*;
 use crate::err::*;
-use crate::value::app::{Parameter, ParamKind, Param};
+use crate::ptr::*;
+use crate::value::app::{Param, ParamKind, Parameter};
+use crate::value::*;
 
-pub struct Any { }
+pub struct Any {}
 
-static ANY_TYPEINFO : TypeInfo = new_typeinfo!(
+static ANY_TYPEINFO: TypeInfo = new_typeinfo!(
     Any,
     "Any",
-    0, None,
+    0,
+    None,
     Any::_eq,
     Any::clone_inner,
     Any::_fmt,
@@ -28,8 +29,7 @@ impl NaviType for Any {
     fn clone_inner(&self, allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
         if value_is_pointer(self) {
             let typeinfo = get_typeinfo(self);
-           (typeinfo.clone_func)(self, allocator)
-
+            (typeinfo.clone_func)(self, allocator)
         } else {
             //Immidiate Valueの場合はそのまま返す
             Ok(Ref::new(self))
@@ -42,7 +42,7 @@ impl Eq for Any {}
 impl PartialEq for Any {
     fn eq(&self, other: &Self) -> bool {
         let self_typeinfo = get_typeinfo(self);
-        let other_typeinfo =get_typeinfo(other);
+        let other_typeinfo = get_typeinfo(other);
 
         //比較可能な型同士かを確認する関数を持っている場合は、処理を委譲する。
         //持っていない場合は同じ型同士の時だけ比較可能にする。
@@ -85,7 +85,6 @@ impl Any {
         if &ANY_TYPEINFO == other_typeinfo {
             //is::<Any>()の場合、常に結果はtrue
             true
-
         } else {
             let self_typeinfo = get_typeinfo(self);
             if let Some(func) = self_typeinfo.is_type_func {
@@ -119,8 +118,8 @@ impl Any {
 }
 
 fn func_equal(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let left = vm::refer_arg::<Any>(0, obj);
-    let right = vm::refer_arg::<Any>(1, obj);
+    let left = vm::get_arg::<Any>(0, obj);
+    let right = vm::get_arg::<Any>(1, obj);
 
     let result = left.as_ref().eq(right.as_ref());
 
@@ -132,8 +131,8 @@ fn func_equal(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 fn func_print(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    for index in 0 .. num_rest {
-        let v = vm::refer_rest_arg::<Any>(0, index, obj);
+    for index in 0..num_rest {
+        let v = vm::get_rest_arg::<Any>(0, index, obj);
         print!("{}", v.as_ref());
     }
 
@@ -142,24 +141,22 @@ fn func_print(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 }
 
 static FUNC_EQUAL: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("=", func_equal,
+    GCAllocationStruct::new(Func::new(
+        "=",
+        func_equal,
         Parameter::new(&[
             Param::new("left", ParamKind::Require, Any::typeinfo()),
             Param::new("right", ParamKind::Require, Any::typeinfo()),
-            ])
-        )
-    )
+        ]),
+    ))
 });
 
 static FUNC_PRINT: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("print", func_print,
-            Parameter::new(&[
-            Param::new("values", ParamKind::Rest, Any::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "print",
+        func_print,
+        Parameter::new(&[Param::new("values", ParamKind::Rest, Any::typeinfo())]),
+    ))
 });
 
 pub fn register_global(obj: &mut Object) {
@@ -205,7 +202,10 @@ mod tests {
 
         //list
         let item = number::make_integer(10, obj).unwrap().reach(obj);
-        let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj).unwrap().into_value().reach(obj);
+        let v = list::List::alloc(&item, v.try_cast::<list::List>().unwrap(), obj)
+            .unwrap()
+            .into_value()
+            .reach(obj);
         assert!(v.as_ref().is::<list::List>());
         assert!(!v.as_ref().is::<string::NString>());
     }
@@ -316,7 +316,5 @@ mod tests {
             let result = exec::<bool::Bool>(program, obj).reach(obj);
             assert!(result.as_ref().is_false());
         }
-
     }
-
 }

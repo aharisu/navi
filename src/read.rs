@@ -1,12 +1,12 @@
 use std::iter::Peekable;
 
 use crate::compile;
-use crate::object::Object;
-use crate::value::*;
-use crate::ptr::*;
 use crate::err::{self, NResult};
+use crate::object::Object;
+use crate::ptr::*;
 use crate::value::any::Any;
 use crate::value::list::ListBuilder;
+use crate::value::*;
 
 pub struct StdinChars {
     buf: String,
@@ -39,7 +39,7 @@ impl Iterator for StdinChars {
             }
         }
 
-        let mut iter = unsafe { self.buf.get_unchecked(self.index ..) }.char_indices();
+        let mut iter = unsafe { self.buf.get_unchecked(self.index..) }.char_indices();
         let (_, ch) = iter.next().unwrap();
 
         //次回の読み込み開始位置を取得
@@ -54,15 +54,13 @@ impl Iterator for StdinChars {
     }
 }
 
-pub struct Reader<I: Iterator<Item=char>> {
+pub struct Reader<I: Iterator<Item = char>> {
     input: Peekable<I>,
 }
 
-impl <I: Iterator<Item=char>> Reader<I> {
+impl<I: Iterator<Item = char>> Reader<I> {
     pub fn new(input: Peekable<I>) -> Self {
-        Reader {
-            input: input,
-        }
+        Reader { input: input }
     }
 }
 
@@ -85,11 +83,17 @@ impl From<err::MalformedFormat> for ReadException {
     }
 }
 
-pub fn read<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+pub fn read<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     read_internal(reader, obj)
 }
 
-fn read_internal<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_internal<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     skip_whitespace(reader);
 
     match reader.input.peek() {
@@ -101,37 +105,51 @@ fn read_internal<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Objec
 
             ')' => return Err(err::MalformedFormat::new(None, "read error )").into()),
             ']' => return Err(err::MalformedFormat::new(None, "read error ]").into()),
-            '}' => return Err(err::MalformedFormat::new(None, format!("{}", "read error }")).into()),
+            '}' => {
+                return Err(err::MalformedFormat::new(None, format!("{}", "read error }")).into())
+            }
 
             '"' => read_string(reader, obj),
             '\'' => read_quote(reader, obj),
             '@' => read_bind(reader, obj),
-            '+' | '-' | '0' ..= '9' => read_number_or_symbol(reader, obj),
+            '+' | '-' | '0'..='9' => read_number_or_symbol(reader, obj),
             ':' => read_keyword(reader, obj),
             _ => read_symbol(reader, obj),
-        }
+        },
     }
 }
 
-
-fn read_list<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_list<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     let list = read_sequence(')', reader, obj)?;
     Ok(list.into_value())
 }
 
-fn read_array<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_array<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     let list = read_sequence(']', reader, obj)?;
     let ary = array::Array::from_list(&list.reach(obj), None, obj)?;
     Ok(ary.into_value())
 }
 
-fn read_tuple<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_tuple<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     let list = read_sequence('}', reader, obj)?;
     let tuple = tuple::Tuple::from_list(&list.reach(obj), None, obj)?;
     Ok(tuple.into_value())
 }
 
-fn read_sequence<I: Iterator<Item=char>>(end_char:char, reader: &mut Reader<I>, obj: &mut Object) -> NResult<list::List, ReadException> {
+fn read_sequence<I: Iterator<Item = char>>(
+    end_char: char,
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<list::List, ReadException> {
     //skip first char
     reader.input.next();
 
@@ -139,7 +157,11 @@ fn read_sequence<I: Iterator<Item=char>>(end_char:char, reader: &mut Reader<I>, 
     loop {
         skip_whitespace(reader);
         match reader.input.peek() {
-            None => return Err(err::MalformedFormat::new(None, "シーケンスが完結する前にEOFになった").into()),
+            None => {
+                return Err(
+                    err::MalformedFormat::new(None, "シーケンスが完結する前にEOFになった").into(),
+                )
+            }
             Some(ch) if *ch == end_char => {
                 reader.input.next();
                 // complete!
@@ -154,7 +176,10 @@ fn read_sequence<I: Iterator<Item=char>>(end_char:char, reader: &mut Reader<I>, 
     }
 }
 
-fn read_string<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_string<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     //skip first char
     reader.input.next();
 
@@ -162,12 +187,16 @@ fn read_string<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object)
     let mut acc: Vec<char> = Vec::new();
     loop {
         match reader.input.next() {
-            None => return Err(err::MalformedFormat::new(None, "文字列が完結する前にEOFになった").into()),
+            None => {
+                return Err(
+                    err::MalformedFormat::new(None, "文字列が完結する前にEOFになった").into(),
+                )
+            }
             Some('\"') => {
                 let str: String = acc.into_iter().collect();
                 let str = string::NString::alloc(&str, obj)?;
 
-                return Ok(str.into_value())
+                return Ok(str.into_value());
             }
             Some(ch) => {
                 acc.push(ch);
@@ -177,20 +206,33 @@ fn read_string<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object)
 }
 
 #[allow(dead_code)]
-fn read_char<I: Iterator<Item=char>>(_reader: &mut Reader<I>, _ctx: &mut Object) -> NResult<Any, ReadException> {
+fn read_char<I: Iterator<Item = char>>(
+    _reader: &mut Reader<I>,
+    _ctx: &mut Object,
+) -> NResult<Any, ReadException> {
     //TODO
     unimplemented!()
 }
 
-fn read_quote<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_quote<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     read_with_modifier(compile::literal::quote().cast_value(), reader, obj)
 }
 
-fn read_bind<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_bind<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     read_with_modifier(compile::literal::bind().cast_value(), reader, obj)
 }
 
-fn read_with_modifier<I: Iterator<Item=char>>(modifier: &Reachable<Any>, reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_with_modifier<I: Iterator<Item = char>>(
+    modifier: &Reachable<Any>,
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     //skip first char
     reader.input.next();
 
@@ -204,14 +246,17 @@ fn read_with_modifier<I: Iterator<Item=char>>(modifier: &Reachable<Any>, reader:
     Ok(builder.get().into_value())
 }
 
-fn read_number_or_symbol<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_number_or_symbol<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     let str = read_word(reader, obj)?;
     match str.parse::<i64>() {
         Ok(num) => {
             //integer
             let num = number::make_integer(num, obj)?;
             Ok(num.into_value())
-        },
+        }
         Err(_) => match str.parse::<f64>() {
             Ok(num) => {
                 //floating number
@@ -223,11 +268,14 @@ fn read_number_or_symbol<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &m
                 let symbol = symbol::Symbol::alloc(&str, obj)?;
                 Ok(symbol.into_value())
             }
-        }
+        },
     }
 }
 
-fn read_keyword<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_keyword<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     //skip first char
     reader.input.next();
 
@@ -236,7 +284,10 @@ fn read_keyword<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object
     Ok(keyword.into_value())
 }
 
-fn read_symbol<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object) -> NResult<Any, ReadException> {
+fn read_symbol<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    obj: &mut Object,
+) -> NResult<Any, ReadException> {
     let str = read_word(reader, obj)?;
     match str.as_str() {
         "true" => Ok(bool::Bool::true_().into_ref().into_value()),
@@ -248,7 +299,10 @@ fn read_symbol<I: Iterator<Item=char>>(reader: &mut Reader<I>, obj: &mut Object)
     }
 }
 
-fn read_word<I: Iterator<Item=char>>(reader: &mut Reader<I>, _ctx: &mut Object) -> Result<String, ReadException> {
+fn read_word<I: Iterator<Item = char>>(
+    reader: &mut Reader<I>,
+    _ctx: &mut Object,
+) -> Result<String, ReadException> {
     let mut acc: Vec<char> = Vec::new();
     loop {
         match reader.input.peek() {
@@ -291,7 +345,7 @@ const fn is_whitespace(ch: char) -> bool {
     }
 }
 
-fn read_line_comment<I: Iterator<Item=char>>(reader: &mut Reader<I>) {
+fn read_line_comment<I: Iterator<Item = char>>(reader: &mut Reader<I>) {
     loop {
         if let Some(ch) = reader.input.next() {
             if ch == '\n' {
@@ -303,7 +357,7 @@ fn read_line_comment<I: Iterator<Item=char>>(reader: &mut Reader<I>) {
     }
 }
 
-fn skip_whitespace<I: Iterator<Item=char>>(reader: &mut Reader<I>) {
+fn skip_whitespace<I: Iterator<Item = char>>(reader: &mut Reader<I>) {
     let mut next = reader.input.peek();
     while let Some(ch) = next {
         if is_whitespace(*ch) {
@@ -324,28 +378,20 @@ fn skip_whitespace<I: Iterator<Item=char>>(reader: &mut Reader<I>) {
 const fn is_delimiter(ch: char) -> bool {
     is_whitespace(ch)
         || match ch {
-            '"' |
-            '\''|
-            '(' |
-            ')' |
-            '[' |
-            ']' |
-            '{' |
-            '}'
-              => true,
+            '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}' => true,
             _ => false,
         }
-
 }
 
 #[cfg(test)]
 mod tests {
+    use core::num;
     use std::str::Chars;
 
     use crate::{read::*, value::array::ArrayBuilder};
 
-    fn make_reader(s: &str) -> Reader<Chars> {
-        Reader::new( s.chars().peekable())
+    fn make_reader<'a>(s: &'a str) -> Reader<Chars<'a>> {
+        Reader::new(s.chars().peekable())
     }
 
     #[test]
@@ -359,7 +405,7 @@ mod tests {
 
         let mut reader = make_reader(program);
         let reader = &mut reader;
-        let result  = crate::read::read(reader, obj);
+        let result = crate::read::read(reader, obj);
         assert!(result.is_err());
     }
 
@@ -429,7 +475,8 @@ mod tests {
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let result = read_with_ctx::<string::NString>(reader, obj);
-            let ans = string::NString::alloc(&"3 * (4 / 2) - 12 = -6   ".to_string(), ans_obj).unwrap();
+            let ans =
+                string::NString::alloc(&"3 * (4 / 2) - 12 = -6   ".to_string(), ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
@@ -543,7 +590,6 @@ mod tests {
             let ans = symbol::Symbol::alloc(&"s2".to_string(), ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
 
-
             let result = read_with_ctx::<symbol::Symbol>(reader, obj);
             let ans = symbol::Symbol::alloc(&"s3".to_string(), ans_obj).unwrap();
             assert_eq!(result.as_ref(), ans.as_ref());
@@ -560,15 +606,21 @@ mod tests {
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let result = read_with_ctx::<Any>(reader, obj);
-            let ans = symbol::Symbol::alloc(&"-".to_string(), ans_obj).unwrap().into_value();
+            let ans = symbol::Symbol::alloc(&"-".to_string(), ans_obj)
+                .unwrap()
+                .into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let result = read_with_ctx::<Any>(reader, obj).into_value();
-            let ans = symbol::Symbol::alloc(&"+1-2".to_string(), ans_obj).unwrap().into_value();
+            let ans = symbol::Symbol::alloc(&"+1-2".to_string(), ans_obj)
+                .unwrap()
+                .into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
 
             let result = read_with_ctx::<Any>(reader, obj).into_value();
-            let ans = symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_obj).unwrap().into_value();
+            let ans = symbol::Symbol::alloc(&"-2*3/4".to_string(), ans_obj)
+                .unwrap()
+                .into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
         }
 
@@ -588,7 +640,6 @@ mod tests {
             assert_eq!(result.as_ref(), ans.as_ref());
         }
     }
-
 
     #[test]
     fn read_keyword() {
@@ -631,10 +682,18 @@ mod tests {
             let _3 = number::make_integer(3, ans_obj).unwrap().reach(ans_obj);
 
             let ans = list::List::nil();
-            let ans = list::List::alloc(&_3, &ans, ans_obj).unwrap().reach(ans_obj);
-            let ans = list::List::alloc(&_2, &ans, ans_obj).unwrap().reach(ans_obj);
-            let ans = list::List::alloc(&_1, &ans, ans_obj).unwrap().reach(ans_obj);
-            let ans = array::Array::from_list(&ans, None, ans_obj).unwrap().reach(ans_obj);
+            let ans = list::List::alloc(&_3, &ans, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
+            let ans = list::List::alloc(&_2, &ans, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
+            let ans = list::List::alloc(&_1, &ans, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
+            let ans = array::Array::from_list(&ans, None, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
@@ -644,11 +703,19 @@ mod tests {
 
             let result = read::<Any>(program, obj);
 
-
             let _1 = number::make_integer(1, ans_obj).unwrap().reach(ans_obj);
-            let _3_14 = number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj);
-            let hohoho = string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj);
-            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj);
+            let _3_14 = number::Real::alloc(3.14, ans_obj)
+                .unwrap()
+                .into_value()
+                .reach(ans_obj);
+            let hohoho = string::NString::alloc(&"hohoho".to_string(), ans_obj)
+                .unwrap()
+                .into_value()
+                .reach(ans_obj);
+            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj)
+                .unwrap()
+                .into_value()
+                .reach(ans_obj);
 
             let mut builder = ArrayBuilder::<Any>::new(4, ans_obj).unwrap();
 
@@ -683,11 +750,26 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.push( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &number::make_integer(2, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &number::make_integer(3, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            let ans = builder.get().capture(ans_obj);
+            builder
+                .push(
+                    &number::make_integer(1, ans_obj).unwrap().reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
 
+            builder
+                .push(
+                    &number::make_integer(2, ans_obj).unwrap().reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &number::make_integer(3, ans_obj).unwrap().reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            let ans = builder.get().capture(ans_obj);
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
 
@@ -697,10 +779,39 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.push( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder
+                .push(
+                    &number::make_integer(1, ans_obj).unwrap().reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &number::Real::alloc(3.14, ans_obj)
+                        .unwrap()
+                        .into_value()
+                        .reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &string::NString::alloc(&"hohoho".to_string(), ans_obj)
+                        .unwrap()
+                        .into_value()
+                        .reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj)
+                        .unwrap()
+                        .into_value()
+                        .reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
             let ans = builder.get().reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
@@ -728,11 +839,28 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.push( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &number::make_integer(2, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &number::make_integer(3, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
+            builder
+                .push(
+                    &number::make_integer(1, ans_obj).unwrap().reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &number::make_integer(2, ans_obj).unwrap().reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &number::make_integer(3, ans_obj).unwrap().reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
             let ans = builder.get().reach(ans_obj);
-            let ans = tuple::Tuple::from_list(&ans, None, ans_obj).unwrap().reach(ans_obj);
+            let ans = tuple::Tuple::from_list(&ans, None, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
@@ -743,16 +871,46 @@ mod tests {
             let result = read::<Any>(program, obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.push( &number::make_integer(1, ans_obj).unwrap().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &number::Real::alloc(3.14, ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &string::NString::alloc(&"hohoho".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
-            builder.push( &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj), ans_obj).unwrap();
+            builder
+                .push(
+                    &number::make_integer(1, ans_obj).unwrap().reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &number::Real::alloc(3.14, ans_obj)
+                        .unwrap()
+                        .into_value()
+                        .reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &string::NString::alloc(&"hohoho".to_string(), ans_obj)
+                        .unwrap()
+                        .into_value()
+                        .reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
+            builder
+                .push(
+                    &symbol::Symbol::alloc(&"symbol".to_string(), ans_obj)
+                        .unwrap()
+                        .into_value()
+                        .reach(ans_obj),
+                    ans_obj,
+                )
+                .unwrap();
             let ans = builder.get().reach(ans_obj);
-            let ans = tuple::Tuple::from_list(&ans, None, ans_obj).unwrap().reach(ans_obj);
+            let ans = tuple::Tuple::from_list(&ans, None, ans_obj)
+                .unwrap()
+                .reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
-
     }
 
     #[test]
@@ -767,16 +925,19 @@ mod tests {
 
             let result = read::<Any>(program, obj);
 
-            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj).unwrap().into_value().reach(ans_obj);
+            let symbol = symbol::Symbol::alloc(&"symbol".to_string(), ans_obj)
+                .unwrap()
+                .into_value()
+                .reach(ans_obj);
 
             let mut builder = ListBuilder::new(ans_obj);
-            builder.push(compile::literal::quote().cast_value(), ans_obj).unwrap();
+            builder
+                .push(compile::literal::quote().cast_value(), ans_obj)
+                .unwrap();
             builder.push(&symbol, ans_obj).unwrap();
             let ans = builder.get().reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
         }
-
     }
-
 }

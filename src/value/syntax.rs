@@ -1,13 +1,12 @@
-use crate::value::*;
-use crate::value::list::{self, List};
-use crate::ptr::*;
-use crate::err::*;
-use crate::value::iform::IForm;
-use crate::compile::SyntaxException;
 use crate::compile;
+use crate::compile::SyntaxException;
+use crate::err::*;
+use crate::ptr::*;
+use crate::value::iform::IForm;
+use crate::value::list::{self, List};
+use crate::value::*;
 
 use std::fmt::{Debug, Display};
-
 
 pub mod r#match;
 
@@ -16,7 +15,8 @@ pub struct Syntax {
     require: usize,
     optional: usize,
     has_rest: bool,
-    transform_body: fn(&Reachable<List>, &mut compile::CCtx, &mut Object) -> NResult<IForm, SyntaxException>,
+    transform_body:
+        fn(&Reachable<List>, &mut compile::CCtx, &mut Object) -> NResult<IForm, SyntaxException>,
 }
 
 static SYNTAX_TYPEINFO: TypeInfo = new_typeinfo!(
@@ -47,9 +47,16 @@ impl NaviType for Syntax {
 }
 
 impl Syntax {
-
-    pub fn new<T: Into<String>>(name: T, require: usize, optional: usize, has_rest: bool
-        , translate_body: fn(&Reachable<list::List>, &mut crate::compile::CCtx, &mut Object) -> NResult<IForm, SyntaxException>,
+    pub fn new<T: Into<String>>(
+        name: T,
+        require: usize,
+        optional: usize,
+        has_rest: bool,
+        translate_body: fn(
+            &Reachable<list::List>,
+            &mut crate::compile::CCtx,
+            &mut Object,
+        ) -> NResult<IForm, SyntaxException>,
     ) -> Self {
         Syntax {
             name: name.into(),
@@ -71,13 +78,17 @@ impl Syntax {
         }
     }
 
-    pub fn transform(&self, args: &Reachable<List>, ctx: &mut compile::CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+    pub fn transform(
+        &self,
+        args: &Reachable<List>,
+        ctx: &mut compile::CCtx,
+        obj: &mut Object,
+    ) -> NResult<IForm, SyntaxException> {
         (self.transform_body)(args, ctx, obj)
     }
-
 }
 
-impl Eq for Syntax { }
+impl Eq for Syntax {}
 
 impl PartialEq for Syntax {
     fn eq(&self, other: &Self) -> bool {

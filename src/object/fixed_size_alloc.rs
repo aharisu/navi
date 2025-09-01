@@ -1,4 +1,4 @@
-use std::{ptr::NonNull, mem::size_of};
+use std::{mem::size_of, ptr::NonNull};
 
 pub struct FixedSizeAllocator<T> {
     chunk_ptr: NonNull<Chunk<T>>,
@@ -6,7 +6,7 @@ pub struct FixedSizeAllocator<T> {
     chunk_layout: std::alloc::Layout,
 }
 
-impl <T> FixedSizeAllocator<T> {
+impl<T> FixedSizeAllocator<T> {
     pub fn new() -> Self {
         //指定された型はusize(ポインタ幅)より大きくないといけない
         debug_assert!(size_of::<usize>() <= size_of::<T>());
@@ -33,13 +33,16 @@ impl <T> FixedSizeAllocator<T> {
             ptr.as_ptr()
         } else {
             //空いているチャンクを探す
-            if let Some(chunk) = self.all_chunks.iter_mut().find(|ptr| ptr.as_ref().available()) {
+            if let Some(chunk) = self
+                .all_chunks
+                .iter_mut()
+                .find(|ptr| ptr.as_ref().available())
+            {
                 //空いているチャンクが見つかったら、次回使用時のために保存しておく
                 self.chunk_ptr = chunk.clone();
 
                 //見つけたチャンクからアロケート
                 chunk.as_mut().alloc().unwrap().as_ptr()
-
             } else {
                 //空きチャンクがない場合は新しいチャンクを作る
                 let new_chunk = Self::new_chunk(self.chunk_layout);
@@ -73,7 +76,7 @@ impl <T> FixedSizeAllocator<T> {
 
     pub unsafe fn for_each_used_value<F>(&self, callback: F)
     where
-        F: Fn(&mut T)
+        F: Fn(&mut T),
     {
         self.all_chunks.iter().for_each(|chunk| {
             chunk.as_ref().for_each_used_value(&callback);
@@ -91,7 +94,7 @@ impl <T> FixedSizeAllocator<T> {
         let datasize = datasize - size_of::<Chunk<T>>();
         let chunk = data as *mut Chunk<T>;
         //チャンクヘッダとして使用した領域分ポインタを進める
-        let data = unsafe{ data.add(size_of::<Chunk<T>>()) };
+        let data = unsafe { data.add(size_of::<Chunk<T>>()) };
 
         //Chunk内で使用中の領域をBitmapで管理する。
         //Bitmapは確保したヒープ内のChunkの後ろ、データの前に置く。
@@ -122,19 +125,17 @@ impl <T> FixedSizeAllocator<T> {
         //確保した領域の先頭にチャンクを書き込む
         unsafe {
             //確保したヒープの先頭にはチャンク情報を書き込む
-            chunk.write(Chunk
-                {
-                    data_start: data as *mut T,
-                    next: data as *mut T,
-                });
+            chunk.write(Chunk {
+                data_start: data as *mut T,
+                next: data as *mut T,
+            });
         }
 
         chunk
     }
-
 }
 
-impl <T> Drop for FixedSizeAllocator<T> {
+impl<T> Drop for FixedSizeAllocator<T> {
     fn drop(&mut self) {
         let ptr = self.chunk_ptr.as_ptr();
         unsafe {
@@ -148,11 +149,11 @@ struct Chunk<T> {
     next: *mut T,
 }
 
-impl <T> Chunk<T> {
+impl<T> Chunk<T> {
     pub unsafe fn alloc(&mut self) -> Option<NonNull<T>> {
         let addr = ptr_to_addr(self.next);
         //次に確保するスペースのアドレスが1なら、空き領域なし
-        if addr == 1{
+        if addr == 1 {
             None
         } else {
             let ptr = self.next;
@@ -241,7 +242,7 @@ impl <T> Chunk<T> {
 
     pub unsafe fn for_each_used_value<F>(&self, callback: F)
     where
-        F: Fn(&mut T)
+        F: Fn(&mut T),
     {
         let chunk_ptr = self as *const Chunk<T>;
         let mut bitmap_ptr = chunk_ptr.add(1) as *const usize;
@@ -269,15 +270,12 @@ impl <T> Chunk<T> {
 
             bitmap_ptr = bitmap_ptr.add(1);
         }
-
     }
 
     pub unsafe fn available(&self) -> bool {
         //次に確保するスペースのアドレスが1以外なら、空き領域がある
         ptr_to_addr(self.next) != 1
     }
-
-
 }
 
 union PtrAddr {
@@ -290,15 +288,12 @@ fn ptr_to_addr<T>(ptr: *mut T) -> usize {
     unsafe {
         PtrAddr {
             ptr: ptr as *mut u8,
-        }.addr
+        }
+        .addr
     }
 }
 
 #[inline]
 fn addr_to_ptr<T>(addr: usize) -> *mut T {
-    unsafe {
-        PtrAddr {
-            addr: addr
-        }.ptr as *mut T
-    }
+    unsafe { PtrAddr { addr: addr }.ptr as *mut T }
 }

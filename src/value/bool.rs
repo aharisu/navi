@@ -1,14 +1,14 @@
-use crate::value::*;
 use crate::ptr::*;
+use crate::value::*;
 use std::fmt::{self, Debug, Display};
 
-pub struct Bool {
-}
+pub struct Bool {}
 
 static BOOL_TYPEINFO: TypeInfo = new_typeinfo!(
     Bool,
     "Bool",
-    0, None, //Immidiate Valueだけなのでサイズは常に0
+    0,
+    None, //Immidiate Valueだけなのでサイズは常に0
     Bool::eq,
     Bool::clone_inner,
     Display::fmt,
@@ -31,9 +31,7 @@ impl NaviType for Bool {
     }
 }
 
-
 impl Bool {
-
     #[inline(always)]
     pub fn true_() -> Reachable<Bool> {
         Reachable::<Bool>::new_immidiate(IMMIDATE_TRUE)
@@ -46,14 +44,14 @@ impl Bool {
 
     #[inline(always)]
     pub fn is_true(&self) -> bool {
-        std::ptr::eq(self as *const Bool, IMMIDATE_TRUE as *const Bool)
+        let ptr = self as *const Bool;
+        std::ptr::eq(ptr, IMMIDATE_TRUE as *const Bool)
     }
 
     #[inline(always)]
     pub fn is_false(&self) -> bool {
         !self.is_true()
     }
-
 }
 
 impl Eq for Bool {}
@@ -65,11 +63,7 @@ impl PartialEq for Bool {
 }
 
 fn display(this: &Bool, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", if this.is_true() {
-            "true"
-        } else {
-            "false"
-        })
+    write!(f, "{}", if this.is_true() { "true" } else { "false" })
 }
 
 impl Display for Bool {

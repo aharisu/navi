@@ -1,5 +1,5 @@
-use crate::value::*;
 use crate::ptr::*;
+use crate::value::*;
 use core::panic;
 use std::fmt::{self, Debug, Display};
 use std::io::Read;
@@ -42,12 +42,15 @@ impl NString {
         std::mem::size_of::<NString>() + self.len_inbytes
     }
 
-    pub fn alloc<A: Allocator>(str: &String, allocator : &mut A) -> NResult<NString, OutOfMemory> {
+    pub fn alloc<A: Allocator>(str: &String, allocator: &mut A) -> NResult<NString, OutOfMemory> {
         Self::alloc_inner(str, allocator)
     }
 
     //NStringとSymbol,Keywordクラス共有のアロケーション用関数。TはNSTringもしくはSymbol、Keywordのみ対応。
-    pub(crate) fn alloc_inner<T: NaviType, A: Allocator>(str: &String, allocator : &mut A) -> NResult<T, OutOfMemory> {
+    pub(crate) fn alloc_inner<T: NaviType, A: Allocator>(
+        str: &String,
+        allocator: &mut A,
+    ) -> NResult<T, OutOfMemory> {
         let len_inbytes = str.len();
         let ptr = allocator.alloc_with_additional_size::<T>(len_inbytes)?;
 
@@ -71,10 +74,9 @@ impl NString {
 
         StringRef::new(str)
     }
-
 }
 
-impl Eq for NString { }
+impl Eq for NString {}
 
 impl PartialEq for NString {
     fn eq(&self, other: &Self) -> bool {
@@ -99,10 +101,9 @@ impl Ord for NString {
 }
 
 fn display(this: &NString, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    //write!(f, "\"{}\"", &**(this.as_string()))
+    write!(f, "\"{}\"", &**(this.as_string()))
 
-    Display::fmt( &(*this.as_string()), f)
-
+    //Display::fmt( &(*this.as_string()), f)
 }
 
 impl Display for NString {
@@ -154,9 +155,9 @@ pub fn static_string<T: Into<String>>(str: T) -> StaticString {
 
     let mut static_str = StaticString {
         v: NString {
-            len_inbytes: len_inbytes
+            len_inbytes: len_inbytes,
         },
-        buf: Default::default()
+        buf: Default::default(),
     };
 
     (&str.as_bytes()[..]).read(&mut static_str.buf).unwrap();

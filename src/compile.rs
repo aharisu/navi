@@ -1,18 +1,18 @@
 use once_cell::sync::Lazy;
 
+use crate::err::{self, Exception, NResult, OutOfMemory};
 use crate::object::mm::GCAllocationStruct;
-use crate::ptr::*;
-use crate::err::{self, NResult, OutOfMemory, Exception};
 use crate::object::Object;
-use crate::value::*;
+use crate::ptr::*;
 use crate::value::any::Any;
+use crate::value::app::{Param, ParamKind, Parameter};
 use crate::value::array::ArrayBuilder;
-use crate::value::symbol::Symbol;
-use crate::value::list::List;
-use crate::value::syntax::Syntax;
-use crate::value::iform::*;
 use crate::value::func::*;
-use crate::value::app::{Parameter, ParamKind, Param};
+use crate::value::iform::*;
+use crate::value::list::List;
+use crate::value::symbol::Symbol;
+use crate::value::syntax::Syntax;
+use crate::value::*;
 
 struct LocalVar {
     pub name: Cap<Symbol>,
@@ -70,7 +70,10 @@ impl From<SyntaxException> for Exception {
     }
 }
 
-pub fn compile_transform(sexp: &Reachable<Any>, obj: &mut Object) -> NResult<iform::IForm, SyntaxException> {
+pub fn compile_transform(
+    sexp: &Reachable<Any>,
+    obj: &mut Object,
+) -> NResult<iform::IForm, SyntaxException> {
     let mut frames = Vec::new();
     let mut ctx = CCtx {
         frames: &mut frames,
@@ -81,7 +84,10 @@ pub fn compile_transform(sexp: &Reachable<Any>, obj: &mut Object) -> NResult<ifo
     pass_transform(sexp, &mut ctx, obj)
 }
 
-pub fn compile(sexp: &Reachable<Any>, obj: &mut Object) -> NResult<compiled::Code, SyntaxException> {
+pub fn compile(
+    sexp: &Reachable<Any>,
+    obj: &mut Object,
+) -> NResult<compiled::Code, SyntaxException> {
     let iform = compile_transform(sexp, obj)?.reach(obj);
 
     let code = codegen::code_generate(&iform, obj)?;
@@ -89,7 +95,9 @@ pub fn compile(sexp: &Reachable<Any>, obj: &mut Object) -> NResult<compiled::Cod
 }
 
 #[inline]
-fn alloc_into_iform<T: AsIForm>(result: Result<Ref<T>, OutOfMemory>) -> NResult<IForm, SyntaxException> {
+fn alloc_into_iform<T: AsIForm>(
+    result: Result<Ref<T>, OutOfMemory>,
+) -> NResult<IForm, SyntaxException> {
     match result {
         Ok(v) => Ok(v.into_iform()),
         Err(_) => Err(SyntaxException::OutOfMemory),
@@ -99,28 +107,26 @@ fn alloc_into_iform<T: AsIForm>(result: Result<Ref<T>, OutOfMemory>) -> NResult<
 //
 // pass 1
 // Covnerts S expression into intermediates form (IForm).
-fn pass_transform(sexp: &Reachable<Any>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn pass_transform(
+    sexp: &Reachable<Any>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     if let Some(list) = sexp.try_cast::<List>() {
         if list.as_ref().is_nil() {
             alloc_into_iform(IFormConst::alloc(sexp, obj))
-
         } else {
             transform_apply(list, ctx, obj)
         }
-
     } else if let Some(symbol) = sexp.try_cast::<Symbol>() {
         transform_symbol(symbol, ctx, obj)
-
     } else if let Some(tuple) = sexp.try_cast::<tuple::Tuple>() {
         transform_tuple(tuple, ctx, obj)
-
     } else if let Some(array) = sexp.try_cast::<array::Array<Any>>() {
         transform_array(array, ctx, obj)
-
     } else {
         alloc_into_iform(IFormConst::alloc(sexp, obj))
     }
-
 }
 
 enum LookupResult<'a> {
@@ -132,19 +138,17 @@ enum LookupResult<'a> {
 fn lookup_localvar<'a>(symbol: &Symbol, ctx: &'a mut CCtx) -> LookupResult<'a> {
     //この関数内ではGCが発生しないため値を直接参照する
     let mut symbol = symbol;
-    let mut last_found_lvar:Option<&mut LocalVar> = None;
+    let mut last_found_lvar: Option<&mut LocalVar> = None;
 
     for frame in ctx.frames.iter_mut().rev() {
         for lvar in frame.iter_mut().rev() {
             if lvar.name.as_ref() == symbol {
                 //let構文などで直接初期化式が指定してある場合は、さらに細かく調査する
                 if let Some(init_form) = &lvar.init_form {
-
                     if let Some(lref) = init_form.try_cast::<IFormLRef>() {
                         //ローカル変数が別の変数を束縛していたら、ループを続けて対象の変数を探す
                         symbol = lref.as_ref().symbol().as_ref();
                         last_found_lvar = Some(lvar);
-
                     } else if let Some(constant) = init_form.try_cast::<IFormConst>() {
                         //ローカル変数が定数を束縛していたら直接定数を返す
 
@@ -164,18 +168,16 @@ fn lookup_localvar<'a>(symbol: &Symbol, ctx: &'a mut CCtx) -> LookupResult<'a> {
 
     if let Some(lvar) = last_found_lvar {
         LookupResult::Var(lvar)
-
     } else {
         LookupResult::Notfound
     }
 }
 
-
 fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Option<Ref<Any>> {
     match lookup_localvar(symbol, ctx) {
         LookupResult::Var(lvar) => {
             //ローカル変数が、グローバル変数を束縛していたら
-            if let Some(init_form) =  &lvar.init_form {
+            if let Some(init_form) = &lvar.init_form {
                 if let Some(gref) = init_form.try_cast::<IFormGRef>() {
                     //find global & return
                     return obj.find_global_value(gref.as_ref().symbol().as_ref());
@@ -185,9 +187,7 @@ fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Op
             //funのパラメータなどの追跡不能なローカル変数の場合はNotfoundを返す
             None
         }
-        LookupResult::Const(constant) => {
-            Some(constant.value())
-        }
+        LookupResult::Const(constant) => Some(constant.value()),
         LookupResult::Notfound => {
             //find global
             obj.find_global_value(symbol)
@@ -195,21 +195,23 @@ fn get_binding_variable(symbol: &Symbol, ctx: &mut CCtx, obj: &mut Object) -> Op
     }
 }
 
-fn transform_symbol(symbol: &Reachable<Symbol>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn transform_symbol(
+    symbol: &Reachable<Symbol>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     match lookup_localvar(symbol.as_ref(), ctx) {
-        LookupResult::Var(_lvar) => {
-            alloc_into_iform(IFormLRef::alloc(symbol, obj))
-        }
-        LookupResult::Const(constant) => {
-            Ok(Ref::new(constant).into_iform())
-        }
-        LookupResult::Notfound => {
-            alloc_into_iform(IFormGRef::alloc(symbol, obj))
-        }
+        LookupResult::Var(_lvar) => alloc_into_iform(IFormLRef::alloc(symbol, obj)),
+        LookupResult::Const(constant) => Ok(Ref::new(constant).into_iform()),
+        LookupResult::Notfound => alloc_into_iform(IFormGRef::alloc(symbol, obj)),
     }
 }
 
-fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn transform_apply(
+    list: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let is_tail = ctx.tail;
     let app = list.as_ref().head();
 
@@ -221,7 +223,6 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
                 return transform_syntax(&syntax.clone().reach(obj), list, ctx, obj);
             }
         }
-
     } else if let Some(syntax) = app.try_cast::<Syntax>() {
         return transform_syntax(&syntax.clone().reach(obj), list, ctx, obj);
     }
@@ -234,7 +235,7 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     };
 
     //適用される値を変換
-    let app =  pass_transform(&app.reach(obj), &mut ctx, obj)?.reach(obj);
+    let app = pass_transform(&app.reach(obj), &mut ctx, obj)?.reach(obj);
 
     //引数部分の値を変換
     let count = list.as_ref().tail().as_ref().count();
@@ -250,7 +251,11 @@ fn transform_apply(list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     alloc_into_iform(IFormCall::alloc(&app, &args, is_tail, obj))
 }
 
-fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn transform_tuple(
+    tuple: &Reachable<tuple::Tuple>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let is_tail = ctx.tail;
     let mut ctx = CCtx {
         frames: ctx.frames,
@@ -273,7 +278,11 @@ fn transform_tuple(tuple: &Reachable<tuple::Tuple>, ctx: &mut CCtx, obj: &mut Ob
     alloc_into_iform(IFormCall::alloc(&app, &args, is_tail, obj))
 }
 
-fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn transform_array(
+    array: &Reachable<array::Array<Any>>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let is_tail = ctx.tail;
     let mut ctx = CCtx {
         frames: ctx.frames,
@@ -296,7 +305,12 @@ fn transform_array(array: &Reachable<array::Array<Any>>, ctx: &mut CCtx, obj: &m
     alloc_into_iform(IFormCall::alloc(&app, &args, is_tail, obj))
 }
 
-fn transform_syntax(syntax: &Reachable<Syntax>, list: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn transform_syntax(
+    syntax: &Reachable<Syntax>,
+    list: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let syntax = syntax.as_ref();
     let args = list.as_ref().tail().reach(obj);
 
@@ -305,13 +319,18 @@ fn transform_syntax(syntax: &Reachable<Syntax>, list: &Reachable<List>, ctx: &mu
         //Syntaxを実行してIFormに変換する
         syntax.transform(&args, ctx, obj)
     } else {
-        Err(SyntaxException::MalformedFormat(
-            err::MalformedFormat::new(Some(list.make().into_value()), "Malformed format syntax.")
-        ))
+        Err(SyntaxException::MalformedFormat(err::MalformedFormat::new(
+            Some(list.make().into_value()),
+            "Malformed format syntax.",
+        )))
     }
 }
 
-fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_if(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let mut test_ctx = CCtx {
         frames: ctx.frames,
         toplevel: false,
@@ -342,8 +361,16 @@ fn syntax_if(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResul
     alloc_into_iform(IFormIf::alloc(&pred, &true_, &false_, obj))
 }
 
-fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
-    fn cond_inner(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_cond(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
+    fn cond_inner(
+        args: &Reachable<List>,
+        ctx: &mut CCtx,
+        obj: &mut Object,
+    ) -> NResult<IForm, SyntaxException> {
         let is_last = args.as_ref().tail().as_ref().is_nil();
 
         let clause = args.as_ref().head();
@@ -376,10 +403,10 @@ fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NRes
             } else {
                 //続きの節があるなら再帰的に変換する
                 cond_inner(&args.as_ref().tail().reach(obj), ctx, obj)?
-            }.reach(obj);
+            }
+            .reach(obj);
 
             alloc_into_iform(IFormIf::alloc(&test_iform, &exprs_iform, &next_iform, obj))
-
         } else {
             Err(err::TypeMismatch::new(clause, list::List::typeinfo()).into())
         }
@@ -400,7 +427,11 @@ fn syntax_cond(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NRes
     }
 }
 
-fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn transform_begin(
+    body: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     //Beginは現在のコンテキスト(トップレベルや末尾文脈)をそのまま引き継いで各式を評価します
 
     let size = body.as_ref().count();
@@ -431,11 +462,19 @@ fn transform_begin(body: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     alloc_into_iform(IFormSeq::alloc(&builder.get().reach(obj), obj))
 }
 
-fn syntax_begin(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_begin(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     transform_begin(args, ctx, obj)
 }
 
-fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_def_recv(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     //def-recvはトップレベルのコンテキストで使用可能(letやfunで作成されたローカルフレーム内では使用不可能)
     if ctx.frames.is_empty() {
         let pat = args.as_ref().head().reach(obj);
@@ -447,7 +486,11 @@ fn syntax_def_recv(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> 
     }
 }
 
-fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_fun(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let params = args.as_ref().head().reach(obj);
     if let Some(params) = params.try_cast::<List>() {
         let mut builder_params = ArrayBuilder::<Symbol>::new(params.as_ref().count(), obj)?;
@@ -462,7 +505,6 @@ fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
                     name: symbol.clone().capture(obj),
                     init_form: None,
                 });
-
             } else {
                 return Err(err::TypeMismatch::new(param, symbol::Symbol::typeinfo()).into());
             }
@@ -492,7 +534,11 @@ fn syntax_fun(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
     }
 }
 
-fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_local(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     //ローカルフレームを作成する
     let frame: Vec<LocalVar> = Vec::new();
 
@@ -513,7 +559,11 @@ fn syntax_local(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NRe
     alloc_into_iform(IFormLocal::alloc(&body, obj))
 }
 
-fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_let(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     if ctx.toplevel == false {
         return Err(SyntaxException::DisallowContext);
     }
@@ -532,9 +582,9 @@ fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
         //現在のローカルフレームに新しく定義した変数を追加
         if let Some(cur_frame) = ctx.frames.last_mut() {
             cur_frame.push(LocalVar {
-                    name: symbol.make().capture(obj),
-                    init_form: Some(iform.make().capture(obj)),
-                });
+                name: symbol.make().capture(obj),
+                init_form: Some(iform.make().capture(obj)),
+            });
         }
 
         alloc_into_iform(IFormLet::alloc(&symbol, &iform, false, obj))
@@ -543,7 +593,11 @@ fn syntax_let(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
     }
 }
 
-fn syntax_let_global(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_let_global(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let symbol = args.as_ref().head().reach(obj);
     if let Some(symbol) = symbol.try_cast::<Symbol>() {
         let mut ctx = CCtx {
@@ -561,33 +615,54 @@ fn syntax_let_global(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -
     }
 }
 
-fn syntax_quote(args: &Reachable<List>, _ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_quote(
+    args: &Reachable<List>,
+    _ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let val = args.as_ref().head().reach(obj);
     alloc_into_iform(IFormConst::alloc(&val, obj))
 }
 
-
 #[allow(unused_variables)]
-fn syntax_unquote(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_unquote(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     unimplemented!()
 }
 
 #[allow(unused_variables)]
-fn syntax_bind(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_bind(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     unimplemented!()
 }
 
-fn syntax_match(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_match(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     //パターン部が一つもなければUnitを返す
     if args.as_ref().is_nil() {
         alloc_into_iform(IFormConst::alloc(&tuple::Tuple::unit().into_value(), obj))
     } else {
-        let match_expr = crate::value::syntax::r#match::translate(args, obj)?.into_value().reach(obj);
+        let match_expr = crate::value::syntax::r#match::translate(args, obj)?
+            .into_value()
+            .reach(obj);
         pass_transform(&match_expr, ctx, obj)
     }
 }
 
-fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_fail_catch(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     //fail-catchはmatch式の中でだけ使用される特殊な構文
     //引数の式を評価し、値がFAILでなければその値を返す。
     //引数全てFAILならFAILを返す。
@@ -620,15 +695,22 @@ fn syntax_fail_catch(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -
         unsafe { builder.push_uncheck(&iform, obj) };
     }
 
-    alloc_into_iform(IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::MatchSuccess, obj))
+    alloc_into_iform(IFormAndOr::alloc(
+        &builder.get().reach(obj),
+        AndOrKind::MatchSuccess,
+        obj,
+    ))
 }
 
-fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_and(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let size = args.as_ref().count();
     //(and)のように引数が一つもなければ
     if size == 0 {
         alloc_into_iform(IFormConst::alloc(&bool::Bool::true_().into_value(), obj))
-
     } else {
         let mut builder = array::ArrayBuilder::new(size, obj)?;
 
@@ -653,16 +735,23 @@ fn syntax_and(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResu
             unsafe { builder.push_uncheck(&iform, obj) };
         }
 
-        alloc_into_iform(IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::And, obj))
+        alloc_into_iform(IFormAndOr::alloc(
+            &builder.get().reach(obj),
+            AndOrKind::And,
+            obj,
+        ))
     }
 }
 
-fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_or(
+    args: &Reachable<List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     let size = args.as_ref().count();
     //(or)のように引数が一つもなければ
     if size == 0 {
         alloc_into_iform(IFormConst::alloc(&bool::Bool::false_().into_value(), obj))
-
     } else {
         let mut builder = array::ArrayBuilder::new(size, obj)?;
 
@@ -687,28 +776,39 @@ fn syntax_or(args: &Reachable<List>, ctx: &mut CCtx, obj: &mut Object) -> NResul
             unsafe { builder.push_uncheck(&iform, obj) };
         }
 
-        alloc_into_iform(IFormAndOr::alloc(&builder.get().reach(obj), AndOrKind::Or, obj))
+        alloc_into_iform(IFormAndOr::alloc(
+            &builder.get().reach(obj),
+            AndOrKind::Or,
+            obj,
+        ))
     }
 }
 
-fn syntax_object_switch(args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_object_switch(
+    args: &Reachable<list::List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
     //TODO 末尾文脈でのみ許可するようにしたい
 
     //object-switchはトップレベルのコンテキストで使用可能(localやfunで作成されたローカルフレーム内では使用不可能)
     if ctx.frames.is_empty() {
-
         let target_obj = args.as_ref().head().reach(obj);
         let iform = pass_transform(&target_obj, ctx, obj)?;
         let iform = iform.reach(obj);
 
-      alloc_into_iform(IFormObjectSwitch::alloc(Some(&iform), obj))
+        alloc_into_iform(IFormObjectSwitch::alloc(Some(&iform), obj))
     } else {
         Err(SyntaxException::DisallowContext)
     }
 }
 
-fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, obj: &mut Object) -> NResult<IForm, SyntaxException> {
+fn syntax_return_object_switch(
+    _args: &Reachable<list::List>,
+    ctx: &mut CCtx,
+    obj: &mut Object,
+) -> NResult<IForm, SyntaxException> {
     //TODO グローバル環境のbegin内にある場合、続きの式があるので動作がおかしくなる。
     //TODO 末尾文脈でのみ許可するようにしたい
 
@@ -723,16 +823,16 @@ fn syntax_return_object_switch(_args: &Reachable<list::List>, ctx: &mut CCtx, ob
 mod codegen {
     use core::panic;
 
-    use crate::object::Allocator;
-    use crate::object::mm::ptr_to_usize;
-    use crate::ptr::*;
     use crate::err::*;
-    use crate::vm;
+    use crate::object::mm::ptr_to_usize;
+    use crate::object::Allocator;
     use crate::object::Object;
-    use crate::value::{*, self};
+    use crate::ptr::*;
     use crate::value::any::Any;
     use crate::value::iform::*;
     use crate::value::symbol::Symbol;
+    use crate::value::{self, *};
+    use crate::vm;
     use crate::vm::{write_u16, write_u8, write_usize};
 
     struct LocalFrame {
@@ -748,14 +848,17 @@ mod codegen {
         pub frames: &'a mut Vec<LocalFrame>,
     }
 
-    impl <'a> CGCtx<'a> {
+    impl<'a> CGCtx<'a> {
         pub fn add_constant(&mut self, v: Ref<Any>, obj: &mut Object) -> usize {
             //同じ値が既に存在しているなら
-            if let Some((index, _)) = self.constants.iter().enumerate()
-                    .find(|(_index, constant)|  constant.as_ref() == v.as_ref()) {
+            if let Some((index, _)) = self
+                .constants
+                .iter()
+                .enumerate()
+                .find(|(_index, constant)| constant.as_ref() == v.as_ref())
+            {
                 //新しく追加はせずに既存の値のインデックスを返す
                 index
-
             } else {
                 let result = self.constants.len();
                 self.constants.push(v.capture(obj));
@@ -771,9 +874,12 @@ mod codegen {
     //
     //
 
-    pub fn code_generate(iform: &Reachable<IForm>, obj: &mut Object) -> NResult<compiled::Code, OutOfMemory> {
-        let mut constants:Vec<Cap<Any>> = Vec::new();
-        let mut frames:Vec<LocalFrame> = Vec::new();
+    pub fn code_generate(
+        iform: &Reachable<IForm>,
+        obj: &mut Object,
+    ) -> NResult<compiled::Code, OutOfMemory> {
+        let mut constants: Vec<Cap<Any>> = Vec::new();
+        let mut frames: Vec<LocalFrame> = Vec::new();
 
         let mut ctx = CGCtx {
             buf: Vec::new(),
@@ -788,42 +894,36 @@ mod codegen {
 
     fn pass_codegen(iform: &Reachable<IForm>, ctx: &mut CGCtx, obj: &mut Object) {
         match iform.as_ref().kind() {
-            IFormKind::Let => {
-                codegen_let(unsafe { iform.cast_unchecked::<IFormLet>() }, ctx, obj)
-            },
-            IFormKind::If => {
-                codegen_if(unsafe { iform.cast_unchecked::<IFormIf>() }, ctx, obj)
-            },
+            IFormKind::Let => codegen_let(unsafe { iform.cast_unchecked::<IFormLet>() }, ctx, obj),
+            IFormKind::If => codegen_if(unsafe { iform.cast_unchecked::<IFormIf>() }, ctx, obj),
             IFormKind::Local => {
                 codegen_local(unsafe { iform.cast_unchecked::<IFormLocal>() }, ctx, obj)
-            },
+            }
             IFormKind::LRef => {
                 codegen_lref(unsafe { iform.cast_unchecked::<IFormLRef>() }, ctx, obj)
-            },
+            }
             IFormKind::GRef => {
                 codegen_gref(unsafe { iform.cast_unchecked::<IFormGRef>() }, ctx, obj)
-            },
-            IFormKind::Fun => {
-                codegen_fun(unsafe { iform.cast_unchecked::<IFormFun>() }, ctx, obj)
-            },
-            IFormKind::Seq => {
-                codegen_seq(unsafe { iform.cast_unchecked::<IFormSeq>() }, ctx, obj)
-            },
+            }
+            IFormKind::Fun => codegen_fun(unsafe { iform.cast_unchecked::<IFormFun>() }, ctx, obj),
+            IFormKind::Seq => codegen_seq(unsafe { iform.cast_unchecked::<IFormSeq>() }, ctx, obj),
             IFormKind::Call => {
                 codegen_call(unsafe { iform.cast_unchecked::<IFormCall>() }, ctx, obj)
-            },
+            }
             IFormKind::Const => {
                 codegen_const(unsafe { iform.cast_unchecked::<IFormConst>() }, ctx, obj)
-            },
+            }
             IFormKind::AndOr => {
                 codegen_andor(unsafe { iform.cast_unchecked::<IFormAndOr>() }, ctx, obj)
-            },
+            }
             IFormKind::DefRecv => {
                 codegen_defrecv(unsafe { iform.cast_unchecked::<IFormDefRecv>() }, ctx, obj)
-            },
-            IFormKind::ObjectSwitch => {
-                codegen_object_switch(unsafe { iform.cast_unchecked::<IFormObjectSwitch>() }, ctx, obj)
-            },
+            }
+            IFormKind::ObjectSwitch => codegen_object_switch(
+                unsafe { iform.cast_unchecked::<IFormObjectSwitch>() },
+                ctx,
+                obj,
+            ),
         }
     }
 
@@ -841,8 +941,6 @@ mod codegen {
             let index = ctx.add_constant(symbol, obj);
 
             write_u16(index as u16, &mut ctx.buf);
-
-
         } else {
             //ローカルフレーム内へのdef
             write_u8(vm::tag::LET_LOCAL, &mut ctx.buf);
@@ -921,14 +1019,15 @@ mod codegen {
     }
 
     fn codegen_lref(iform: &Reachable<IFormLRef>, ctx: &mut CGCtx, obj: &mut Object) {
-        let (tag, frame_offset, cell_index) = match lookup_local_refer(iform.as_ref().symbol(), ctx, obj) {
-            LocalRefer::Normal(frame_offset, cell_index) => {
-                (vm::tag::REF_LOCAL, frame_offset, cell_index)
-            }
-            LocalRefer::FreeVar(frame_offset, cell_index) => {
-                (vm::tag::REF_FREE, frame_offset, cell_index)
-            }
-        };
+        let (tag, frame_offset, cell_index) =
+            match lookup_local_refer(iform.as_ref().symbol(), ctx, obj) {
+                LocalRefer::Normal(frame_offset, cell_index) => {
+                    (vm::tag::REF_LOCAL, frame_offset, cell_index)
+                }
+                LocalRefer::FreeVar(frame_offset, cell_index) => {
+                    (vm::tag::REF_FREE, frame_offset, cell_index)
+                }
+            };
 
         debug_assert!(frame_offset < u16::MAX as usize);
         debug_assert!(cell_index < u16::MAX as usize);
@@ -963,7 +1062,7 @@ mod codegen {
         //クロージャフレームの最初にはクロージャ自身が入っているためダミーのシンボルを先頭に追加
         new_frame.push(super::literal::app_symbol().make().capture(obj));
 
-        for index in 0 ..  iform.as_ref().len_params() {
+        for index in 0..iform.as_ref().len_params() {
             new_frame.push(iform.as_ref().get_param(index).capture(obj));
         }
 
@@ -971,7 +1070,7 @@ mod codegen {
             frame: new_frame,
             free_vars: Some(Vec::new()),
         });
-        let mut constants:Vec<Cap<Any>> = Vec::new();
+        let mut constants: Vec<Cap<Any>> = Vec::new();
         let buf_body = {
             let mut ctx_body = CGCtx {
                 buf: Vec::new(),
@@ -1014,7 +1113,6 @@ mod codegen {
 
         //Closureに自由変数を取り込むための命令を書き込む
         for (index, (_, refer)) in free_vars.into_iter().enumerate() {
-
             let (tag, frame_offset, cell_index) = match refer {
                 LocalRefer::Normal(frame_offset, cell_index) => {
                     (vm::tag::CAPTURE_FREE_REF_LOCAL, frame_offset, cell_index)
@@ -1081,14 +1179,13 @@ mod codegen {
             let index = ctx.add_constant(iform.as_ref().value(), obj);
 
             write_u16(index as u16, &mut ctx.buf);
-
-        } else if value::value_is_pointer(v) { //値はポインタか？
+        } else if value::value_is_pointer(v) {
+            //値はポインタか？
             //ヒープ外へのポインタはStaticなオブジェクト
             write_u8(vm::tag::CONST_STATIC, &mut ctx.buf);
             //Staticなオブジェクトは移動することがないのでポインタをそのまま書き込む
             let data = ptr_to_usize(v as *const Any);
             write_usize(data, &mut ctx.buf);
-
         } else {
             //IMMIDIATE VALUEならそのまま書き込む
             write_u8(vm::tag::CONST_IMMIDIATE, &mut ctx.buf);
@@ -1111,7 +1208,11 @@ mod codegen {
                     constants: ctx.constants,
                     frames: ctx.frames,
                 };
-                pass_codegen(&iform.as_ref().get_expr(index).reach(obj), &mut ctx_expr, obj);
+                pass_codegen(
+                    &iform.as_ref().get_expr(index).reach(obj),
+                    &mut ctx_expr,
+                    obj,
+                );
 
                 ctx_expr.buf
             };
@@ -1128,12 +1229,15 @@ mod codegen {
             //結果が確定したときにJUMPする先のオフセットを計算
             //全ての式の一番後ろの位置を計算している(+3は各式を評価した後にand/or判定するためのタグとオフセットの3Byte分。
             //-3は一番後ろの式にはand/or判定タグがなく帳消しにするため)
-            let offset = expr_buf_vec.iter().fold(0isize, |total, buf| total + buf.len() as isize + 3) - 3;
+            let offset = expr_buf_vec
+                .iter()
+                .fold(0isize, |total, buf| total + buf.len() as isize + 3)
+                - 3;
             if offset > 0 {
                 let tag = match kind {
                     AndOrKind::And => vm::tag::AND,
-                    AndOrKind::Or =>  vm::tag::OR,
-                    AndOrKind::MatchSuccess =>  vm::tag::MATCH_SUCCESS,
+                    AndOrKind::Or => vm::tag::OR,
+                    AndOrKind::MatchSuccess => vm::tag::MATCH_SUCCESS,
                 };
                 write_u8(tag, &mut ctx.buf);
 
@@ -1154,8 +1258,12 @@ mod codegen {
         write_u16(index as u16, &mut ctx.buf);
     }
 
-    fn codegen_object_switch(iform: &Reachable<IFormObjectSwitch>, ctx: &mut CGCtx, obj: &mut Object) {
-        if let Some(target_obj) =  iform.as_ref().target_obj() {
+    fn codegen_object_switch(
+        iform: &Reachable<IFormObjectSwitch>,
+        ctx: &mut CGCtx,
+        obj: &mut Object,
+    ) {
+        if let Some(target_obj) = iform.as_ref().target_obj() {
             let target_obj = target_obj.reach(obj);
             pass_codegen(&target_obj, ctx, obj);
 
@@ -1171,8 +1279,12 @@ mod codegen {
     }
 
     fn lookup_local_refer(symbol: Ref<Symbol>, ctx: &mut CGCtx, obj: &mut Object) -> LocalRefer {
-
-        fn localrefer(refer: LocalRefer, symbol: Ref<Symbol>, free_vars_frames: Vec<(&mut Vec<(Cap<Symbol>, LocalRefer)>, usize)>, obj: &mut Object) -> LocalRefer {
+        fn localrefer(
+            refer: LocalRefer,
+            symbol: Ref<Symbol>,
+            free_vars_frames: Vec<(&mut Vec<(Cap<Symbol>, LocalRefer)>, usize)>,
+            obj: &mut Object,
+        ) -> LocalRefer {
             if free_vars_frames.is_empty() {
                 refer
             } else {
@@ -1194,14 +1306,24 @@ mod codegen {
         for localframe in ctx.frames.iter_mut().rev() {
             for (cell_offset, sym) in localframe.frame.iter().rev().enumerate() {
                 if sym.as_ref() == symbol.as_ref() {
-                    return localrefer(LocalRefer::Normal(frame_offset, localframe.frame.len() - cell_offset - 1), symbol, free_vars_frames, obj);
+                    return localrefer(
+                        LocalRefer::Normal(frame_offset, localframe.frame.len() - cell_offset - 1),
+                        symbol,
+                        free_vars_frames,
+                        obj,
+                    );
                 }
             }
 
             if let Some(free_vars) = localframe.free_vars.as_mut() {
                 for (cell_offset, (sym, _)) in free_vars.iter().rev().enumerate() {
                     if sym.as_ref() == symbol.as_ref() {
-                        return localrefer(LocalRefer::FreeVar(frame_offset, cell_offset), symbol, free_vars_frames, obj);
+                        return localrefer(
+                            LocalRefer::FreeVar(frame_offset, cell_offset),
+                            symbol,
+                            free_vars_frames,
+                            obj,
+                        );
                     }
                 }
 
@@ -1216,113 +1338,112 @@ mod codegen {
         //ここで見つからないのは不具合なのでpanicさせる
         panic!("local variable not found {}", symbol.as_ref());
     }
-
 }
 
 fn func_compile(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = crate::vm::refer_arg::<Any>(0, obj).reach(obj);
+    let v = crate::vm::get_arg::<Any>(0, obj).reach(obj);
 
     let compiled = compile(&v, obj)?;
     Ok(compiled.into_value())
 }
 
 fn func_compile_transform(_num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
-    let v = crate::vm::refer_arg::<Any>(0, obj).reach(obj);
+    let v = crate::vm::get_arg::<Any>(0, obj).reach(obj);
 
     let compiled = compile_transform(&v, obj)?;
     Ok(compiled.into_value())
 }
 
-static SYMBOL_APP: Lazy<GCAllocationStruct<symbol::StaticSymbol>> = Lazy::new(|| {
-    symbol::gensym_static("app")
-});
+static SYMBOL_APP: Lazy<GCAllocationStruct<symbol::StaticSymbol>> =
+    Lazy::new(|| symbol::gensym_static("app"));
 
-static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("if", 2, 1, false, syntax_if))
-});
+static SYNTAX_IF: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("if", 2, 1, false, syntax_if)));
 
-static SYNTAX_BEGIN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("begin", 0, 0, true, syntax_begin))
-});
+static SYNTAX_BEGIN: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("begin", 0, 0, true, syntax_begin)));
 
-static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("cond", 0, 0, true, syntax_cond))
-});
+static SYNTAX_COND: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("cond", 0, 0, true, syntax_cond)));
 
-static SYNTAX_DEF_RECV: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("def-recv", 1, 0, true, syntax_def_recv))
-});
+static SYNTAX_DEF_RECV: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("def-recv", 1, 0, true, syntax_def_recv)));
 
-static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("fun", 1, 0, true, syntax_fun))
-});
+static SYNTAX_FUN: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("fun", 1, 0, true, syntax_fun)));
 
-static SYNTAX_LOCAL: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("local", 1, 0, true, syntax_local))
-});
+static SYNTAX_LOCAL: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("local", 1, 0, true, syntax_local)));
 
-static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("let", 2, 0, false, syntax_let))
-});
+static SYNTAX_LET: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("let", 2, 0, false, syntax_let)));
 
 static SYNTAX_LET_GLOBAL: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
     GCAllocationStruct::new(Syntax::new("let-global", 2, 0, false, syntax_let_global))
 });
 
-static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("quote", 1, 0, false, syntax_quote))
-});
+static SYNTAX_QUOTE: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("quote", 1, 0, false, syntax_quote)));
 
-static SYNTAX_UNQUOTE: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("unquote", 1, 0, false, syntax_unquote))
-});
+static SYNTAX_UNQUOTE: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("unquote", 1, 0, false, syntax_unquote)));
 
-static SYNTAX_BIND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("bind", 1, 0, false, syntax_bind))
-});
+static SYNTAX_BIND: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("bind", 1, 0, false, syntax_bind)));
 
-static SYNTAX_MATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("match", 1, 0, true, syntax_match))
-});
+static SYNTAX_MATCH: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("match", 1, 0, true, syntax_match)));
 
-static SYNTAX_AND: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("and", 0, 0, true, syntax_and))
-});
+static SYNTAX_AND: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("and", 0, 0, true, syntax_and)));
 
-static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("or", 0, 0, true, syntax_or))
-});
+static SYNTAX_OR: Lazy<GCAllocationStruct<Syntax>> =
+    Lazy::new(|| GCAllocationStruct::new(Syntax::new("or", 0, 0, true, syntax_or)));
 
 static SYNTAX_OBJECT_SWITCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("object-switch", 1, 0, false, syntax_object_switch))
+    GCAllocationStruct::new(Syntax::new(
+        "object-switch",
+        1,
+        0,
+        false,
+        syntax_object_switch,
+    ))
 });
 
 static SYNTAX_RETURN_OBJECT_SWITCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(Syntax::new("return-object-switch", 0, 0, false, syntax_return_object_switch))
+    GCAllocationStruct::new(Syntax::new(
+        "return-object-switch",
+        0,
+        0,
+        false,
+        syntax_return_object_switch,
+    ))
 });
 
 static SYNTAX_FAIL_CATCH: Lazy<GCAllocationStruct<Syntax>> = Lazy::new(|| {
-    GCAllocationStruct::new(syntax::Syntax::new("fail-catch", 0, 0, true, syntax_fail_catch))
+    GCAllocationStruct::new(syntax::Syntax::new(
+        "fail-catch",
+        0,
+        0,
+        true,
+        syntax_fail_catch,
+    ))
 });
 
 static FUNC_COMPILE: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("compile", func_compile,
-        Parameter::new(&[
-            Param::new("v", ParamKind::Require, Any::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "compile",
+        func_compile,
+        Parameter::new(&[Param::new("v", ParamKind::Require, Any::typeinfo())]),
+    ))
 });
 
 static FUNC_COMPILE_TRANSFORM: Lazy<GCAllocationStruct<Func>> = Lazy::new(|| {
-    GCAllocationStruct::new(
-        Func::new("compile-transform", func_compile_transform,
-        Parameter::new(&[
-            Param::new("v", ParamKind::Require, Any::typeinfo()),
-            ])
-        )
-    )
+    GCAllocationStruct::new(Func::new(
+        "compile-transform",
+        func_compile_transform,
+        Parameter::new(&[Param::new("v", ParamKind::Require, Any::typeinfo())]),
+    ))
 });
 
 pub fn register_global(obj: &mut Object) {
@@ -1341,14 +1462,20 @@ pub fn register_global(obj: &mut Object) {
     obj.define_global_value("and", &Ref::new(&SYNTAX_AND.value));
     obj.define_global_value("or", &Ref::new(&SYNTAX_OR.value));
     obj.define_global_value("object-switch", &Ref::new(&SYNTAX_OBJECT_SWITCH.value));
-    obj.define_global_value("return-object-switch", &Ref::new(&SYNTAX_RETURN_OBJECT_SWITCH.value));
+    obj.define_global_value(
+        "return-object-switch",
+        &Ref::new(&SYNTAX_RETURN_OBJECT_SWITCH.value),
+    );
     obj.define_global_value("compile", &Ref::new(&FUNC_COMPILE.value));
-    obj.define_global_value("compile-transform", &Ref::new(&FUNC_COMPILE_TRANSFORM.value));
+    obj.define_global_value(
+        "compile-transform",
+        &Ref::new(&FUNC_COMPILE_TRANSFORM.value),
+    );
 }
 
 pub mod literal {
-    use crate::ptr::*;
     use super::*;
+    use crate::ptr::*;
 
     pub fn quote() -> Reachable<Syntax> {
         Reachable::new_static(&SYNTAX_QUOTE.value)
