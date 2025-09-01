@@ -66,7 +66,7 @@ impl<T: NaviType> Array<T> {
         for index in 0..cap.as_ref().len {
             let child_v = cap.as_ref().get_inner(index);
             //子要素がReply型を持っている場合は
-            if child_v.has_replytype() {
+            if child_v.has_reply_type() {
                 //返信がないか確認する
                 let mut child_v = child_v.clone().capture(obj);
                 if value::check_reply(&mut child_v, obj)? {
@@ -82,7 +82,7 @@ impl<T: NaviType> Array<T> {
         }
 
         //内部にReply型を含まなくなったのでフラグを下す
-        value::clear_has_replytype_flag(cap.mut_refer());
+        value::clear_has_reply_type_flag(cap.mut_refer());
 
         Ok(true)
     }
@@ -150,8 +150,8 @@ impl Array<Any> {
         }
 
         //listがReplyを持っている場合は、返す値にもReplyを持っているフラグを立てる
-        if list.has_replytype() {
-            value::set_has_replytype_flag(&mut array)
+        if list.has_reply_type() {
+            value::set_has_reply_type_flag(&mut array)
         }
 
         Ok(array)
@@ -166,8 +166,8 @@ impl<T: NaviType> Ref<Array<T>> {
 
         self.set_uncheck(v.raw_ptr(), index);
 
-        if v.has_replytype() {
-            value::set_has_replytype_flag(self);
+        if v.has_reply_type() {
+            value::set_has_reply_type_flag(self);
         }
 
         Ok(())
@@ -297,7 +297,7 @@ impl<T: NaviType> ArrayBuilder<T> {
         let mut ary = Array::<T>::alloc(size, obj)?;
 
         //pushが完了するまでにGCが動作する可能性があるため、あらかじめ全領域をダミーの値で初期化する
-        let dummy_value = mm::usize_to_ptr(IMMIDATE_NIL);
+        let dummy_value = mm::usize_to_ptr(IMMEDIATE_NIL);
         for index in 0..size {
             ary.set_uncheck(dummy_value, index);
         }

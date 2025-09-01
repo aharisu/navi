@@ -199,7 +199,7 @@ impl Closure {
         for index in 0..cap.as_ref().num_free_vars {
             let child_v = cap.as_ref().get_inner(index);
             //子要素がReply型を持っている場合は
-            if child_v.has_replytype() {
+            if child_v.has_reply_type() {
                 //返信がないか確認する
                 let mut child_v = child_v.clone().capture(obj);
                 if crate::value::check_reply(&mut child_v, obj)? {
@@ -215,7 +215,7 @@ impl Closure {
         }
 
         //内部にReply型を含まなくなったのでフラグを下す
-        crate::value::clear_has_replytype_flag(cap.mut_refer());
+        crate::value::clear_has_reply_type_flag(cap.mut_refer());
 
         Ok(true)
     }
@@ -336,8 +336,8 @@ impl Ref<Closure> {
 
         self.set_uncheck(v.raw_ptr(), index);
 
-        if v.has_replytype() {
-            crate::value::set_has_replytype_flag(self);
+        if v.has_reply_type() {
+            crate::value::set_has_reply_type_flag(self);
         }
     }
 }

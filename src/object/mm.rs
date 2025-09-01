@@ -65,7 +65,7 @@ pub enum StartHeapSize {
 }
 
 pub trait GCRootValueHolder {
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8));
+    fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8));
 }
 
 pub struct Heap {
@@ -133,7 +133,7 @@ struct CopiedValue {
 
 impl CopiedValue {
     pub unsafe fn is_copied(this: *mut Self) -> bool {
-        (*this).mark == value::IMMIDATE_GC_COPIED
+        (*this).mark == value::IMMEDIATE_GC_COPIED
     }
 
     pub unsafe fn forwarding_pointer(this: *mut Self) -> *mut u8 {
@@ -144,7 +144,7 @@ impl CopiedValue {
         std::ptr::write(
             this,
             CopiedValue {
-                mark: value::IMMIDATE_GC_COPIED,
+                mark: value::IMMEDIATE_GC_COPIED,
                 forwarding_pointer: forwarding_pointer,
             },
         );
@@ -495,7 +495,7 @@ impl Heap {
 
     fn gc_compaction_body<R: GCRootValueHolder>(&mut self, flags: &mut [u16], root: &mut R) {
         self.gc_compaction_mark_phase(flags, root);
-        self.gc_compaction_setup_forwad_ptr(flags);
+        self.gc_compaction_setup_forward_ptr(flags);
         //self.dump_gc_heap(&flags, obj);
 
         self.gc_compaction_update_reference(flags, root);
@@ -523,7 +523,7 @@ impl Heap {
     }
 
     fn is_need_mark(v: &Any, arg: &GCCompactionArg) -> bool {
-        //Immidiate Valueの場合があるため正しくポインタであるかを確認
+        //Immediate Valueの場合があるため正しくポインタであるかを確認
         //かつ、 funcやsyntaxなど、ヒープ外のstaticな領域に確保された値の可能性があるのでチェック
         if value::value_is_pointer(v)
             && Self::is_pointer_within_heap(v, arg.start_addr, arg.end_addr)
@@ -559,7 +559,7 @@ impl Heap {
         //1bit  alive?
         //※forwarding indexは必ず8の倍数になっている(32bitOSの値の最低サイズが8)。
         //8の倍数なら下位3bitは0のため、aliveフラグのための最下位1bitを除く2bit分詰めることで容量を稼ぐ。
-        //forwarding inddexとして扱える値の幅は実質17bit分になる。
+        //forwarding indexとして扱える値の幅は実質17bit分になる。
         let flag = (forwarding_index >> 2) | (alive as usize);
         flags[offset as usize] = flag as u16;
     }
@@ -608,7 +608,7 @@ impl Heap {
             unsafe { GCCompactionArg::new(self.pool_ptr, self.pool_ptr.add(self.used), flags) };
 
         //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
-        root.for_each_alived_value(arg.as_ptr(), |v, arg_ptr| {
+        root.for_each_alive_value(arg.as_ptr(), |v, arg_ptr| {
             let arg = unsafe { GCCompactionArg::from_ptr(arg_ptr) };
 
             let v = v.as_mut();
@@ -618,7 +618,7 @@ impl Heap {
         });
     }
 
-    fn gc_compaction_setup_forwad_ptr(&self, flags: &mut [u16]) {
+    fn gc_compaction_setup_forward_ptr(&self, flags: &mut [u16]) {
         unsafe {
             let mut ptr = self.pool_ptr;
             let end = self.pool_ptr.add(self.used);
@@ -692,7 +692,7 @@ impl Heap {
             let mut arg = GCCompactionArg::new(ptr, end, flags);
 
             //ルートオブジェクトとして保持されているオブジェクト内のポインタを更新
-            root.for_each_alived_value(arg.as_ptr(), update_child_pointer);
+            root.for_each_alive_value(arg.as_ptr(), update_child_pointer);
 
             //ヒープ内のオブジェクト内のポインタを更新
             while ptr < end {
@@ -797,7 +797,7 @@ impl Heap {
             //オブジェクトがあるはずの場所をCopiedValueとして無理やり解釈する。
             //※有効な値とは絶対にかぶらないような値構造になっているため安全。
             //※まだコピーされていない有効な値の場合、最初のフィールドにはtypeinfoへのポインタが入っている。
-            //※コピー済みの場合はポインタではない特別なImmidiate Valueが入っているため区別できる。
+            //※コピー済みの場合はポインタではない特別なImmediate Valueが入っているため区別できる。
             let copied = alloc_ptr as *mut CopiedValue;
             //まだコピーされていないオブジェクトなら
             if CopiedValue::is_copied(copied) == false {
@@ -855,7 +855,7 @@ impl Heap {
 
         //Typeinfoの実装の都合上、クロージャを渡すことができないので、無理やりポインタを経由して値を渡す
         //ルートから辿ることができるオブジェクトをすべて取得して、新しい領域へコピーする
-        root.for_each_alived_value(arg.as_ptr(), |v, arg_ptr| {
+        root.for_each_alive_value(arg.as_ptr(), |v, arg_ptr| {
             let arg = unsafe { GCCopyingArg::from_ptr(arg_ptr) };
             let value = v.as_ref();
 

@@ -204,7 +204,7 @@ fn is_fixnum_range(number: i64) -> bool {
 pub fn make_integer<A: Allocator>(number: i64, allocator: &mut A) -> NResult<Any, OutOfMemory> {
     if is_fixnum_range(number) {
         let v = (number << FIXNUM_MASK_BITS) as usize;
-        let v = v | IMMIDATE_FIXNUM;
+        let v = v | IMMEDIATE_FIXNUM;
 
         Ok(Ref::from(usize_to_ptr::<Any>(v)))
     } else {

@@ -103,23 +103,23 @@ use once_cell::sync::Lazy;
 //xxxx xxxx xxxx x110 fixnum
 //xxxx xxxx xxx1 0010 tagged value
 
-pub const IMMIDATE_FIXNUM: usize = 0b110;
+pub const IMMEDIATE_FIXNUM: usize = 0b110;
 pub const FIXNUM_MASK_BITS: usize = 3;
 
 // [tagged value]
 // Nil, true, false, ...
-const IMMIDATE_TAGGED_VALUE: usize = 0b1_0010;
+const IMMEDIATE_TAGGED_VALUE: usize = 0b1_0010;
 
 const fn tagged_value(tag: usize) -> usize {
-    (tag << 16) | IMMIDATE_TAGGED_VALUE
+    (tag << 16) | IMMEDIATE_TAGGED_VALUE
 }
 
-pub(crate) const IMMIDATE_GC_COPIED: usize = tagged_value(0); //GC内でだけ使用する特別な値。
-pub(crate) const IMMIDATE_NIL: usize = tagged_value(1);
-pub(crate) const IMMIDATE_TRUE: usize = tagged_value(2);
-pub(crate) const IMMIDATE_FALSE: usize = tagged_value(3);
-pub(crate) const IMMIDATE_UNIT: usize = tagged_value(4);
-pub(crate) const IMMIDATE_MATCHFAIL: usize = tagged_value(5);
+pub(crate) const IMMEDIATE_GC_COPIED: usize = tagged_value(0); //GC内でだけ使用する特別な値。
+pub(crate) const IMMEDIATE_NIL: usize = tagged_value(1);
+pub(crate) const IMMEDIATE_TRUE: usize = tagged_value(2);
+pub(crate) const IMMEDIATE_FALSE: usize = tagged_value(3);
+pub(crate) const IMMEDIATE_UNIT: usize = tagged_value(4);
+pub(crate) const IMMEDIATE_MATCHFAIL: usize = tagged_value(5);
 
 #[derive(PartialEq)]
 enum PtrKind {
@@ -138,17 +138,17 @@ fn pointer_kind<T>(ptr: *const T) -> PtrKind {
     //下位2bitが0xなら生ポインタ
     if value & 0b10 == 0 {
         PtrKind::Ptr
-    } else if value & 0b111 == IMMIDATE_FIXNUM {
+    } else if value & 0b111 == IMMEDIATE_FIXNUM {
         PtrKind::Fixnum
     } else {
         //残りは下位16bitで判断する
         match value & 0xFFFF {
-            IMMIDATE_TAGGED_VALUE => match value {
-                IMMIDATE_NIL => PtrKind::Nil,
-                IMMIDATE_TRUE => PtrKind::True,
-                IMMIDATE_FALSE => PtrKind::False,
-                IMMIDATE_UNIT => PtrKind::Unit,
-                IMMIDATE_MATCHFAIL => PtrKind::MatchFail,
+            IMMEDIATE_TAGGED_VALUE => match value {
+                IMMEDIATE_NIL => PtrKind::Nil,
+                IMMEDIATE_TRUE => PtrKind::True,
+                IMMEDIATE_FALSE => PtrKind::False,
+                IMMEDIATE_UNIT => PtrKind::Unit,
+                IMMEDIATE_MATCHFAIL => PtrKind::MatchFail,
                 _ => panic!("invalid tagged value"),
             },
             _ => panic!("invalid pointer: {}", value),
@@ -229,18 +229,18 @@ pub fn check_reply(cap: &mut Cap<Any>, obj: &mut Object) -> Result<bool, OutOfMe
     }
 }
 
-pub fn has_replytype<T: NaviType>(ptr: &Ref<T>) -> bool {
+pub fn has_reply_type<T: NaviType>(ptr: &Ref<T>) -> bool {
     let value = ptr_to_usize(ptr.raw_ptr());
     //最下位bitが1ならReply値、もしくは内部でReplyを持つ値。
     value & 1 == 1
 }
 
-pub fn set_has_replytype_flag<T: NaviType>(ptr: &mut Ref<T>) {
+pub fn set_has_reply_type_flag<T: NaviType>(ptr: &mut Ref<T>) {
     //最下位bitに1を立てる
     ptr.update_pointer(usize_to_ptr(ptr_to_usize(ptr.raw_ptr()) | 1));
 }
 
-pub fn clear_has_replytype_flag<T: NaviType>(ptr: &mut Ref<T>) {
+pub fn clear_has_reply_type_flag<T: NaviType>(ptr: &mut Ref<T>) {
     //最下位bitの1を降ろす
     ptr.update_pointer(usize_to_ptr(ptr_to_usize(ptr.raw_ptr()) & !1));
 }

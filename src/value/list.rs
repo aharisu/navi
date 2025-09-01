@@ -59,7 +59,7 @@ impl List {
 
     fn check_reply(cap: &mut Cap<List>, obj: &mut Object) -> Result<bool, OutOfMemory> {
         //headにReplyを含んだ値がないかチェック
-        if cap.as_ref().v.has_replytype() {
+        if cap.as_ref().v.has_reply_type() {
             let mut head = cap.as_ref().head().capture(obj);
             if value::check_reply(&mut head, obj)? {
                 cap.as_mut().v.update_pointer(head.raw_ptr());
@@ -70,7 +70,7 @@ impl List {
         }
 
         //nextにReplyを含んだ値がないかチェック
-        if cap.as_ref().next.has_replytype() {
+        if cap.as_ref().next.has_reply_type() {
             //Replyを含んでいる場合は再帰的に確認していく
             let mut tail = cap.as_ref().tail().capture(obj);
             if Self::check_reply(&mut tail, obj)? {
@@ -82,17 +82,17 @@ impl List {
         }
 
         //内部にReply型を含まなくなったのでフラグを下す
-        value::clear_has_replytype_flag(cap.mut_refer());
+        value::clear_has_reply_type_flag(cap.mut_refer());
 
         Ok(true)
     }
 
     pub fn nil() -> Reachable<List> {
-        Reachable::<List>::new_immidiate(IMMIDATE_NIL)
+        Reachable::<List>::new_immediate(IMMEDIATE_NIL)
     }
 
     pub fn is_nil(&self) -> bool {
-        std::ptr::eq(self as *const List, IMMIDATE_NIL as *const List)
+        std::ptr::eq(self as *const List, IMMEDIATE_NIL as *const List)
     }
 
     pub fn alloc<A: Allocator>(
@@ -113,8 +113,8 @@ impl List {
         }
 
         let mut result = ptr.into_ref();
-        if v.has_replytype() || next.has_replytype() {
-            value::set_has_replytype_flag(&mut result);
+        if v.has_reply_type() || next.has_reply_type() {
+            value::set_has_reply_type_flag(&mut result);
         }
 
         Ok(result)
@@ -138,8 +138,8 @@ impl List {
         }
 
         let mut result = ptr.into_ref();
-        if v.has_replytype() {
-            value::set_has_replytype_flag(&mut result);
+        if v.has_reply_type() {
+            value::set_has_reply_type_flag(&mut result);
         }
 
         Ok(result)
@@ -226,7 +226,7 @@ impl List {
 
 impl Ref<List> {
     pub fn set_has_reply_flag(&mut self, to_index: usize) {
-        value::set_has_replytype_flag(self);
+        value::set_has_reply_type_flag(self);
         if 0 < to_index {
             self.as_mut().next.set_has_reply_flag(to_index - 1);
         }
@@ -442,7 +442,7 @@ fn func_list(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
 
         for index in 0..num_rest {
             let v = vm::get_rest_arg::<Any>(0, index, obj);
-            let has_reply = value::has_replytype(&v);
+            let has_reply = value::has_reply_type(&v);
 
             builder.push(&v.reach(obj), obj)?;
 
@@ -497,7 +497,7 @@ fn func_append(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
         for index in 0..num_rest - 1 {
             let list = vm::get_rest_arg::<List>(0, index, obj).reach(obj);
             for v in list.iter(obj) {
-                let has_reply = value::has_replytype(&v);
+                let has_reply = value::has_reply_type(&v);
                 builder.push(&v.reach(obj), obj)?;
 
                 if has_reply {
@@ -507,7 +507,7 @@ fn func_append(num_rest: usize, obj: &mut Object) -> NResult<Any, Exception> {
         }
 
         let last = vm::get_rest_arg::<List>(0, num_rest - 1, obj);
-        if value::has_replytype(&last) {
+        if value::has_reply_type(&last) {
             last_hasreply_index = num_rest - 1;
         }
         let mut list = builder.append_get(&last);

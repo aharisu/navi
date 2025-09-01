@@ -332,10 +332,10 @@ const fn is_whitespace(ch: char) -> bool {
         '\u{0020}' | // space ' '
         '\u{0009}' | // tab '\t'
         '\u{000A}' | // line feed '\n'
-        '\u{000D}' | // carrige return '\r'
+        '\u{000D}' | // carriage return '\r'
         '\u{000B}' | // vertical tab
         '\u{000C}' | // form feed
-        '\u{0085}' | // nextline
+        '\u{0085}' | // next-line
         '\u{200E}' | // left-to-right mark
         '\u{200F}' | // right-to-left mark
         '\u{2028}' | // line separator

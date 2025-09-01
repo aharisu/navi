@@ -53,7 +53,7 @@ impl Reply {
                     callback(v, arg);
                 }
                 Err(err) => {
-                    err.for_each_alived_value(arg, callback);
+                    err.for_each_alive_value(arg, callback);
                 }
             },
             None => {}
@@ -162,7 +162,7 @@ impl Reply {
 
         let mut result = ptr.into_ref();
         //Reply型を持つポインタとして目印のフラグを立てる。
-        crate::value::set_has_replytype_flag(&mut result);
+        crate::value::set_has_reply_type_flag(&mut result);
 
         Ok(result)
     }

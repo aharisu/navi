@@ -66,7 +66,7 @@ impl Tuple {
         for index in 0..cap.as_ref().len {
             let child_v = cap.as_ref().get(index);
             //子要素がReply型を持っている場合は
-            if child_v.has_replytype() {
+            if child_v.has_reply_type() {
                 //返信がないか確認する
                 let mut child_v = child_v.clone().capture(obj);
                 if value::check_reply(&mut child_v, obj)? {
@@ -82,19 +82,19 @@ impl Tuple {
         }
 
         //内部にReply型を含まなくなったのでフラグを下す
-        value::clear_has_replytype_flag(cap.mut_refer());
+        value::clear_has_reply_type_flag(cap.mut_refer());
 
         Ok(true)
     }
 
     #[inline(always)]
     pub fn unit() -> Reachable<Tuple> {
-        Reachable::<Tuple>::new_immidiate(IMMIDATE_UNIT)
+        Reachable::<Tuple>::new_immediate(IMMEDIATE_UNIT)
     }
 
     #[inline(always)]
     pub fn is_unit(&self) -> bool {
-        std::ptr::eq(self as *const Self, IMMIDATE_UNIT as *const Self)
+        std::ptr::eq(self as *const Self, IMMEDIATE_UNIT as *const Self)
     }
 
     fn alloc<A: Allocator>(size: usize, allocator: &mut A) -> NResult<Tuple, OutOfMemory> {
@@ -149,8 +149,8 @@ impl Tuple {
             }
 
             //listがReplyを持っている場合は、返す値にもReplyを持っているフラグを立てる
-            if ary.has_replytype() {
-                value::set_has_replytype_flag(&mut tuple)
+            if ary.has_reply_type() {
+                value::set_has_reply_type_flag(&mut tuple)
             }
 
             Ok(tuple)
@@ -176,8 +176,8 @@ impl Tuple {
             }
 
             //listがReplyを持っている場合は、返す値にもReplyを持っているフラグを立てる
-            if list.has_replytype() {
-                value::set_has_replytype_flag(&mut tuple)
+            if list.has_reply_type() {
+                value::set_has_reply_type_flag(&mut tuple)
             }
 
             Ok(tuple)
@@ -193,8 +193,8 @@ impl Ref<Tuple> {
 
         self.set_uncheck(v.raw_ptr(), index);
 
-        if v.has_replytype() {
-            value::set_has_replytype_flag(self);
+        if v.has_reply_type() {
+            value::set_has_reply_type_flag(self);
         }
 
         Ok(())

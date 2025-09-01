@@ -106,7 +106,7 @@ fn alloc_into_iform<T: AsIForm>(
 
 //
 // pass 1
-// Covnerts S expression into intermediates form (IForm).
+// Convert S expression into intermediates form (IForm).
 fn pass_transform(
     sexp: &Reachable<Any>,
     ctx: &mut CCtx,
@@ -1187,8 +1187,8 @@ mod codegen {
             let data = ptr_to_usize(v as *const Any);
             write_usize(data, &mut ctx.buf);
         } else {
-            //IMMIDIATE VALUEならそのまま書き込む
-            write_u8(vm::tag::CONST_IMMIDIATE, &mut ctx.buf);
+            //IMMEDIATE VALUEならそのまま書き込む
+            write_u8(vm::tag::CONST_IMMEDIATE, &mut ctx.buf);
             //そもそも単なる値なのでそのまま書き込む
             let data = ptr_to_usize(v as *const Any);
             write_usize(data, &mut ctx.buf);

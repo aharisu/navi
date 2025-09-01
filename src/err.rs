@@ -24,7 +24,7 @@ impl OutOfBounds {
         Ok(Self::new(related_cloned, self.index))
     }
 
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+    fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         callback(&mut self.related_exp, arg);
     }
 
@@ -62,7 +62,7 @@ impl TypeMismatch {
         Ok(TypeMismatch::new(related_cloned, self.require_type))
     }
 
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+    fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         callback(&mut self.found_exp, arg);
     }
 
@@ -110,7 +110,7 @@ impl MalformedFormat {
         }
     }
 
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+    fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         if let Some(v) = self.related_exp.as_mut() {
             callback(v, arg);
         }
@@ -164,7 +164,7 @@ impl ArgTypeMismatch {
         ))
     }
 
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+    fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         callback(&mut self.found_exp, arg);
     }
 
@@ -208,7 +208,7 @@ impl UnboundVariable {
         Ok(Self::new(sym_cloned))
     }
 
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+    fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         callback(self.symbol.cast_mut_value(), arg);
     }
 
@@ -270,22 +270,22 @@ impl Exception {
         }
     }
 
-    pub fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+    pub fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         match self {
             Exception::OutOfBounds(inner) => {
-                inner.for_each_alived_value(arg, callback);
+                inner.for_each_alive_value(arg, callback);
             }
             Exception::TypeMismatch(inner) => {
-                inner.for_each_alived_value(arg, callback);
+                inner.for_each_alive_value(arg, callback);
             }
             Exception::MalformedFormat(inner) => {
-                inner.for_each_alived_value(arg, callback);
+                inner.for_each_alive_value(arg, callback);
             }
             Exception::UnboundVariable(inner) => {
-                inner.for_each_alived_value(arg, callback);
+                inner.for_each_alive_value(arg, callback);
             }
             Exception::ArgTypeMismatch(inner) => {
-                inner.for_each_alived_value(arg, callback);
+                inner.for_each_alive_value(arg, callback);
             }
             //enum項目追加の時にmatch節の追加忘れを防ぐためにワイルドカードで書かない
             Exception::DisallowContext => {}

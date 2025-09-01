@@ -37,11 +37,11 @@ impl NaviType for MatchFail {
 
 impl MatchFail {
     pub fn fail() -> Reachable<MatchFail> {
-        Reachable::<MatchFail>::new_immidiate(IMMIDATE_MATCHFAIL)
+        Reachable::<MatchFail>::new_immediate(IMMEDIATE_MATCHFAIL)
     }
 
     pub fn is_fail(val: &Any) -> bool {
-        std::ptr::eq(val as *const Any, IMMIDATE_MATCHFAIL as *const Any)
+        std::ptr::eq(val as *const Any, IMMEDIATE_MATCHFAIL as *const Any)
     }
 }
 

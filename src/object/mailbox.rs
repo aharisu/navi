@@ -59,7 +59,7 @@ struct MailBoxGCRootValues {
 }
 
 impl mm::GCRootValueHolder for MailBoxGCRootValues {
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+    fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         self.inbox.iter_mut().for_each(|data| match &mut data.kind {
             MessageKind::Message(msg) => callback(msg, arg),
             MessageKind::Duplicate => {}
@@ -69,7 +69,7 @@ impl mm::GCRootValueHolder for MailBoxGCRootValues {
             .iter_mut()
             .for_each(|(_, result)| match result.as_mut() {
                 Ok(v) => callback(v, arg),
-                Err(err) => err.for_each_alived_value(arg, callback),
+                Err(err) => err.for_each_alive_value(arg, callback),
             });
     }
 }

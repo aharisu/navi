@@ -36,7 +36,7 @@ impl NaviType for Exception {
 
 impl Exception {
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
-        self.err.for_each_alived_value(arg, callback);
+        self.err.for_each_alive_value(arg, callback);
     }
 
     pub fn alloc<A: Allocator>(

@@ -10,7 +10,7 @@ use crate::value::{self, NaviType, TypeInfo};
 //
 //
 //
-//UnInitilized Pointer
+//UnInitialize Pointer
 //
 #[derive(Debug)]
 #[repr(transparent)]
@@ -39,7 +39,7 @@ impl<T: NaviType> Clone for UIPtr<T> {
 }
 
 pub trait ValueHolder<T: NaviType> {
-    fn has_replytype(&self) -> bool;
+    fn has_reply_type(&self) -> bool;
     fn raw_ptr(&self) -> *mut T;
     fn as_ref<'a, 'b>(&'a self) -> &'b T;
     fn as_mut<'a, 'b>(&'a mut self) -> &'b mut T;
@@ -98,14 +98,14 @@ impl<T: NaviType> Ref<T> {
         //GC時専用のポインタ更新関数
         //GC時に呼ばれる場合は、もともとのReplyフラグを保持して更新する
         if self.pointer != new_ptr {
-            let has_reply = self.has_replytype();
+            let has_reply = self.has_reply_type();
 
             unsafe {
                 std::ptr::write(&mut self.pointer, new_ptr);
             }
 
             if has_reply {
-                crate::value::set_has_replytype_flag(self);
+                crate::value::set_has_reply_type_flag(self);
             }
         }
     }
@@ -153,8 +153,8 @@ impl<T: NaviType> From<*mut T> for Ref<T> {
 }
 
 impl<T: NaviType> ValueHolder<T> for Ref<T> {
-    fn has_replytype(&self) -> bool {
-        crate::value::has_replytype(self)
+    fn has_reply_type(&self) -> bool {
+        crate::value::has_reply_type(self)
     }
 
     fn raw_ptr(&self) -> *mut T {
@@ -274,8 +274,8 @@ impl Cap<Any> {
 }
 
 impl<T: NaviType> ValueHolder<T> for Cap<T> {
-    fn has_replytype(&self) -> bool {
-        unsafe { self.pointer.as_ref().has_replytype() }
+    fn has_reply_type(&self) -> bool {
+        unsafe { self.pointer.as_ref().has_reply_type() }
     }
 
     fn raw_ptr(&self) -> *mut T {
@@ -300,7 +300,7 @@ impl<T: NaviType> Drop for Cap<T> {
 //
 //
 //
-// Reachable(Static / Immidiate / Capture)
+// Reachable(Static / Immediate / Capture)
 //
 pub enum Reachable<T: NaviType> {
     Static(*mut T),
@@ -313,7 +313,7 @@ impl<T: NaviType> Reachable<T> {
         Reachable::Static(ptr)
     }
 
-    pub fn new_immidiate(value: usize) -> Self {
+    pub fn new_immediate(value: usize) -> Self {
         let ptr = usize_to_ptr::<T>(value);
 
         Reachable::Static(ptr)
@@ -400,10 +400,10 @@ impl Reachable<Any> {
 }
 
 impl<T: NaviType> ValueHolder<T> for Reachable<T> {
-    fn has_replytype(&self) -> bool {
+    fn has_reply_type(&self) -> bool {
         match self {
             Self::Static(_) => false,
-            Self::Capture(cap) => cap.has_replytype(),
+            Self::Capture(cap) => cap.has_reply_type(),
         }
     }
 

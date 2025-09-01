@@ -26,7 +26,7 @@ impl NaviType for Bool {
     }
 
     fn clone_inner(&self, _allocator: &mut AnyAllocator) -> NResult<Self, OutOfMemory> {
-        //Bool型の値は常にImmidiate Valueなのでそのまま返す
+        //Bool型の値は常にImmediate Valueなのでそのまま返す
         Ok(Ref::new(self))
     }
 }
@@ -34,18 +34,18 @@ impl NaviType for Bool {
 impl Bool {
     #[inline(always)]
     pub fn true_() -> Reachable<Bool> {
-        Reachable::<Bool>::new_immidiate(IMMIDATE_TRUE)
+        Reachable::<Bool>::new_immediate(IMMEDIATE_TRUE)
     }
 
     #[inline(always)]
     pub fn false_() -> Reachable<Bool> {
-        Reachable::<Bool>::new_immidiate(IMMIDATE_FALSE)
+        Reachable::<Bool>::new_immediate(IMMEDIATE_FALSE)
     }
 
     #[inline(always)]
     pub fn is_true(&self) -> bool {
         let ptr = self as *const Bool;
-        std::ptr::eq(ptr, IMMIDATE_TRUE as *const Bool)
+        std::ptr::eq(ptr, IMMEDIATE_TRUE as *const Bool)
     }
 
     #[inline(always)]

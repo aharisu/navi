@@ -31,7 +31,7 @@ pub mod tag {
     pub const REF_GLOBAL: u8 = 3;
     pub const CONST_CAPTURE: u8 = 4;
     pub const CONST_STATIC: u8 = 5;
-    pub const CONST_IMMIDIATE: u8 = 6;
+    pub const CONST_IMMEDIATE: u8 = 6;
     pub const PUSH_ARG: u8 = 7;
     pub const PUSH_ARG_UNCHECK: u8 = 24;
     pub const PUSH_APP: u8 = 25;
@@ -161,9 +161,9 @@ impl VMStack {
         }
     }
 
-    fn pop_from_size(&mut self, decriment: usize) {
+    fn pop_from_size(&mut self, decrement: usize) {
         unsafe {
-            self.pos = self.pos.sub(decriment);
+            self.pos = self.pos.sub(decrement);
         }
     }
 }
@@ -267,11 +267,7 @@ impl VMState {
         &mut self.stack
     }
 
-    pub fn for_each_all_alived_value(
-        &mut self,
-        arg: *mut u8,
-        callback: fn(&mut Ref<Any>, *mut u8),
-    ) {
+    pub fn for_each_all_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
         if self.code.raw_ptr().is_null() == false {
             callback(self.code.cast_mut_value(), arg);
         }
@@ -530,7 +526,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
         };
     }
 
-    macro_rules! reduce_with_check_timelimit {
+    macro_rules! reduce_with_check_time_limit {
         ($exp:expr) => {
             reduce!($exp);
             let remain = obj.vm_state().reductions.saturating_sub(acc_reduce);
@@ -624,7 +620,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     .as_ref()
                     .get_constant(const_index as usize);
             }
-            tag::CONST_STATIC | tag::CONST_IMMIDIATE => {
+            tag::CONST_STATIC | tag::CONST_IMMEDIATE => {
                 let data = read_usize(&mut program);
                 let ptr = usize_to_ptr::<Any>(data);
                 obj.vm_state().acc = ptr.into();
@@ -652,7 +648,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 };
                 if let Some(param) = param {
                     // reply check
-                    if param.force && arg.has_replytype() {
+                    if param.force && arg.has_reply_type() {
                         let result = check_reply(&mut arg, obj);
 
                         //まだ返信がない場合は、
@@ -736,7 +732,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                 let mut target_obj = obj.vm_state().acc.clone();
 
                 // reply check
-                if target_obj.has_replytype() {
+                if target_obj.has_reply_type() {
                     let result = check_reply(&mut target_obj, obj);
                     //まだ返信がない場合は、
                     if result? == false {
@@ -763,7 +759,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     //return-object-switchでもどれるようにするために移行元のオブジェクトを保存
                     standalone.mut_object().set_prev_object(&prev_object);
 
-                    //object-siwtchはグローバル環境でしか現れない
+                    //object-switchはグローバル環境でしか現れない
                     return Err(ExecException::ObjectSwitch(standalone));
                 } else {
                     return Err(ExecException::Exception(err::Exception::TypeMismatch(
@@ -777,7 +773,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     let mailbox = prev_obj.as_ref().mailbox();
                     let standalone = Object::unregister_scheduler(mailbox);
 
-                    //object-siwtchはグローバル環境でしか現れない
+                    //object-switchはグローバル環境でしか現れない
                     return Err(ExecException::ObjectSwitch(standalone));
                 } else {
                     return Err(ExecException::Exception(err::Exception::Other(format!(
@@ -1018,7 +1014,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                             obj.vm_state().acc = v;
 
-                            reduce_with_check_timelimit!(10);
+                            reduce_with_check_time_limit!(10);
                         }
                         Err(err) => {
                             return Err(ExecException::Exception(err));
@@ -1041,7 +1037,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
                     obj.vm_state().pc = 0;
                     obj.vm_state().code = code;
 
-                    reduce_with_check_timelimit!(5);
+                    reduce_with_check_time_limit!(5);
                 }
             }
             tag::CALL_RESUME_FUNC => {
@@ -1056,7 +1052,7 @@ fn execute(obj: &mut Object) -> Result<Ref<Any>, ExecException> {
 
                         obj.vm_state().acc = v;
 
-                        reduce_with_check_timelimit!(10);
+                        reduce_with_check_time_limit!(10);
                     }
                     Err(err) => {
                         return Err(ExecException::Exception(err));

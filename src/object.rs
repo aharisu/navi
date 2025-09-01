@@ -71,8 +71,8 @@ struct ObjectGCRootValues {
 }
 
 impl mm::GCRootValueHolder for ObjectGCRootValues {
-    fn for_each_alived_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
-        self.vm_state.for_each_all_alived_value(arg, callback);
+    fn for_each_alive_value(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, *mut u8)) {
+        self.vm_state.for_each_all_alive_value(arg, callback);
 
         if let Some(prev_object) = self.prev_object.as_mut() {
             callback(prev_object.cast_mut_value(), arg);
@@ -619,7 +619,7 @@ impl Object {
         unsafe { &mut *self.values.get() }
             .world
             .for_each_all_value(|v| {
-                if v.has_replytype() {
+                if v.has_reply_type() {
                     //スタック領域内のFPtrをCapとして扱わせる
                     let mut cap = Cap::new(v as *mut Ref<Any>);
                     //返信がないかを確認

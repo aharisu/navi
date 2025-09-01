@@ -1,0 +1,24 @@
+{
+    "cSpell.words": [
+        "argp",
+        "codegen",
+        "extratype",
+        "EXTRATYPEINFO",
+        "fixnum",
+        "gcunsafe",
+        "GENSYM",
+        "gref",
+        "heapsize",
+        "iform",
+        "localvar",
+        "lref",
+        "MATCHFAIL",
+        "Navi",
+        "Peekable",
+        "repr",
+        "sexp",
+        "typeinfo",
+        "Uninit",
+        "vmstate"
+    ]
+}
