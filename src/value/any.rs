@@ -46,12 +46,20 @@ impl PartialEq for Any {
 
         //比較可能な型同士かを確認する関数を持っている場合は、処理を委譲する。
         //持っていない場合は同じ型同士の時だけ比較可能にする。
-        let comparable = match self_typeinfo.is_comparable_func {
-            Some(func) => func(other_typeinfo),
-            None => self_typeinfo == other_typeinfo,
-        };
+        let self_is_comparable = self_typeinfo
+            .is_comparable_func
+            .map_or(false, |func| func(other_typeinfo));
 
-        if comparable {
+        let other_is_comparable = self_is_comparable == false
+            && other_typeinfo
+                .is_comparable_func
+                .map_or(false, |func| func(self_typeinfo));
+
+        if self_is_comparable {
+            (self_typeinfo.eq_func)(self, other)
+        } else if other_is_comparable {
+            (other_typeinfo.eq_func)(other, self)
+        } else if self_typeinfo == other_typeinfo {
             (self_typeinfo.eq_func)(self, other)
         } else {
             false

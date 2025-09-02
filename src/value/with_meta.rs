@@ -6,10 +6,32 @@ use crate::ptr::*;
 use crate::value::{self, *};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Meta {
+pub struct Meta {
     line: usize,
     column: usize,
     filename: String,
+}
+
+impl Meta {
+    pub fn new(line: usize, column: usize, filename: String) -> Self {
+        Meta {
+            line,
+            column,
+            filename,
+        }
+    }
+
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
+    pub fn column(&self) -> usize {
+        self.column
+    }
+
+    pub fn filename(&self) -> &str {
+        &self.filename
+    }
 }
 
 pub struct WithMeta {
@@ -27,7 +49,7 @@ static WITH_META_TYPEINFO: TypeInfo = new_typeinfo!(
     Display::fmt,
     None,
     None,
-    None,
+    Some(WithMeta::is_comparable),
     Some(WithMeta::child_traversal),
     Some(WithMeta::check_reply),
     None,
@@ -43,12 +65,20 @@ impl NaviType for WithMeta {
         unsafe {
             let v = crate::value::Any::clone_inner(self.v.as_ref(), allocator)?.into_reachable();
 
-            Self::alloc(&v, allocator)
+            Self::alloc(&v, self.meta.clone(), allocator)
         }
     }
 }
 
 impl WithMeta {
+    pub fn v(&self) -> Ref<Any> {
+        self.v.clone()
+    }
+
+    pub fn meta(&self) -> Meta {
+        self.meta.clone()
+    }
+
     fn child_traversal(&mut self, arg: *mut u8, callback: fn(&mut Ref<Any>, arg: *mut u8)) {
         callback(&mut self.v, arg);
     }
@@ -74,6 +104,7 @@ impl WithMeta {
 
     pub fn alloc<A: Allocator>(
         v: &Reachable<Any>,
+        meta: Meta,
         allocator: &mut A,
     ) -> NResult<WithMeta, OutOfMemory> {
         let ptr = allocator.alloc::<WithMeta>()?;
@@ -83,11 +114,7 @@ impl WithMeta {
                 ptr.as_ptr(),
                 WithMeta {
                     v: v.raw_ptr().into(),
-                    meta: Meta {
-                        line: 0,
-                        column: 0,
-                        filename: "".to_string(),
-                    },
+                    meta,
                 },
             );
         }
@@ -100,42 +127,37 @@ impl WithMeta {
 
         Ok(result)
     }
-}
 
-impl Eq for WithMeta {}
-
-impl PartialEq for WithMeta {
-    fn eq(&self, other: &Self) -> bool {
-        if std::ptr::eq(self as *const WithMeta, other as *const WithMeta) {
-            true
-        } else {
-            // メタ情報が同一であれば同一とみなす
-            self.meta == other.meta
-        }
+    fn is_comparable(_other_typeinfo: &TypeInfo) -> bool {
+        true
     }
 }
 
-fn display(this: &WithMeta, f: &mut fmt::Formatter<'_>, is_debug: bool) -> fmt::Result {
-    if is_debug {
-        write!(
-            f,
-            "#<WithMeta meta: {:?} v: {:?}",
-            this.meta,
-            this.v.as_ref()
-        )
-    } else {
-        write!(f, "#<WithMeta {}> ", this.v.as_ref())
+impl PartialEq for WithMeta {
+    fn eq(&self, other: &Self) -> bool {
+        let other_typeinfo = get_typeinfo(other);
+        // WithMetaの同値チェックはメタ情報を無視して、内部オブジェクトの同値チェックのみ行う
+        if WithMeta::typeinfo() == other_typeinfo {
+            self.v.as_ref() == other.v.as_ref()
+        } else {
+            self.v.as_ref() == Ref::new(other).cast_value().as_ref()
+        }
     }
 }
 
 impl Display for WithMeta {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        display(self, f, false)
+        std::fmt::Display::fmt(self.v.as_ref(), f)
     }
 }
 
 impl Debug for WithMeta {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        display(self, f, true)
+        write!(
+            f,
+            "#<WithMeta meta: {:?} v: {:?}",
+            self.meta,
+            self.v.as_ref()
+        )
     }
 }

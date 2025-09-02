@@ -1,3 +1,4 @@
+use core::num;
 use std::iter::Peekable;
 
 use crate::compile;
@@ -6,6 +7,7 @@ use crate::object::Object;
 use crate::ptr::*;
 use crate::value::any::Any;
 use crate::value::list::ListBuilder;
+use crate::value::with_meta::{Meta, WithMeta};
 use crate::value::*;
 
 pub struct StdinChars {
@@ -64,6 +66,37 @@ impl<I: Iterator<Item = char>> Reader<I> {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ReadContext {
+    line: usize,
+    column: usize,
+    filename: String,
+}
+
+impl ReadContext {
+    fn feed(&mut self, ch: char) {
+        if is_line_feed(ch) {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
+        }
+    }
+
+    fn column_feed(&mut self) {
+        self.column += 1;
+    }
+
+    fn line_feed(&mut self) {
+        self.line += 1;
+        self.column = 1;
+    }
+
+    fn to_meta(&self) -> Meta {
+        Meta::new(self.line, self.column, self.filename.clone())
+    }
+}
+
 #[derive(Debug)]
 pub enum ReadException {
     EOF,
@@ -87,21 +120,27 @@ pub fn read<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
 ) -> NResult<Any, ReadException> {
-    read_internal(reader, obj)
+    let mut context = ReadContext {
+        line: 1,
+        column: 1,
+        filename: "".to_string(),
+    };
+    read_internal(reader, obj, &mut context)
 }
 
 fn read_internal<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
-    skip_whitespace(reader);
+    skip_whitespace(reader, context);
 
     match reader.input.peek() {
         None => Err(ReadException::EOF),
         Some(ch) => match ch {
-            '(' => read_list(reader, obj),
-            '[' => read_array(reader, obj),
-            '{' => read_tuple(reader, obj),
+            '(' => read_list(reader, obj, context),
+            '[' => read_array(reader, obj, context),
+            '{' => read_tuple(reader, obj, context),
 
             ')' => return Err(err::MalformedFormat::new(None, "read error )").into()),
             ']' => return Err(err::MalformedFormat::new(None, "read error ]").into()),
@@ -109,12 +148,12 @@ fn read_internal<I: Iterator<Item = char>>(
                 return Err(err::MalformedFormat::new(None, format!("{}", "read error }")).into())
             }
 
-            '"' => read_string(reader, obj),
-            '\'' => read_quote(reader, obj),
-            '@' => read_bind(reader, obj),
-            '+' | '-' | '0'..='9' => read_number_or_symbol(reader, obj),
-            ':' => read_keyword(reader, obj),
-            _ => read_symbol(reader, obj),
+            '"' => read_string(reader, obj, context),
+            '\'' => read_quote(reader, obj, context),
+            '@' => read_bind(reader, obj, context),
+            '+' | '-' | '0'..='9' => read_number_or_symbol(reader, obj, context),
+            ':' => read_keyword(reader, obj, context),
+            _ => read_symbol(reader, obj, context),
         },
     }
 }
@@ -122,40 +161,58 @@ fn read_internal<I: Iterator<Item = char>>(
 fn read_list<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
-    let list = read_sequence(')', reader, obj)?;
-    Ok(list.into_value())
+    let meta = context.to_meta();
+
+    let list = read_sequence(')', reader, obj, context)?.reach(obj);
+
+    let with_meta = WithMeta::alloc(list.cast_value(), meta, obj)?;
+    Ok(with_meta.into_value())
 }
 
 fn read_array<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
-    let list = read_sequence(']', reader, obj)?;
-    let ary = array::Array::from_list(&list.reach(obj), None, obj)?;
-    Ok(ary.into_value())
+    let meta = context.to_meta();
+
+    let list = read_sequence(']', reader, obj, context)?;
+    let ary = array::Array::from_list(&list.reach(obj), None, obj)?.reach(obj);
+
+    let with_meta = WithMeta::alloc(ary.cast_value(), meta, obj)?;
+    Ok(with_meta.into_value())
 }
 
 fn read_tuple<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
-    let list = read_sequence('}', reader, obj)?;
-    let tuple = tuple::Tuple::from_list(&list.reach(obj), None, obj)?;
-    Ok(tuple.into_value())
+    let meta = context.to_meta();
+
+    let list = read_sequence('}', reader, obj, context)?;
+    let tuple = tuple::Tuple::from_list(&list.reach(obj), None, obj)?.reach(obj);
+
+    let with_meta = WithMeta::alloc(tuple.cast_value(), meta, obj)?;
+
+    Ok(with_meta.into_value())
 }
 
 fn read_sequence<I: Iterator<Item = char>>(
     end_char: char,
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<list::List, ReadException> {
     //skip first char
     reader.input.next();
+    context.column_feed();
 
     let mut builder = ListBuilder::new(obj);
     loop {
-        skip_whitespace(reader);
+        skip_whitespace(reader, context);
         match reader.input.peek() {
             None => {
                 return Err(
@@ -163,13 +220,14 @@ fn read_sequence<I: Iterator<Item = char>>(
                 )
             }
             Some(ch) if *ch == end_char => {
+                context.feed(*ch);
                 reader.input.next();
                 // complete!
                 return Ok(builder.get());
             }
             Some(_) => {
                 //再帰的にreadを呼び出す
-                let v = read_internal(reader, obj)?;
+                let v = read_internal(reader, obj, context)?;
                 builder.push(&v.reach(obj), obj)?;
             }
         }
@@ -179,9 +237,13 @@ fn read_sequence<I: Iterator<Item = char>>(
 fn read_string<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
+    let meta = context.to_meta();
+
     //skip first char
     reader.input.next();
+    context.column_feed();
 
     //終了文字'"'までのすべての文字を読み込み文字列をぶじぇくとを作成する
     let mut acc: Vec<char> = Vec::new();
@@ -193,12 +255,18 @@ fn read_string<I: Iterator<Item = char>>(
                 )
             }
             Some('\"') => {
-                let str: String = acc.into_iter().collect();
-                let str = string::NString::alloc(&str, obj)?;
+                context.column_feed();
 
-                return Ok(str.into_value());
+                let str: String = acc.into_iter().collect();
+                let str = string::NString::alloc(&str, obj)?.reach(obj);
+
+                let with_meta = WithMeta::alloc(str.cast_value(), meta, obj)?;
+
+                return Ok(with_meta.into_value());
             }
             Some(ch) => {
+                context.feed(ch);
+
                 acc.push(ch);
             }
         }
@@ -217,91 +285,120 @@ fn read_char<I: Iterator<Item = char>>(
 fn read_quote<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
-    read_with_modifier(compile::literal::quote().cast_value(), reader, obj)
+    read_with_modifier(compile::literal::quote().cast_value(), reader, obj, context)
 }
 
 fn read_bind<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
-    read_with_modifier(compile::literal::bind().cast_value(), reader, obj)
+    read_with_modifier(compile::literal::bind().cast_value(), reader, obj, context)
 }
 
 fn read_with_modifier<I: Iterator<Item = char>>(
     modifier: &Reachable<Any>,
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
+    let meta = context.to_meta();
+
     //skip first char
     reader.input.next();
+    context.column_feed();
 
     //再帰的に式を一つ読み込んでquoteで囲む
-    let sexp = read_internal(reader, obj)?;
+    let sexp = read_internal(reader, obj, context)?;
     let sexp = sexp.reach(obj);
 
     let mut builder = ListBuilder::new(obj);
     builder.push(modifier, obj)?;
     builder.push(&sexp, obj)?;
-    Ok(builder.get().into_value())
+
+    let list = builder.get().reach(obj);
+    let with_meta = WithMeta::alloc(list.cast_value(), meta, obj)?;
+
+    Ok(with_meta.into_value())
 }
 
 fn read_number_or_symbol<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
-    let str = read_word(reader, obj)?;
-    match str.parse::<i64>() {
+    let meta = context.to_meta();
+
+    let str = read_word(reader, obj, context)?;
+
+    let v = match str.parse::<i64>() {
         Ok(num) => {
             //integer
-            let num = number::make_integer(num, obj)?;
-            Ok(num.into_value())
+            number::make_integer(num, obj)?.into_value()
         }
         Err(_) => match str.parse::<f64>() {
             Ok(num) => {
                 //floating number
-                let num = number::Real::alloc(num, obj)?;
-                Ok(num.into_value())
+                number::Real::alloc(num, obj)?.into_value()
             }
             Err(_) => {
                 //symbol
-                let symbol = symbol::Symbol::alloc(&str, obj)?;
-                Ok(symbol.into_value())
+                symbol::Symbol::alloc(&str, obj)?.into_value()
             }
         },
-    }
+    };
+
+    let with_meta = WithMeta::alloc(&v.reach(obj), meta, obj)?;
+    Ok(with_meta.into_value())
 }
 
 fn read_keyword<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
+    let meta = context.to_meta();
+
     //skip first char
     reader.input.next();
+    context.column_feed();
 
-    let str = read_word(reader, obj)?;
-    let keyword = keyword::Keyword::alloc(&str, obj)?;
-    Ok(keyword.into_value())
+    let str = read_word(reader, obj, context)?;
+    let keyword = keyword::Keyword::alloc(&str, obj)?.reach(obj);
+
+    let with_meta = WithMeta::alloc(keyword.cast_value(), meta, obj)?;
+
+    Ok(with_meta.into_value())
 }
 
 fn read_symbol<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     obj: &mut Object,
+    context: &mut ReadContext,
 ) -> NResult<Any, ReadException> {
-    let str = read_word(reader, obj)?;
-    match str.as_str() {
-        "true" => Ok(bool::Bool::true_().into_ref().into_value()),
-        "false" => Ok(bool::Bool::false_().into_ref().into_value()),
+    let meta = context.to_meta();
+
+    let str = read_word(reader, obj, context)?;
+
+    let v = match str.as_str() {
+        "true" => bool::Bool::true_().into_value(),
+        "false" => bool::Bool::false_().into_value(),
         _ => {
-            let symbol = symbol::Symbol::alloc(&str, obj)?;
-            Ok(symbol.into_value())
+            let symbol = symbol::Symbol::alloc(&str, obj)?.reach(obj);
+            symbol.into_value()
         }
-    }
+    };
+
+    let with_meta = WithMeta::alloc(&v, meta, obj)?;
+    Ok(with_meta.into_value())
 }
 
 fn read_word<I: Iterator<Item = char>>(
     reader: &mut Reader<I>,
     _ctx: &mut Object,
+    context: &mut ReadContext,
 ) -> Result<String, ReadException> {
     let mut acc: Vec<char> = Vec::new();
     loop {
@@ -320,10 +417,17 @@ fn read_word<I: Iterator<Item = char>>(
             }
             Some(ch) => {
                 acc.push(*ch);
+
+                context.feed(*ch);
                 reader.input.next();
             }
         }
     }
+}
+
+#[inline(always)]
+const fn is_line_feed(ch: char) -> bool {
+    ch == '\n'
 }
 
 #[inline(always)]
@@ -345,11 +449,14 @@ const fn is_whitespace(ch: char) -> bool {
     }
 }
 
-fn read_line_comment<I: Iterator<Item = char>>(reader: &mut Reader<I>) {
+fn read_line_comment<I: Iterator<Item = char>>(reader: &mut Reader<I>, context: &mut ReadContext) {
     loop {
         if let Some(ch) = reader.input.next() {
-            if ch == '\n' {
+            if is_line_feed(ch) {
+                context.line_feed();
                 break;
+            } else {
+                context.column_feed();
             }
         } else {
             break;
@@ -357,15 +464,17 @@ fn read_line_comment<I: Iterator<Item = char>>(reader: &mut Reader<I>) {
     }
 }
 
-fn skip_whitespace<I: Iterator<Item = char>>(reader: &mut Reader<I>) {
+fn skip_whitespace<I: Iterator<Item = char>>(reader: &mut Reader<I>, context: &mut ReadContext) {
     let mut next = reader.input.peek();
     while let Some(ch) = next {
         if is_whitespace(*ch) {
+            context.feed(*ch);
+
             //Skip!!
             reader.input.next();
             next = reader.input.peek();
         } else if *ch == ';' {
-            read_line_comment(reader);
+            read_line_comment(reader, context);
 
             next = reader.input.peek();
         } else {
@@ -388,7 +497,10 @@ mod tests {
     use core::num;
     use std::str::Chars;
 
-    use crate::{read::*, value::array::ArrayBuilder};
+    use crate::{
+        read::*,
+        value::{array::ArrayBuilder, list::List},
+    };
 
     fn make_reader<'a>(s: &'a str) -> Reader<Chars<'a>> {
         Reader::new(s.chars().peekable())
@@ -421,9 +533,14 @@ mod tests {
         assert!(result.is_ok());
 
         let result = result.unwrap();
-        let result = result.as_ref().try_cast::<T>();
-        assert!(result.is_some());
-        Ref::new(result.unwrap())
+        if let Some(result) = result.as_ref().try_cast::<T>() {
+            Ref::new(result)
+        } else {
+            let result = result.as_ref().try_cast::<WithMeta>().unwrap();
+            let result = result.v().as_ref().try_cast::<T>();
+            assert!(result.is_some());
+            Ref::new(result.unwrap())
+        }
     }
 
     #[test]
@@ -742,6 +859,7 @@ mod tests {
             let result = read::<Any>(program, obj);
             let ans = list::List::nil().into_value();
             assert_eq!(result.as_ref(), ans.as_ref());
+            assert_eq!(ans.as_ref(), result.as_ref());
         }
 
         {
@@ -938,6 +1056,88 @@ mod tests {
             let ans = builder.get().reach(ans_obj);
 
             assert_eq!(result.as_ref(), ans.cast_value().as_ref());
+        }
+    }
+
+    #[test]
+    fn read_with_meta() {
+        let mut obj = Object::new_for_test();
+        let obj = &mut obj;
+
+        {
+            let program = "'symbol";
+            let result = read::<WithMeta>(program, obj);
+
+            let meta = result.as_ref().meta();
+            assert_eq!(meta.line(), 1);
+            assert_eq!(meta.column(), 1);
+        }
+
+        {
+            let program = "    {1 2 3}";
+            let result = read::<WithMeta>(program, obj);
+
+            let meta = result.as_ref().meta();
+            assert_eq!(meta.line(), 1);
+            assert_eq!(meta.column(), 5);
+        }
+
+        {
+            let program = r#"
+            [1 2 3]
+            "#;
+            let result = read::<WithMeta>(&program, obj);
+
+            let meta = result.as_ref().meta();
+            assert_eq!(meta.line(), 2);
+            assert_eq!(meta.column(), 13);
+        }
+
+        {
+            let program = r#"(+ it "test" 3
+            4
+
+            :keyword symbol
+            )"#;
+            let result = read::<WithMeta>(&program, obj);
+
+            let v_cap = result.as_ref().v().capture(obj);
+            let list = v_cap.try_cast::<List>().unwrap();
+
+            let v = list.as_ref().head();
+            let with_meta = v.try_cast::<WithMeta>().unwrap();
+            assert_eq!(with_meta.as_ref().meta().line(), 1);
+            assert_eq!(with_meta.as_ref().meta().column(), 2);
+
+            let v = list.as_ref().get(1);
+            let with_meta = v.try_cast::<WithMeta>().unwrap();
+            assert_eq!(with_meta.as_ref().meta().line(), 1);
+            assert_eq!(with_meta.as_ref().meta().column(), 4);
+
+            let v = list.as_ref().get(2);
+            let with_meta = v.try_cast::<WithMeta>().unwrap();
+            assert_eq!(with_meta.as_ref().meta().line(), 1);
+            assert_eq!(with_meta.as_ref().meta().column(), 7);
+
+            let v = list.as_ref().get(3);
+            let with_meta = v.try_cast::<WithMeta>().unwrap();
+            assert_eq!(with_meta.as_ref().meta().line(), 1);
+            assert_eq!(with_meta.as_ref().meta().column(), 14);
+
+            let v = list.as_ref().get(4);
+            let with_meta = v.try_cast::<WithMeta>().unwrap();
+            assert_eq!(with_meta.as_ref().meta().line(), 2);
+            assert_eq!(with_meta.as_ref().meta().column(), 13);
+
+            let v = list.as_ref().get(5);
+            let with_meta = v.try_cast::<WithMeta>().unwrap();
+            assert_eq!(with_meta.as_ref().meta().line(), 4);
+            assert_eq!(with_meta.as_ref().meta().column(), 13);
+
+            let v = list.as_ref().get(6);
+            let with_meta = v.try_cast::<WithMeta>().unwrap();
+            assert_eq!(with_meta.as_ref().meta().line(), 4);
+            assert_eq!(with_meta.as_ref().meta().column(), 22);
         }
     }
 }

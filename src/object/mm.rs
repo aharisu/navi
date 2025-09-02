@@ -227,7 +227,7 @@ impl Heap {
         root: &mut R,
     ) -> Result<UIPtr<T>, OutOfMemory> {
         //GCのバグを発見しやすいように、allocのたびにGCを実行する
-        //self.debug_gc(root);
+        self.debug_gc(root);
 
         let gc_header_size = mem::size_of::<GCHeader>();
         let obj_size = std::mem::size_of::<T>();
